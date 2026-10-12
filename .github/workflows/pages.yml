@@ -25,7 +25,6 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     env:
       HAS_PGE: ${{ secrets.PGE_USERNAME != '' }}
-      HAS_HEALTH: ${{ secrets.HEALTH_TOKEN_PHU != '' || secrets.HEALTH_TOKEN_NHI != '' }}
     steps:
       - uses: actions/checkout@v4
       - id: pages
@@ -33,13 +32,18 @@ jobs:
       - name: Collect site files
         run: |
           mkdir -p _site/data
-          cp -r index.html styles.css app.js icons.js sync.js sync-config.js sw.js manifest.webmanifest icons avatars _site/
+          cp -r index.html styles.css app.js icons.js sync.js sync-config.js health.js health-config.js sw.js manifest.webmanifest icons avatars _site/
       - name: Add household sync config
         env:
           FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
         run: python3 sync/make_sync_config.py _site/sync-config.js
+      - name: Add Fitbit sign-in config
+        env:
+          GOOGLE_HEALTH_CLIENT_ID: ${{ secrets.GOOGLE_HEALTH_CLIENT_ID }}
+        run: |
+          python3 -c "import json, os; print('export default ' + json.dumps(os.environ.get('GOOGLE_HEALTH_CLIENT_ID', '').strip() or None) + ';')" > _site/health-config.js
       - uses: actions/setup-python@v5
-        if: env.HAS_PGE == 'true' || env.HAS_HEALTH == 'true'
+        if: env.HAS_PGE == 'true'
         with:
           python-version: '3.12'
       # Skipped until the PG&E secrets are added. A failed sync keeps the last
@@ -58,22 +62,6 @@ jobs:
         run: |
           pip install --quiet -r requirements.txt
           python pge_sync.py
-      # Skipped until someone links a Fitbit with sync/health_pair.py.
-      - name: Sync Fitbit health data
-        if: env.HAS_HEALTH == 'true'
-        continue-on-error: true
-        working-directory: sync
-        env:
-          GOOGLE_HEALTH_CLIENT_ID: ${{ secrets.GOOGLE_HEALTH_CLIENT_ID }}
-          GOOGLE_HEALTH_CLIENT_SECRET: ${{ secrets.GOOGLE_HEALTH_CLIENT_SECRET }}
-          HEALTH_TOKEN_PHU: ${{ secrets.HEALTH_TOKEN_PHU }}
-          HEALTH_TOKEN_NHI: ${{ secrets.HEALTH_TOKEN_NHI }}
-          ENERGY_PASSPHRASE: ${{ secrets.ENERGY_PASSPHRASE }}
-          PREV_URL: ${{ steps.pages.outputs.base_url }}/data/health.enc.json
-          OUT: ../_site/data/health.enc.json
-        run: |
-          pip install --quiet cryptography==50.0.2
-          python health_sync.py
       - uses: actions/upload-pages-artifact@v3
       - id: deployment
         uses: actions/deploy-pages@v4

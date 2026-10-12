@@ -1,5 +1,6 @@
 import { icon, hydrateIcons } from './icons.js';
 import { createSync, syncAvailable } from './sync.js';
+import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -45,6 +46,7 @@ function defaultState() {
     ],
     stars: { phu: 0, nhi: 0 },
     expenses: [],
+    health: {},
   };
 }
 
@@ -318,7 +320,6 @@ async function decryptEnergy(box, pass) {
 }
 
 async function syncEnergy() {
-  syncHealth(); // the health file uses the same passphrase
   if (!energyPass) { energySync = { state: 'off' }; return; }
   let box;
   try {
@@ -502,71 +503,75 @@ function energyCard() {
 }
 
 /* =========================================================
-   Health (Fitbit, through the Google Health API)
+   Health (Fitbit, read in the browser through the Google Health API, see health.js)
    ========================================================= */
-// The Pages workflow publishes data/health.enc.json every morning (see sync/health_sync.py),
-// locked with the same passphrase as the energy file.
-// Shape: { syncedAt, people: { phu: { status, syncedAt, days: { 'YYYY-MM-DD': { steps, km, azm, rhr, kg, sleep: [asleep, deep, light, rem, awake] } } } } }
-const HEALTH_KEY = 'home-dashboard.health.v1';
-let health = null;
-try { health = JSON.parse(localStorage.getItem(HEALTH_KEY)); } catch { health = null; }
-let healthSync = { state: 'off' };
+// state.health: { phu: { at, days: { 'YYYY-MM-DD': { steps, km, azm, rhr, kg, sleep: [asleep, deep, light, rem, awake] } } } }
+// It is shared with the household like events and tasks. Google's sign-in pass stays in this tab only.
+const HEALTH_PASS_KEY = 'home-dashboard.health-pass.v1';
+let healthPasses = {};
+try { healthPasses = JSON.parse(sessionStorage.getItem(HEALTH_PASS_KEY)) || {}; } catch { healthPasses = {}; }
+const savePasses = () => { try { sessionStorage.setItem(HEALTH_PASS_KEY, JSON.stringify(healthPasses)); } catch { /* ignore */ } };
+const healthBusy = {}; // who -> true while reading
+const healthNote = {}; // who -> last problem, shown under their status
 
-async function syncHealth() {
-  if (!energyPass) { healthSync = { state: 'off' }; return; }
-  let box;
+const passFor = (who) => (healthPasses[who]?.exp > Date.now() ? healthPasses[who].token : null);
+
+// Reads the last 30 days for one person and keeps them. `token` comes from Google's sign-in.
+async function pullHealth(who, token) {
+  healthBusy[who] = true; delete healthNote[who]; refreshHealthViews();
   try {
-    const res = await fetch('data/health.enc.json', { cache: 'no-store' });
-    if (res.status === 404) { healthSync = { state: 'nofile' }; refreshHealthViews(); return; }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    box = await res.json();
-  } catch {
-    healthSync = { state: 'unreachable' };
+    const { days, skipped } = await readDays(token);
+    const mine = state.health[who]?.days || {};
+    const cutoff = isoDay(addDays(new Date(), -120));
+    const merged = Object.fromEntries(Object.entries({ ...mine, ...Object.fromEntries(Object.entries(days).map(([d, v]) => [d, { ...mine[d], ...v }])) })
+      .filter(([d]) => d >= cutoff).sort(([a], [b]) => a.localeCompare(b)));
+    state.health[who] = { at: Date.now(), days: merged };
+    if (skipped.length) healthNote[who] = `Couldn't read ${skipped.join(', ')}. Reconnect and allow every box on Google's screen to include it.`;
+    save();
+  } catch (e) {
+    if (e instanceof SignInExpired) { delete healthPasses[who]; savePasses(); healthNote[who] = 'The Google sign-in ended. Tap Update to sign in again.'; }
+    else healthNote[who] = `Couldn't read Fitbit data: ${e.message}`;
+  } finally {
+    healthBusy[who] = false;
     refreshHealthViews();
-    return;
   }
-  try {
-    const data = await decryptEnergy(box, energyPass);
-    health = health || { people: {} };
-    for (const [who, p] of Object.entries(data.people || {})) {
-      const mine = health.people[who] || { days: {} };
-      health.people[who] = { ...mine, ...p, days: { ...mine.days, ...p.days } };
-    }
-    health.syncedAt = data.syncedAt;
-    try { localStorage.setItem(HEALTH_KEY, JSON.stringify(health)); } catch { /* ignore */ }
-    healthSync = { state: 'ok', at: data.syncedAt };
-  } catch {
-    healthSync = { state: 'badpass' };
+}
+// Opens Google's sign-in for one person (must run straight from a tap), then reads their data.
+function connectHealth(who, again) {
+  signIn({ again })
+    .then((pass) => { healthPasses[who] = pass; savePasses(); return pullHealth(who, pass.token); })
+    .catch((e) => { healthNote[who] = e.message; refreshHealthViews(); });
+}
+// While someone's sign-in pass is still good in this tab, keep their numbers fresh without asking.
+function refreshHealthQuietly() {
+  for (const u of USERS) {
+    const t = passFor(u.id);
+    // Only people still connected: data removed on another screen stays removed.
+    if (t && state.health[u.id] && !healthBusy[u.id] && Date.now() - state.health[u.id].at > 20 * 6e4) pullHealth(u.id, t);
   }
-  refreshHealthViews();
 }
 function refreshHealthViews() {
-  if (['health', 'settings'].includes(currentRoute()) && $('#sheet').hidden && !document.activeElement?.matches('input, textarea')) renderView();
+  if (['health', 'settings', 'home'].includes(currentRoute()) && $('#sheet').hidden && !document.activeElement?.matches('input, textarea')) renderView();
 }
 
-const healthPeople = () => USERS.filter((u) => health?.people?.[u.id]);
-const healthDays = (who) => health?.people?.[who]?.days || {};
+const healthPeople = () => USERS.filter((u) => state.health[u.id]);
+const healthDays = (who) => state.health[who]?.days || {};
 const fmtMins = (m) => (m < 60 ? `${Math.round(m)}m` : `${Math.floor(m / 60)}h ${String(Math.round(m % 60)).padStart(2, '0')}m`);
 const avgOf = (list) => (list.length ? list.reduce((a, b) => a + b, 0) / list.length : 0);
 
-// One line on whether this person's Fitbit data is coming in, and what to do if it isn't.
-function healthMessage(who) {
-  const p = health?.people?.[who];
-  const name = userOf(who)?.name || who;
-  const fix = `run <code>python3 sync/health_pair.py</code> on your computer and update the <code>HEALTH_TOKEN_${who.toUpperCase()}</code> secret`;
-  if (healthSync.state === 'badpass') return { ok: false, text: "Not syncing. The passphrase on this device doesn't unlock the health data. Re-enter it in Settings." };
-  if (healthSync.state === 'off' && !p) return { ok: false, text: 'Not syncing. Type the sync passphrase in Settings to see Fitbit data.' };
-  if (healthSync.state === 'nofile' && !p) return { ok: false, text: "No Fitbit data yet. Link a Fitbit in Settings, then the morning sync brings it in." };
-  if (!p) return { ok: false, text: `${name} hasn't linked a Fitbit yet.` };
-  if (p.status === 'signin') return { ok: false, text: `${name}'s Google sign-in expired, so Fitbit data stopped syncing. To fix it, ${fix}.` };
-  if (p.status === 'error') return { ok: false, text: `The last sync couldn't read ${name}'s Fitbit data. It will try again tomorrow morning.` };
-  if (p.syncedAt && Date.now() - p.syncedAt > 36 * 36e5) return { ok: false, text: `Not syncing. ${name}'s last Fitbit update was ${ago(p.syncedAt)}.` };
-  return { ok: true, text: `Syncing ${name}'s Fitbit every morning. Last update ${p.syncedAt ? ago(p.syncedAt) : 'not yet'}.` };
-}
-function healthBanner(who, always = false) {
-  const m = healthMessage(who);
-  if (m.ok) return always ? `<p class="sync-line">${icon('check')}${m.text}</p>` : '';
-  return `<div class="sync-banner">${icon('heart')}<span>${m.text}</span></div>`;
+// One person's connect / update row: status line and the button that goes with it.
+function healthRow(who) {
+  const u = userOf(who);
+  const p = state.health[who];
+  if (healthBusy[who]) return `<div class="health-row"><p class="sync-line">${icon('heart')}Reading ${u.name}'s Fitbit…</p></div>`;
+  const note = healthNote[who] ? `<div class="sync-banner">${icon('heart')}<span>${esc(healthNote[who])}</span></div>` : '';
+  if (!p) {
+    return `<div class="health-row">${note}<div class="health-line">${avatar(who)}<span>${u.name} hasn't connected a Fitbit.</span>
+      <button class="btn" data-action="health-connect" data-v="${who}">Connect</button></div></div>`;
+  }
+  const stale = Date.now() - p.at > 24 * 36e5;
+  return `<div class="health-row">${note}<div class="health-line">${avatar(who)}<span>${u.name}'s Fitbit · updated ${ago(p.at)}${stale ? '. Tap Update for the latest' : ''}</span>
+    <button class="btn${stale ? '' : ' ghost'}" data-action="health-update" data-v="${who}">Update</button></div></div>`;
 }
 
 // Bars for the last `n` days. `parts` stacks several values per day: [[value(day), class], ...].
@@ -1290,17 +1295,21 @@ views.energy = () => {
 };
 
 views.health = () => {
+  preloadGoogle().catch(() => {});
+  refreshHealthQuietly();
   const people = healthPeople();
-  const who = people.some((u) => u.id === state.settings.healthWho) ? state.settings.healthWho : (people[0]?.id || 'phu');
-  const pick = people.length > 1
-    ? `<div class="seg">${people.map((u) => `<button class="${who === u.id ? 'on' : ''}" data-action="health-who" data-v="${u.id}">${u.name}</button>`).join('')}</div>` : '';
+  const who = USERS.some((u) => u.id === state.settings.healthWho) ? state.settings.healthWho : (people[0]?.id || USERS[0].id);
+  const pick = `<div class="seg">${USERS.map((u) => `<button class="${who === u.id ? 'on' : ''}" data-action="health-who" data-v="${u.id}">${u.name}</button>`).join('')}</div>`;
   const days = healthDays(who);
   const keys = Object.keys(days).sort();
+  if (!healthAvailable()) {
+    return `<div class="section-title">Health</div>
+    <div class="card energy-empty"><div class="sync-banner">${icon('heart')}<span>Fitbit sign-in isn't set up for this site yet. See Settings for the one-time setup.</span></div></div>`;
+  }
   if (!keys.length) {
     return `<div class="section-title">Health<span class="spacer"></span>${pick}</div>
-    <div class="card energy-empty">${healthBanner(who)}
-      <p class="hint">Once Fitbit data comes in, this page shows steps, sleep, resting heart rate and weight for the last two weeks.</p>
-      <a class="btn ghost" href="#/settings">${icon('settings')} Set up in Settings</a></div>`;
+    <div class="card energy-empty">${healthRow(who)}
+      <p class="hint">Sign in with the Google account ${userOf(who).name}'s Fitbit uses. Steps, sleep, resting heart rate and weight for the last 30 days then show here, and on the household's other screens when sync is on.</p></div>`;
   }
   const metric = state.settings.unit === 'C';
   const today = isoDay(new Date());
@@ -1315,18 +1324,18 @@ views.health = () => {
   const [kg, kgDay] = latest((d) => d.kg);
   const weight = (v) => (metric ? `${v.toFixed(1)} kg` : `${(v * 2.20462).toFixed(1)} lb`);
   const dist = days[today]?.km ? (metric ? `${days[today].km.toFixed(1)} km` : `${(days[today].km * 0.621371).toFixed(1)} mi`) : '';
-  const azm = lastWeek((d) => d.azm).reduce((a, b) => a + b, 0);
+  const azm = keys.filter((k) => k > isoDay(addDays(new Date(), -7))).reduce((a, k) => a + (days[k].azm || 0), 0);
 
   const tiles = [
     `<div class="card tile"><small>${icon('activity')}Steps today</small><b>${steps.toLocaleString()}</b><span>${dist ? `${dist} · ` : ''}${Math.round(avgOf(lastWeek((d) => d.steps))).toLocaleString()} a day this week</span></div>`,
     `<div class="card tile"><small>${icon('moon')}Sleep</small><b>${sleep ? fmtMins(sleep[0]) : '–'}</b><span>${sleep ? `${when(sleepDay) === 'today' ? 'Last night' : `Night before ${when(sleepDay)}`} · deep ${fmtMins(sleep[1])}, REM ${fmtMins(sleep[3])}` : 'No sleep logged yet'}</span></div>`,
-    `<div class="card tile"><small>${icon('heart')}Resting heart rate</small><b>${rhr ? `${rhr} bpm` : '–'}</b><span>${rhr ? `${when(rhrDay)} · ${Math.round(avgOf(lastWeek((d) => d.rhr)))} bpm average this week` : 'Not measured yet'}</span></div>`,
+    `<div class="card tile"><small>${icon('heart')}Resting heart rate</small><b>${rhr ? `${rhr} bpm` : '–'}</b><span>${rhr ? `${when(rhrDay)}${lastWeek((d) => d.rhr).length ? ` · ${Math.round(avgOf(lastWeek((d) => d.rhr)))} bpm average this week` : ''}` : 'Not measured yet'}</span></div>`,
     kg ? `<div class="card tile"><small>Weight</small><b>${weight(kg)}</b><span>Last logged ${when(kgDay)}</span></div>`
       : `<div class="card tile"><small>${icon('zap')}Active zone minutes</small><b>${azm}</b><span>Last 7 days</span></div>`,
   ];
   const recent = keys.filter((k) => k > isoDay(addDays(new Date(), -7))).reverse();
   return `<div class="section-title">Health<span class="spacer"></span>${pick}</div>
-  ${healthBanner(who)}
+  <div class="card health-status">${healthRow(who)}</div>
   <div class="energy-tiles">${tiles.join('')}</div>
   <div class="page-grid health-charts">
     <div class="card">${healthChart(who, 14, 'Steps, last 14 days', [[(d) => d.steps, 'bar-steps']], (v) => Math.round(v).toLocaleString())}</div>
@@ -1342,20 +1351,21 @@ views.health = () => {
 };
 
 function healthCard() {
-  const linked = healthPeople();
-  return `<div class="card">
-    <div class="card-head">${icon('heart')}<h2>Fitbit health</h2></div>
-    ${linked.length ? linked.map((u) => healthBanner(u.id, true)).join('') : healthBanner('phu', true)}
-    <p class="hint">Unlocked with the same sync passphrase as PG&amp;E energy below.</p>
-    <details class="setup"${linked.length ? '' : ' open'}><summary>How to link a Fitbit (one time per person)</summary>
-      <p class="hint">A GitHub job reads Fitbit data from Google every morning and saves it locked with your passphrase. This device never signs in to Google.</p>
-      <ol class="hint">
-        <li>In Google Cloud, turn on the <b>Google Health API</b>, add yourselves as test users, and create a <b>Desktop app</b> OAuth client.</li>
-        <li>Save its ID and secret as the GitHub secrets <code>GOOGLE_HEALTH_CLIENT_ID</code> and <code>GOOGLE_HEALTH_CLIENT_SECRET</code>.</li>
-        <li>On your computer run <code>python3 sync/health_pair.py</code>, sign in with the Google account your Fitbit uses, and save the line it prints as <code>HEALTH_TOKEN_PHU</code> or <code>HEALTH_TOKEN_NHI</code>.</li>
-        <li>Run <b>Deploy to GitHub Pages</b> in the Actions tab. It then runs every morning by itself.</li>
-      </ol>
-      <p class="hint">While the Google app is in Testing, Google ends the sign-in after 7 days. The dashboard says so when that happens; run the script again to renew it.</p></details>
+  preloadGoogle().catch(() => {});
+  const head = `<div class="card-head">${icon('heart')}<h2>Fitbit health</h2></div>`;
+  if (!healthAvailable()) {
+    return `<div class="card">${head}
+      <div class="sync-banner">${icon('heart')}<span>Not set up yet. Fitbit sign-in needs a one-time setup for this site.</span></div>
+      <details class="setup" open><summary>One-time setup</summary><ol class="hint">
+        <li>In Google Cloud, turn on the <b>Google Health API</b> and add each person's Google account as a test user.</li>
+        <li>Create a <b>Web application</b> OAuth client with <code>${esc(location.origin)}</code> as an authorized JavaScript origin.</li>
+        <li>Save its client ID as the GitHub secret <code>GOOGLE_HEALTH_CLIENT_ID</code> and run <b>Deploy to GitHub Pages</b>.</li>
+      </ol></details></div>`;
+  }
+  return `<div class="card">${head}
+    ${USERS.map((u) => healthRow(u.id)).join('')}
+    <p class="hint">Each person signs in with the Google account their Fitbit uses. Google's pass lasts about an hour and stays on this screen only; the daily numbers are shared with the household when sync is on.</p>
+    ${healthPeople().length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${healthPeople().map((u) => `<button class="btn ghost" data-action="health-disconnect" data-v="${u.id}">${icon('trash')} Remove ${u.name}'s data</button>`).join('')}</div>` : ''}
   </div>`;
 }
 
@@ -1669,6 +1679,18 @@ const actions = {
     energySync = { state: 'off' };
   },
   'health-who': (el) => { state.settings.healthWho = el.dataset.v; },
+  'health-connect': (el) => connectHealth(el.dataset.v, false),
+  'health-update': (el) => {
+    const t = passFor(el.dataset.v);
+    if (t) pullHealth(el.dataset.v, t); else connectHealth(el.dataset.v, true);
+  },
+  'health-disconnect': (el) => {
+    const who = el.dataset.v;
+    if (healthPasses[who]) signOut(healthPasses[who].token);
+    delete healthPasses[who]; savePasses();
+    delete state.health[who]; delete healthNote[who];
+    toast(`${userOf(who).name}'s health data removed`);
+  },
   'clear-energy': () => { energy = null; try { localStorage.removeItem(ENERGY_KEY); } catch { /* ignore */ } toast('Energy data removed'); },
   'add-expense': () => openExpenseSheet(null),
   'edit-expense': (el) => openExpenseSheet(state.expenses.find((x) => x.id === el.dataset.id)),
@@ -1698,7 +1720,7 @@ const actions = {
 
   reset: () => {
     if (!confirm('Clear all events and tasks on this device?')) return;
-    state = { ...defaultState(), settings: state.settings, expenses: state.expenses, events: [], tasks: [] };
+    state = { ...defaultState(), settings: state.settings, expenses: state.expenses, health: state.health, events: [], tasks: [] };
     save();
   },
 };
@@ -1812,6 +1834,7 @@ setInterval(() => {
 }, 1000);
 setInterval(fetchWeather, 15 * 60 * 1000);
 setInterval(syncEnergy, 60 * 60 * 1000);
+setInterval(refreshHealthQuietly, 30 * 60 * 1000);
 window.addEventListener('online', () => { fetchWeather(); syncEnergy(); });
 
 if ('serviceWorker' in navigator) {

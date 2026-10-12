@@ -609,3 +609,11 @@ label.btn { cursor: pointer; }
 .health-charts { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-bottom: 16px; }
 .tile small .ico { font-size: 15px; margin-right: 6px; }
 .card .sync-line + .sync-line { margin-top: -8px; }
+.health-row + .health-row { margin-top: 12px; }
+.health-row .sync-banner { margin: 0 0 10px; }
+.health-row .sync-line { margin: 0; }
+.health-line { display: flex; align-items: center; gap: 12px; }
+.health-line > span { flex: 1; min-width: 0; font-size: 14px; color: var(--text-2); }
+.health-line .btn { flex: none; }
+.health-status { margin-bottom: 16px; padding-block: 14px; }
+.energy-empty .health-row { margin-bottom: 14px; }
