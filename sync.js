@@ -1,4 +1,4 @@
-// Shared household sync: events, tasks, stars, expenses and Fitbit numbers stay the same on every device.
+// Shared household sync: events, tasks, stars (and who earned them when), expenses and Fitbit numbers stay the same on every device.
 //
 // Everything is encrypted in the browser with the household passphrase before it leaves
 // the device, so the database (Firebase Firestore) only ever holds scrambled data. The
@@ -38,7 +38,7 @@ async function open(key, box) {
 }
 
 /* ---------- State <-> items ---------- */
-const LISTS = { e: 'events', t: 'tasks', x: 'expenses' };
+const LISTS = { e: 'events', t: 'tasks', x: 'expenses', l: 'log' };
 const strip = ({ u, ...rest }) => rest;
 const same = (a, b) => JSON.stringify(strip(a)) === JSON.stringify(strip(b));
 

@@ -18,7 +18,9 @@ A greeting for Phu and Nhi by time of day, live weather (now, the next hours and
 | ![Home by day](docs/screenshots/home.png) | ![Home at night](docs/screenshots/home-night.png) |
 
 ### Calendar
-Week view (a time grid) and Month view, switched with a toggle. Each event shows who it's for, its start time and its title. The + button adds an event, tapping an event edits or deletes it, and tapping an empty slot in Week view adds one at that hour. Turn on **Important** in an event's sheet to give it a red Important tag everywhere it shows up.
+Week view (a time grid) and Month view, switched with a toggle. Each event shows who it's for, its start time and its title. The + button adds an event, tapping an event edits or deletes it, and tapping an empty slot in Week view adds one at that hour. Turn on **Important** in an event's sheet to give it a red Important tag everywhere it shows up. Today's tasks show in today's column with a tick box, and the day pop-up lists them by person.
+
+Events earn stars like tasks (5 unless you pick another amount in the event's sheet). Tick an event off on Home or with **Mark done** in its sheet once it has happened. An event for both of you, or for anyone, gives each of you the stars.
 
 | Week | Month |
 | --- | --- |
@@ -45,6 +47,11 @@ PG&E use and cost for the current bill, from the day the billing cycle started t
 Fitbit data for each of you: steps today, last night's sleep with deep and REM time, resting heart rate and weight, with 14-day charts and a table of the week. Switch between Phu and Nhi at the top. Each person connects their own Fitbit with Google sign-in (see [Fitbit health sync](#fitbit-health-sync)), and their numbers then show on every screen in the household.
 
 ![Health page](docs/screenshots/health.png)
+
+### Leaderboard
+Who's earned the most stars this week, this month or all time, with each person's tasks and events done and their streak of days in a row. A chart shows stars by day (or by week for all time), and Recent lists what was ticked off. Unticking something takes its stars back off the board.
+
+![Leaderboard](docs/screenshots/leaderboard.png)
 
 ### Settings
 Sync across devices, weather city, °F/°C, light/dark/auto theme, 24-hour clock, keep screen on, and the PG&E sync passphrase with one-time sign-in steps.

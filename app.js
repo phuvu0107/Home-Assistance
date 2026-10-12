@@ -45,6 +45,7 @@ function defaultState() {
       { id: 't6', title: 'Book dentist follow-up', who: 'nhi', repeat: 'once', stars: 3, doneOn: '' },
     ],
     stars: { phu: 0, nhi: 0 },
+    log: [],
     expenses: [],
     health: {},
   };
@@ -613,6 +614,7 @@ const PAGES = [
   { id: 'piggy', label: 'Piggy Bank', icon: 'piggy' },
   { id: 'energy', label: 'Energy', icon: 'zap' },
   { id: 'health', label: 'Health', icon: 'heart' },
+  { id: 'board', label: 'Leaderboard', icon: 'trophy' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
@@ -805,12 +807,12 @@ const impRow = (on) => `<div class="setting-row imp-row"><div><b>Important</b><d
 const pickedImportant = () => $('#imp-switch')?.getAttribute('aria-checked') === 'true';
 
 function eventChip(e) {
-  return `<button class="ev-chip${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}">
-    ${avatar(e.who, 'xs')}<b>${e.time ? timeLabel(e) : ''}</b>${impTag(e)}<span>${esc(e.title)}</span></button>`;
+  return `<button class="ev-chip${e.important ? ' imp' : ''}${eventDone(e) ? ' done' : ''}" data-action="edit-event" data-id="${e.id}">
+    ${eventDone(e) ? icon('check', 'ev-done') : avatar(e.who, 'xs')}<b>${e.time ? timeLabel(e) : ''}</b>${impTag(e)}<span>${esc(e.title)}</span></button>`;
 }
 
 function eventRow(e, withDate = false) {
-  const when = [withDate ? dayLabel(e.date) : '', timeLabel(e)].filter(Boolean).join(' · ');
+  const when = [withDate ? dayLabel(e.date) : '', timeLabel(e), eventDone(e) ? 'Done' : ''].filter(Boolean).join(' · ');
   return `<button class="row${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}">
     ${avatar(e.who, 'md') || `<span class="ibox c-purple-ico">${icon('calendar')}</span>`}
     <span><b>${esc(e.title)}${impTag(e)}</b><small>${when}</small></span>${icon('chevron', 'chev')}</button>`;
@@ -836,6 +838,48 @@ function isDone(t) {
   return true;
 }
 const tasksFor = (id) => state.tasks.filter((t) => t.who === id);
+
+/* ---------- Stars ---------- */
+// Events earn stars too (5 unless set). An event for both, or for no one, gives each person the stars.
+const eventStars = (e) => e.stars ?? 5;
+const earners = (who) => (USERS.some((u) => u.id === who) ? [who] : USERS.map((u) => u.id));
+const eventDone = (e) => !!e.doneOn;
+
+// Ticks a task or event on or off: moves the stars and keeps a dated log for the Leaderboard.
+function awardStars(item, kind, on) {
+  const date = on ? isoDay(new Date()) : item.doneOn;
+  const n = kind === 'event' ? eventStars(item) : item.stars;
+  const people = earners(item.who);
+  state.log ||= [];
+  for (const who of people) {
+    state.stars[who] = Math.max(0, (state.stars[who] || 0) + (on ? n : -n));
+    const id = `${item.id}@${date}@${who}`;
+    state.log = state.log.filter((l) => l.id !== id);
+    if (on) state.log.push({ id, who, stars: n, date, kind, title: item.title });
+  }
+  item.doneOn = on ? date : '';
+  // Keep about a year of history.
+  const cutoff = isoDay(addDays(new Date(), -400));
+  state.log = state.log.filter((l) => l.date >= cutoff);
+  if (on && n) toast(`+${n} stars for ${people.map((w) => userOf(w).name).join(' & ')}`);
+}
+// Tasks have no date of their own, so the calendar shows them on today: the open ones,
+// plus any ticked off today (struck through), each person's together.
+const tasksToday = () => {
+  const today = isoDay(new Date());
+  const order = USERS.map((u) => u.id);
+  return state.tasks.filter((t) => !isDone(t) || t.doneOn === today)
+    .sort((a, b) => order.indexOf(a.who) - order.indexOf(b.who) || isDone(a) - isDone(b));
+};
+
+// Compact task for the calendar grids: a tick box and the title, in the person's color.
+function taskChip(t) {
+  const done = isDone(t);
+  const u = userOf(t.who);
+  return `<div class="task-chip c-${u?.color || 'purple'}${done ? ' done' : ''}${t.important ? ' imp' : ''}">
+    <button class="tc-check" data-action="toggle-task" data-id="${t.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}" aria-pressed="${done}">${icon('check')}</button>
+    <button class="tc-title" data-action="edit-task" data-id="${t.id}">${esc(t.title)}</button></div>`;
+}
 
 function taskCard(t, u) {
   const done = isDone(t);
@@ -865,8 +909,10 @@ function todayEvent(e) {
   const now = new Date();
   const endAt = e.time ? new Date(`${e.date}T${e.end || e.time}`) : null;
   const past = endAt && endAt < now;
-  return `<button class="today-ev${e.important ? ' imp' : ''}${past ? ' past' : ''}" data-action="edit-event" data-id="${e.id}">
-    ${icon('calendar')}<b>${e.time ? fmtTime(new Date(`${e.date}T${e.time}`)) : 'All day'}</b><span>${esc(e.title)}</span>${impTag(e)}</button>`;
+  const done = eventDone(e);
+  return `<div class="today-ev${e.important ? ' imp' : ''}${past && !done ? ' past' : ''}${done ? ' done' : ''}">
+    <button class="tev-main" data-action="edit-event" data-id="${e.id}">${icon('calendar')}<b>${e.time ? fmtTime(new Date(`${e.date}T${e.time}`)) : 'All day'}</b><span>${esc(e.title)}</span>${impTag(e)}</button>
+    <button class="tev-check" data-action="toggle-event" data-id="${e.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(e.title)}" aria-pressed="${done}">${icon('check')}</button></div>`;
 }
 
 views.home = () => `
@@ -930,7 +976,11 @@ function weekView() {
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const head = days.map((d) => `<div class="wk-day ${isoDay(d) === todayIso ? 'today' : ''}">
       <small>${d.toLocaleDateString([], { weekday: 'short' })}</small><b>${d.getDate()}</b></div>`).join('');
-  const allDay = days.map((d) => `<div class="wk-allday">${eventsOn(isoDay(d)).filter((e) => !e.time).map(eventChip).join('')}</div>`).join('');
+  const allDay = days.map((d) => {
+    const iso = isoDay(d);
+    const tasks = iso === todayIso ? tasksToday().map(taskChip).join('') : '';
+    return `<div class="wk-allday">${eventsOn(iso).filter((e) => !e.time).map(eventChip).join('')}${tasks}</div>`;
+  }).join('');
   const cols = days.map((d) => {
     const iso = isoDay(d);
     const timed = laneLayout(eventsOn(iso).filter((e) => e.time));
@@ -943,14 +993,14 @@ function weekView() {
         const to = Math.min(Math.max(end, DAY_START * 60), DAY_END * 60);
         const top = Math.min(((from - DAY_START * 60) / 60) * HOUR_PX, (DAY_END - DAY_START) * HOUR_PX - 26);
         const height = Math.max(26, ((to - from) / 60) * HOUR_PX - 3);
-        return `<button class="wk-ev ${e.who ? `c-${e.who === 'both' ? 'purple' : userOf(e.who).color}` : 'c-purple'}${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}"
+        return `<button class="wk-ev${eventDone(e) ? ' done' : ''} ${e.who ? `c-${e.who === 'both' ? 'purple' : userOf(e.who).color}` : 'c-purple'}${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}"
           style="top:${top}px;height:${height}px;left:calc(${(lane / lanes) * 100}% + 2px);width:calc(${100 / lanes}% - 4px)">
-          <span class="wk-ev-top">${avatar(e.who, 'xs')}<b>${timeLabel(e)}</b>${impTag(e)}</span><span class="wk-ev-title">${esc(e.title)}</span></button>`;
+          <span class="wk-ev-top">${eventDone(e) ? icon('check', 'ev-done') : avatar(e.who, 'xs')}<b>${timeLabel(e)}</b>${impTag(e)}</span><span class="wk-ev-title">${esc(e.title)}</span></button>`;
       }).join('')}${nowLine}</div>`;
   }).join('');
   return `<div class="wk">
     <div class="wk-head"><div></div>${head}</div>
-    <div class="wk-allrow"><div class="wk-gutter-label">All day</div>${allDay}</div>
+    <div class="wk-allrow"><div class="wk-gutter-label">All day${days.some((d) => isoDay(d) === todayIso) && state.tasks.length ? '<br>&amp; tasks' : ''}</div>${allDay}</div>
     <div class="wk-scroll" id="wk-scroll">
       <div class="wk-grid" style="height:${hours.length * HOUR_PX}px">
         <div class="wk-hours">${hours.map((h) => `<span style="top:${(h - DAY_START) * HOUR_PX}px">${fmtTime(new Date(2000, 0, 1, h), false)}</span>`).join('')}</div>
@@ -971,9 +1021,10 @@ function monthView() {
     const d = addDays(start, i);
     const iso = isoDay(d);
     const evs = eventsOn(iso);
+    const items = [...evs.map(eventChip), ...(iso === todayIso ? tasksToday().map(taskChip) : [])];
     return `<div class="day ${d.getMonth() !== m ? 'other' : ''} ${iso === todayIso ? 'today' : ''}" data-action="open-day" data-d="${iso}">
       <span class="day-num">${d.getDate()}</span>
-      <div class="day-evs">${evs.slice(0, 3).map(eventChip).join('')}${evs.length > 3 ? `<span class="more">+${evs.length - 3} more</span>` : ''}</div>
+      <div class="day-evs">${items.slice(0, 4).join('')}${items.length > 4 ? `<span class="more">+${items.length - 4} more</span>` : ''}</div>
     </div>`;
   }).join('');
   return `<div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="dow">${d}</div>`).join('')}${cells}</div>`;
@@ -1017,6 +1068,100 @@ views.tasks = () => `
         <button class="add-task" data-action="add-task" data-who="${u.id}">${icon('plus')} Add a task for ${u.name}</button>
       </div>`).join('')}
   </div>`;
+
+/* ---------- Leaderboard ---------- */
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const BOARD_PERIODS = { week: 'This week', month: 'This month', all: 'All time' };
+
+function boardStart(period) {
+  const now = new Date();
+  if (period === 'week') return weekStartIso();
+  if (period === 'month') return isoDay(new Date(now.getFullYear(), now.getMonth(), 1));
+  return '';
+}
+
+// Days in a row, up to today, with at least one thing done (today can still be in progress).
+function streak(who) {
+  const days = new Set((state.log || []).filter((l) => l.who === who).map((l) => l.date));
+  let d = new Date();
+  if (!days.has(isoDay(d))) d = addDays(d, -1);
+  let n = 0;
+  while (days.has(isoDay(d))) { n++; d = addDays(d, -1); }
+  return n;
+}
+
+// Stars per person, side by side: the days of this week or month, or the last 12 weeks for all time.
+function boardChart(period, entries) {
+  let buckets;
+  if (period === 'all') {
+    const start = addDays(new Date(weekStartIso() + 'T12:00'), -77);
+    buckets = Array.from({ length: 12 }, (_, i) => {
+      const from = isoDay(addDays(start, i * 7)); const to = isoDay(addDays(start, i * 7 + 6));
+      return { label: `Week of ${fmtShort(from)}`, short: fmtShort(from), match: (d) => d >= from && d <= to };
+    });
+  } else {
+    const start = new Date(boardStart(period) + 'T12:00');
+    const n = period === 'week' ? 7 : new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+    buckets = Array.from({ length: n }, (_, i) => {
+      const key = isoDay(addDays(start, i));
+      const d = new Date(key + 'T12:00');
+      return { label: d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }), short: period === 'week' ? d.toLocaleDateString([], { weekday: 'short' }) : String(d.getDate()), match: (x) => x === key };
+    });
+  }
+  const rows = buckets.map((b) => ({ ...b, vals: USERS.map((u) => entries.filter((l) => l.who === u.id && b.match(l.date)).reduce((a, l) => a + l.stars, 0)) }));
+  const max = Math.max(...rows.flatMap((r) => r.vals), 1);
+  const w = 300 / rows.length; const gw = w * 0.74; const bw = gw / USERS.length;
+  const bars = rows.map((r, i) => r.vals.map((v, j) => {
+    const h = (v / max) * 100;
+    return v ? `<rect class="bar-${USERS[j].color}" x="${(i * w + (w - gw) / 2 + j * bw).toFixed(2)}" y="${(100 - h).toFixed(2)}" width="${(bw * 0.9).toFixed(2)}" height="${h.toFixed(2)}"><title>${r.label}: ${USERS[j].name} ${v} stars</title></rect>` : '';
+  }).join('')).join('');
+  const title = period === 'all' ? 'Stars per week, last 12 weeks' : period === 'week' ? 'Stars per day this week' : 'Stars per day this month';
+  return `<div class="energy-chart">
+    <div class="chart-top"><span>${title}</span><span>${USERS.map((u) => `<i class="key bar-${u.color}"></i>${u.name}`).join(' ')} · top ${max}</span></div>
+    <svg viewBox="0 0 300 100" preserveAspectRatio="none" style="height:170px" role="img" aria-label="${title}">${bars}</svg>
+    <div class="chart-axis"><span>${rows[0].short}</span><span>${rows[rows.length - 1].short}</span></div>
+  </div>`;
+}
+
+views.board = () => {
+  const period = BOARD_PERIODS[state.settings.boardPeriod] ? state.settings.boardPeriod : 'week';
+  const from = boardStart(period);
+  const entries = (state.log || []).filter((l) => l.date >= from);
+  // All time uses the running totals, which also count stars earned before the log began.
+  const score = (u) => (period === 'all' ? state.stars[u.id] || 0 : entries.filter((l) => l.who === u.id).reduce((a, l) => a + l.stars, 0));
+  const ranked = USERS.map((u) => ({ u, stars: score(u), mine: entries.filter((l) => l.who === u.id) }))
+    .sort((a, b) => b.stars - a.stars);
+  const tied = ranked.length > 1 && ranked[0].stars === ranked[1].stars;
+  const gap = ranked.length > 1 ? ranked[0].stars - ranked[1].stars : 0;
+  const seg = `<div class="seg">${Object.entries(BOARD_PERIODS).map(([k, l]) => `<button class="${period === k ? 'on' : ''}" data-action="board-period" data-v="${k}">${l}</button>`).join('')}</div>`;
+  const cards = ranked.map(({ u, stars, mine }, i) => {
+    const lead = !tied && i === 0 && stars > 0;
+    const s = streak(u.id);
+    return `<div class="card lb-card c-${u.color}${lead ? ' lead' : ''}">
+      <div class="lb-rank">${tied ? '=' : i + 1}</div>
+      ${avatar(u.id, 'lg')}
+      <div class="lb-who"><h2>${u.name}${lead ? `<span class="lb-tag">${icon('trophy')} Leading${gap ? ` by ${gap}` : ''}</span>` : ''}</h2>
+        <div class="pills">
+          <span class="pill">${icon('checkSquare')}${plural(mine.filter((l) => l.kind === 'task').length, 'task')}</span>
+          <span class="pill">${icon('calendar')}${plural(mine.filter((l) => l.kind === 'event').length, 'event')}</span>
+          ${s ? `<span class="pill">${icon('flame')}${s}-day streak</span>` : ''}
+        </div></div>
+      <div class="lb-stars">${icon('star')}<b>${stars}</b></div>
+    </div>`;
+  }).join('');
+  const recent = [...entries].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12);
+  return `<div class="section-title">Leaderboard<span class="spacer"></span>${seg}</div>
+    <div class="lb-cards">${cards}</div>
+    ${tied && ranked[0].stars > 0 ? '<p class="hint lb-note">All square. The next tick takes the lead.</p>' : ''}
+    <div class="lb-grid">
+      <div class="card">${boardChart(period, state.log || [])}</div>
+      <div class="card">
+        <div class="card-head">${icon('star')}<h2>Recent</h2></div>
+        <div class="list lb-recent">${recent.map((l) => `<div class="lb-row">${avatar(l.who, 'sm')}<span><b>${esc(l.title)}</b><small>${l.kind === 'event' ? 'Event' : 'Task'} · ${dayLabel(l.date)}</small></span><em>+${l.stars}</em></div>`).join('')
+          || `<p class="muted">Nothing ticked off ${period === 'all' ? 'yet' : BOARD_PERIODS[period].toLowerCase()}. Tick off tasks on the Tasks tab or events on Home and the Calendar to earn stars.</p>`}</div>
+      </div>
+    </div>`;
+};
 
 /* =========================================================
    Household sync (same events, tasks and expenses on every device)
@@ -1510,7 +1655,9 @@ function openEventSheet(ev, date, time = '') {
       <div class="field"><label for="ev-end">Ends</label><input class="input" type="time" id="ev-end" value="${e.end || ''}"></div>
     </div>
     <p class="hint">Leave Starts empty for an all-day event.</p>
+    <div class="field"><label>Stars when done</label><div class="seg" id="ev-stars">${[0, 1, 3, 5, 10].map((n) => `<button class="${eventStars(e) === n ? 'on' : ''}" data-action="pick-seg" data-v="${n}">${n || 'None'}</button>`).join('')}</div></div>
     ${impRow(e.important)}
+    ${ev && e.date <= isoDay(new Date()) ? `<button class="btn ${eventDone(e) ? 'ghost' : 'done-btn'} wide" data-action="toggle-event" data-id="${e.id}" data-close="1">${icon('check')} ${eventDone(e) ? 'Mark not done' : 'Mark done'}</button>` : ''}
     <div class="sheet-actions">
       ${ev ? `<button class="btn danger" data-action="del-event" data-id="${e.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
@@ -1518,11 +1665,29 @@ function openEventSheet(ev, date, time = '') {
     </div>`);
 }
 
-function openDaySheet(iso) {
+function daySheetHtml(iso) {
   const evs = eventsOn(iso);
-  openSheet(`${sheetHead(new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }), 'calendar')}
+  const tasks = iso === isoDay(new Date()) ? tasksToday() : [];
+  return `${sheetHead(new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }), 'calendar')}
     <div class="list">${evs.map((e) => eventRow(e)).join('') || '<p class="muted">No events.</p>'}</div>
-    <div class="sheet-actions"><button class="btn" data-action="add-event" data-d="${iso}">${icon('plus')} Add event</button></div>`);
+    ${USERS.map((u) => {
+      const mine = tasks.filter((t) => t.who === u.id);
+      return mine.length ? `<h3 class="sheet-sub">${avatar(u.id, 'xs')}${u.name}'s tasks</h3>
+        <div class="task-list">${mine.map((t) => taskCard(t, u)).join('')}</div>` : '';
+    }).join('')}
+    <div class="sheet-actions"><button class="btn" data-action="add-event" data-d="${iso}">${icon('plus')} Add event</button></div>`;
+}
+
+// Ticked from the day pop-up: redraw it so the tick shows there too.
+function redrawDaySheet() {
+  const sheet = $('#sheet');
+  if (!sheet.hidden && sheet.dataset.kind === 'day') sheet.innerHTML = daySheetHtml(sheet.dataset.d);
+}
+
+function openDaySheet(iso) {
+  openSheet(daySheetHtml(iso));
+  $('#sheet').dataset.kind = 'day';
+  $('#sheet').dataset.d = iso;
 }
 
 function openTaskSheet(task, who = USERS[0].id) {
@@ -1575,13 +1740,28 @@ const actions = {
     const title = $('#ev-title').value.trim();
     const date = $('#ev-date').value;
     if (!title || !date) { toast('Add a title and a date'); return; }
-    const data = { title, date, time: $('#ev-time').value || '', end: $('#ev-end').value || '', who: pickedWho(), important: pickedImportant() };
+    const data = { title, date, time: $('#ev-time').value || '', end: $('#ev-end').value || '', who: pickedWho(), important: pickedImportant(), stars: Number($('#ev-stars .on')?.dataset.v ?? 5) };
     const existing = state.events.find((x) => x.id === el.dataset.id);
+    // Stars already given keep their old count and people: take them back first, give the new ones after.
+    const redo = existing && eventDone(existing) && (existing.stars !== data.stars || existing.who !== data.who);
+    if (redo) awardStars(existing, 'event', false);
     if (existing) Object.assign(existing, data);
+    if (redo) awardStars(existing, 'event', true);
     else state.events.push({ id: `e${Date.now()}`, ...data });
     calCursor = new Date(`${date}T12:00`);
     closeSheet();
   },
+  'toggle-event': (el) => {
+    const e = state.events.find((x) => x.id === el.dataset.id);
+    if (!e) return;
+    if (!eventDone(e) && e.date > isoDay(new Date())) { toast("This hasn't happened yet"); return; }
+    // From the event pop-up, use the stars picked there.
+    if (el.dataset.close && !eventDone(e) && $('#ev-stars .on')) e.stars = Number($('#ev-stars .on').dataset.v);
+    awardStars(e, 'event', !eventDone(e));
+    if (el.dataset.close) closeSheet();
+    redrawDaySheet();
+  },
+  'board-period': (el) => { state.settings.boardPeriod = el.dataset.v; },
   'del-event': (el) => {
     state.events = state.events.filter((e) => e.id !== el.dataset.id);
     closeSheet();
@@ -1610,10 +1790,8 @@ const actions = {
   },
   'toggle-task': (el) => {
     const t = state.tasks.find((x) => x.id === el.dataset.id);
-    const done = isDone(t);
-    t.doneOn = done ? '' : isoDay(new Date());
-    state.stars[t.who] = Math.max(0, (state.stars[t.who] || 0) + (done ? -t.stars : t.stars));
-    if (!done) toast(`+${t.stars} stars for ${userOf(t.who).name}`);
+    awardStars(t, 'task', !isDone(t));
+    redrawDaySheet();
   },
 
   'set-unit': (el) => { state.settings.unit = el.dataset.v; save(); fetchWeather(); },
