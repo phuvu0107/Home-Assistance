@@ -1,4 +1,5 @@
 import { icon, hydrateIcons } from './icons.js';
+import { createSync, syncAvailable } from './sync.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -43,6 +44,7 @@ function defaultState() {
       { id: 't6', title: 'Book dentist follow-up', who: 'nhi', repeat: 'once', stars: 3, doneOn: '' },
     ],
     stars: { phu: 0, nhi: 0 },
+    expenses: [],
   };
 }
 
@@ -58,8 +60,10 @@ function loadState() {
 }
 
 let state = loadState();
+let onSaved = () => {}; // household sync hooks in here
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
+  onSaved();
 }
 
 /* =========================================================
@@ -448,6 +452,7 @@ const PAGES = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'calendar', label: 'Calendar', icon: 'calendar' },
   { id: 'tasks', label: 'Tasks', icon: 'checkSquare' },
+  { id: 'piggy', label: 'Piggy Bank', icon: 'piggy' },
   { id: 'energy', label: 'Energy', icon: 'zap' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
@@ -843,6 +848,166 @@ views.tasks = () => `
       </div>`).join('')}
   </div>`;
 
+/* =========================================================
+   Household sync (same events, tasks and expenses on every device)
+   ========================================================= */
+const HOUSE_PASS_KEY = 'home-dashboard.household-pass.v1';
+const HOUSE_BASE_KEY = 'home-dashboard.household-base.v1';
+let housePass = '';
+try { housePass = localStorage.getItem(HOUSE_PASS_KEY) || ''; } catch { housePass = ''; }
+let houseSync = { state: housePass ? 'connecting' : 'off' };
+let houseTyped = ''; // passphrase waiting on "start a new household"
+const calmToRender = () => $('#sheet').hidden && !document.activeElement?.matches('input, textarea');
+const house = createSync({
+  getState: () => state,
+  onRemote: (apply) => {
+    apply(state);
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
+    if (calmToRender()) renderView(); // an open sheet re-renders the page when it closes
+  },
+  onStatus: (st) => {
+    houseSync = st;
+    if (currentRoute() === 'settings' && calmToRender()) renderView();
+  },
+  onBase: (b) => { try { b ? localStorage.setItem(HOUSE_BASE_KEY, JSON.stringify(b)) : localStorage.removeItem(HOUSE_BASE_KEY); } catch { /* ignore */ } },
+});
+onSaved = () => { if (house.connected) house.changed(); };
+function houseMessage() {
+  const at = houseSync.at ? ago(houseSync.at) : '';
+  switch (houseSync.state) {
+    case 'ok': return { ok: true, text: `Synced with every device on this passphrase. Last sync ${at}.` };
+    case 'connecting': return { ok: true, text: 'Connecting…' };
+    case 'new': return { ok: false, text: 'No household uses this passphrase yet. Check it for typos, or start a new household with what is on this device.' };
+    case 'offline': return { ok: false, text: 'Offline. Changes are saved here and will sync when the connection is back.' };
+    case 'badpass': return { ok: false, text: "That passphrase doesn't unlock this household's data." };
+    case 'error': return { ok: false, text: "Couldn't reach the sync service. It will keep trying." };
+    default: return { ok: false, text: 'Not syncing. Events, tasks and expenses stay on this device only.' };
+  }
+}
+function houseCard() {
+  if (!syncAvailable()) {
+    return `<div class="card">
+      <div class="card-head">${icon('users')}<h2>Sync across devices</h2></div>
+      <div class="sync-banner">${icon('users')}<span>Not set up yet. Each device keeps its own events, tasks and expenses until sync is turned on for this site.</span></div>
+    </div>`;
+  }
+  const m = houseMessage();
+  return `<div class="card">
+    <div class="card-head">${icon('users')}<h2>Sync across devices</h2></div>
+    ${m.ok ? `<p class="sync-line">${icon('check')}${m.text}</p>` : `<div class="sync-banner">${icon('users')}<span>${m.text}</span></div>`}
+    ${houseSync.state === 'new' ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 16px"><button class="btn" data-action="house-create">Start a new household</button><button class="btn ghost" data-action="house-cancel">Cancel</button></div>` : ''}
+    <div class="field"><label for="house-pass">Household passphrase</label>
+      <div style="display:flex;gap:8px"><input class="input" id="house-pass" type="password" autocomplete="off" placeholder="${housePass ? 'Saved on this device' : 'Same phrase on every device'}">
+      <button class="btn" data-action="house-connect">${housePass ? 'Update' : 'Connect'}</button></div>
+      <div class="hint">Type the same passphrase on each device. Everything is encrypted with it before it leaves this device. Joining a household replaces this device's events, tasks and expenses with the shared ones.</div></div>
+    ${housePass ? '<button class="btn ghost" data-action="house-disconnect">Stop syncing on this device</button>' : ''}
+  </div>`;
+}
+
+/* ---------- Piggy Bank (shared expenses) ---------- */
+const fmtCash = (n) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+const monthKey = (d) => isoDay(d).slice(0, 7);
+let piggyMonth = monthKey(new Date());
+const monthBounds = (key) => { const [y, m] = key.split('-').map(Number); return [new Date(y, m - 1, 1), new Date(y, m, 0)]; };
+const monthName = (key) => monthBounds(key)[0].toLocaleDateString([], { month: 'long', year: 'numeric' });
+const monthRange = (key) => monthBounds(key).map((d) => d.toLocaleDateString([], { month: 'short', day: 'numeric' })).join(' – ');
+const expensesIn = (key) => state.expenses.filter((x) => x.date.startsWith(key)).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+
+// Who paid what, and who owes whom for the shared (split 50/50) expenses.
+function expenseStats(list) {
+  const paid = Object.fromEntries(USERS.map((u) => [u.id, 0]));
+  const sharedPaid = { ...paid };
+  let total = 0; let shared = 0;
+  list.forEach((x) => {
+    total += x.amount; paid[x.paidBy] = (paid[x.paidBy] || 0) + x.amount;
+    if (x.split) { shared += x.amount; sharedPaid[x.paidBy] = (sharedPaid[x.paidBy] || 0) + x.amount; }
+  });
+  const [a, b] = USERS;
+  const net = sharedPaid[a.id] - shared / 2; // > 0 means b owes a
+  return { total, paid, shared, each: shared / 2, owed: Math.abs(net), from: net > 0 ? b : a, to: net > 0 ? a : b };
+}
+
+function expenseRow(x, showSplit) {
+  const u = userOf(x.paidBy);
+  const note = x.split ? (showSplit ? `Split · ${fmtCash(x.amount / 2)} each` : 'Split') : `Just ${u?.name}`;
+  return `<button class="row expense" data-action="edit-expense" data-id="${x.id}">
+    ${avatar(x.paidBy, 'md')}
+    <span class="ex-main"><b>${esc(x.title)}</b><small>${u?.name} paid · ${note}</small></span>
+    <span class="ex-amt">${fmtCash(x.amount)}</span></button>`;
+}
+
+views.piggy = () => {
+  const key = piggyMonth;
+  const list = expensesIn(key);
+  const st = expenseStats(list);
+  const showSplit = !!state.settings.showSplit;
+  const [first, last] = monthBounds(key);
+  const isNow = key === monthKey(new Date());
+  const daysSoFar = isNow ? new Date().getDate() : last.getDate();
+  const byDay = {};
+  list.forEach((x) => { (byDay[x.date] ||= []).push(x); });
+  const months = [...new Set(state.expenses.map((x) => x.date.slice(0, 7)))].sort().reverse();
+
+  return `<div class="section-title">Piggy Bank<span class="spacer"></span>
+    <button class="btn-round accent" data-action="add-expense" aria-label="Add expense">${icon('plus')}</button></div>
+  <div class="card piggy-bar">
+    <button class="btn-round" data-action="piggy-move" data-d="-1" aria-label="Previous month">${icon('chevronLeft')}</button>
+    <button class="btn-round" data-action="piggy-move" data-d="1" aria-label="Next month">${icon('chevron')}</button>
+    <div class="piggy-month"><h2>${monthName(key)}</h2><span>${monthRange(key)}</span></div>
+    ${isNow ? '' : '<button class="btn ghost sm" data-action="piggy-today">This month</button>'}
+    <span class="spacer"></span>
+    <div class="split-toggle"><span>Show split</span><button class="switch" role="switch" aria-checked="${showSplit}" data-action="toggle-split" aria-label="Show split"></button></div>
+  </div>
+  <div class="energy-tiles">
+    <div class="card tile"><small>Total spent</small><b>${fmtCash(st.total)}</b><span>${list.length} expense${list.length === 1 ? '' : 's'}</span></div>
+    ${USERS.map((u) => `<div class="card tile"><small>${avatarImg(u, 'xs')}&nbsp;${u.name} paid</small><b>${fmtCash(st.paid[u.id])}</b><span>${st.total ? Math.round((st.paid[u.id] / st.total) * 100) : 0}% of the month</span></div>`).join('')}
+    <div class="card tile"><small>Average per day</small><b>${fmtCash(st.total / daysSoFar)}</b><span>over ${daysSoFar} day${daysSoFar === 1 ? '' : 's'}</span></div>
+  </div>
+  ${showSplit ? `<div class="card split-card">
+    <div class="card-head">${icon('users')}<h2>Split 50/50</h2><span class="hint">${fmtCash(st.shared)} of shared costs, ${fmtCash(st.each)} each</span></div>
+    <div class="split-people">${USERS.map((u) => {
+      const sp = expensesIn(key).filter((x) => x.split && x.paidBy === u.id).reduce((a, x) => a + x.amount, 0);
+      return `<div class="split-person">${avatarImg(u, 'md')}<div><b>${u.name}</b><small>Paid ${fmtCash(sp)} · share ${fmtCash(st.each)}</small></div></div>`;
+    }).join('')}</div>
+    <div class="settle ${st.owed < 0.005 ? 'even' : ''}">${st.owed < 0.005 ? 'All square this month' : `<b>${st.from.name}</b> owes <b>${st.to.name}</b> <b class="settle-amt">${fmtCash(st.owed)}</b>`}</div>
+  </div>` : ''}
+  <div class="card">
+    <div class="card-head">${icon('calendar')}<h2>Log</h2><span class="hint">${first.toLocaleDateString([], { month: 'short', day: 'numeric' })} to ${last.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
+    ${list.length ? Object.entries(byDay).map(([d, xs]) => `<div class="ex-day"><div class="ex-day-head"><span>${dayLabel(d)}</span><span>${fmtCash(xs.reduce((a, x) => a + x.amount, 0))}</span></div>
+      <div class="list">${xs.map((x) => expenseRow(x, showSplit)).join('')}</div></div>`).join('')
+    : `<div class="piggy-empty">${icon('piggy')}<p>Nothing logged for ${monthName(key)} yet.</p><button class="btn" data-action="add-expense">${icon('plus')} Add an expense</button></div>`}
+  </div>
+  ${months.length ? `<div class="card">
+    <div class="card-head">${icon('piggy')}<h2>By month</h2></div>
+    <div class="table-wrap"><table class="energy-table">
+      <thead><tr><th>Month</th><th>Dates</th>${USERS.map((u) => `<th>${u.name}</th>`).join('')}<th>Total</th></tr></thead>
+      <tbody>${months.map((m) => { const s2 = expenseStats(expensesIn(m)); return `<tr class="${m === key ? 'on' : ''}" data-action="piggy-goto" data-m="${m}">
+        <td>${monthName(m)}</td><td class="muted">${monthRange(m)}</td>${USERS.map((u) => `<td>${fmtCash(s2.paid[u.id])}</td>`).join('')}<td><b>${fmtCash(s2.total)}</b></td></tr>`; }).join('')}</tbody>
+    </table></div>
+  </div>` : ''}`;
+};
+
+function openExpenseSheet(ex) {
+  const today = isoDay(new Date());
+  const inMonth = piggyMonth === monthKey(new Date()) ? today : isoDay(monthBounds(piggyMonth)[0]);
+  const x = ex || { id: '', title: '', amount: '', date: inMonth, paidBy: USERS[0].id, split: true };
+  openSheet(`${sheetHead(ex ? 'Edit expense' : 'New expense', 'piggy')}
+    <div class="field"><label for="ex-title">What was it?</label><input class="input" id="ex-title" value="${esc(x.title)}" placeholder="e.g. Groceries"></div>
+    <div class="field-row">
+      <div class="field"><label for="ex-amount">Amount</label><input class="input" id="ex-amount" type="number" inputmode="decimal" step="0.01" min="0" value="${x.amount}" placeholder="0.00"></div>
+      <div class="field"><label for="ex-date">Day</label><input class="input" type="date" id="ex-date" value="${x.date}"></div>
+    </div>
+    <div class="field"><label>Who paid?</label>${whoPicker(x.paidBy, false)}</div>
+    <div class="setting-row imp-row"><div><b>Split 50/50</b><div class="hint">Counts toward what each of you owes. Turn off for a personal expense.</div></div>
+      <button class="switch" id="ex-split" role="switch" aria-checked="${!!x.split}" data-action="toggle-important"></button></div>
+    <div class="sheet-actions">
+      ${ex ? `<button class="btn danger" data-action="del-expense" data-id="${x.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
+      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="save-expense" data-id="${x.id}">${ex ? 'Save' : 'Add expense'}</button>
+    </div>`);
+  if (!ex) setTimeout(() => $('#ex-title')?.focus(), 50);
+}
+
 /* ---------- Energy ---------- */
 const ENERGY_RANGES = { 30: '30 days', 90: '90 days', '12m': '12 months' };
 views.energy = () => {
@@ -884,6 +1049,7 @@ views.settings = () => {
   return `
   <div class="section-title">Settings</div>
   <div class="page-grid" style="grid-template-columns:repeat(auto-fill,minmax(380px,1fr))">
+    ${houseCard()}
     <div class="card">
       <div class="card-head">${icon('home')}<h2>Household</h2></div>
       <div class="profiles">${USERS.map((u) => `<div class="profile">${avatar(u.id, 'lg')}<b>${u.name}</b></div>`).join('')}</div>
@@ -926,7 +1092,7 @@ views.settings = () => {
     </div>
     <div class="card">
       <div class="card-head">${icon('sparkles')}<h2>About</h2></div>
-      <p class="hint">Events, tasks and settings are saved on this device only. Weather comes from Open-Meteo.</p>
+      <p class="hint">Display settings stay on this device. Events, tasks and expenses are shared with your other devices when sync is on. Weather comes from Open-Meteo.</p>
       <button class="btn danger" data-action="reset">${icon('trash')} Clear events and tasks</button>
     </div>
   </div>`;
@@ -1135,6 +1301,26 @@ const actions = {
     fetchWeather();
   },
   'energy-range': (el) => { state.settings.energyRange = el.dataset.v; save(); },
+  'house-connect': async () => {
+    const v = $('#house-pass').value;
+    if (!v) { toast('Type the passphrase first'); return; }
+    $('#house-pass').blur();
+    if (v !== housePass) house.disconnect();
+    const r = await house.connect(v);
+    if (r === 'new') { houseTyped = v; return; }
+    if (r === 'ok') { housePass = v; try { localStorage.setItem(HOUSE_PASS_KEY, v); } catch { /* ignore */ } toast('Synced'); renderView(); }
+  },
+  'house-create': async () => {
+    if (!houseTyped) return;
+    const r = await house.connect(houseTyped, { create: true });
+    if (r === 'ok') { housePass = houseTyped; try { localStorage.setItem(HOUSE_PASS_KEY, housePass); } catch { /* ignore */ } toast('Household created'); }
+    houseTyped = ''; renderView();
+  },
+  'house-cancel': () => { houseTyped = ''; houseSync = { state: housePass ? 'ok' : 'off' }; },
+  'house-disconnect': () => {
+    house.disconnect(); housePass = '';
+    try { localStorage.removeItem(HOUSE_PASS_KEY); } catch { /* ignore */ }
+  },
   'energy-connect': () => {
     const v = $('#energy-pass').value;
     if (!v) { toast('Type the passphrase first'); return; }
@@ -1150,15 +1336,41 @@ const actions = {
     energySync = { state: 'off' };
   },
   'clear-energy': () => { energy = null; try { localStorage.removeItem(ENERGY_KEY); } catch { /* ignore */ } toast('Energy data removed'); },
+  'add-expense': () => openExpenseSheet(null),
+  'edit-expense': (el) => openExpenseSheet(state.expenses.find((x) => x.id === el.dataset.id)),
+  'save-expense': (el) => {
+    const title = $('#ex-title').value.trim();
+    const amount = Math.round(Number($('#ex-amount').value) * 100) / 100;
+    const date = $('#ex-date').value;
+    if (!title || !(amount > 0) || !date) { toast('Add what it was, the amount and the day'); return; }
+    const data = { title, amount, date, paidBy: pickedWho() || USERS[0].id, split: $('#ex-split').getAttribute('aria-checked') === 'true' };
+    const existing = state.expenses.find((x) => x.id === el.dataset.id);
+    if (existing) Object.assign(existing, data);
+    else state.expenses.push({ id: `x${Date.now()}`, ...data });
+    piggyMonth = date.slice(0, 7);
+    closeSheet();
+  },
+  'del-expense': (el) => {
+    state.expenses = state.expenses.filter((x) => x.id !== el.dataset.id);
+    closeSheet();
+  },
+  'piggy-move': (el) => {
+    const [y, m] = piggyMonth.split('-').map(Number);
+    piggyMonth = monthKey(new Date(y, m - 1 + Number(el.dataset.d), 1));
+  },
+  'piggy-today': () => { piggyMonth = monthKey(new Date()); },
+  'piggy-goto': (el) => { piggyMonth = el.dataset.m; window.scrollTo({ top: 0, behavior: 'smooth' }); },
+  'toggle-split': () => { state.settings.showSplit = !state.settings.showSplit; },
+
   reset: () => {
     if (!confirm('Clear all events and tasks on this device?')) return;
-    state = { ...defaultState(), settings: state.settings, events: [], tasks: [] };
+    state = { ...defaultState(), settings: state.settings, expenses: state.expenses, events: [], tasks: [] };
     save();
   },
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['pick-who', 'pick-seg', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search']);
+const NO_RERENDER = new Set(['pick-who', 'pick-seg', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -1237,6 +1449,12 @@ render();
 fetchWeather();
 syncEnergy();
 syncWakeLock();
+if (housePass && syncAvailable()) {
+  let savedBase = null;
+  try { savedBase = JSON.parse(localStorage.getItem(HOUSE_BASE_KEY)); } catch { savedBase = null; }
+  house.resume(housePass, savedBase);
+}
+window.addEventListener('online', () => house.retry());
 
 window.addEventListener('hashchange', () => {
   closeSheet();

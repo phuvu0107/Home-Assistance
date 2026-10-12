@@ -1,6 +1,6 @@
 # Home Assistant dashboard
 
-A touch-friendly home dashboard for a shared screen at home: a tablet on the fridge, a laptop on the counter, a wall-mounted display or just your phone. It's a static web app (no build step, no backend) hosted on GitHub Pages, and it can be installed as a full-screen app from Chrome, Edge or Safari.
+A touch-friendly home dashboard for a shared screen at home: a tablet on the fridge, a laptop on the counter, a wall-mounted display or just your phone. It's a static web app (no build step) hosted on GitHub Pages, with optional encrypted sync between devices, and it can be installed as a full-screen app from Chrome, Edge or Safari.
 
 **Live site:** https://phuvu0107.github.io/Home-Assistance/
 
@@ -31,22 +31,27 @@ A column each for Phu and Nhi with done counts and stars. Tasks repeat daily, we
 | --- | --- |
 | ![Tasks board](docs/screenshots/tasks.png) | ![Edit task sheet](docs/screenshots/task-sheet.png) |
 
+### Piggy Bank
+Shared expenses, one month at a time (the 1st through the last day). Log the day, what it was, the amount and who paid. The page shows the month's total, what each person paid and a daily average, with a log grouped by day and a month-by-month table. Turn on **Show split** to see each person's half of the shared costs and who owes whom. Expenses can be marked as personal so they stay out of the split.
+
+![Piggy Bank page](docs/screenshots/piggy.png)
+
 ### Energy
 PG&E use and cost over 30 days, 90 days or 12 months, split into electric and gas, with a month-by-month table. Data syncs every morning (see [PG&E energy sync](#pge-energy-sync)), and the page says plainly when it isn't syncing.
 
 ![Energy page](docs/screenshots/energy.png)
 
 ### Settings
-Weather city, °F/°C, light/dark/auto theme, 24-hour clock, keep screen on, and the PG&E sync passphrase with one-time sign-in steps.
+Sync across devices, weather city, °F/°C, light/dark/auto theme, 24-hour clock, keep screen on, and the PG&E sync passphrase with one-time sign-in steps.
 
 ![Settings page](docs/screenshots/settings.png)
 
 ### Works on any screen
-The layout adapts from a wide display down to a phone, and motion is turned off when the device asks for reduced motion.
+The layout adapts from a wide display down to a phone. On touch screens you can swipe left or right to move between tabs, with the page following your finger. Motion is turned off when the device asks for reduced motion.
 
 <img src="docs/screenshots/phone.png" alt="Dashboard on a phone" width="320">
 
-Phu's and Nhi's avatars live in `avatars/` as SVG files. Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). Events, tasks and settings are saved in the browser on each device.
+Phu's and Nhi's avatars live in `avatars/` as SVG files. Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). Display settings are saved in the browser on each device; events, tasks and expenses are shared across devices once [sync](#sync-across-devices) is on.
 
 ## Set up on your device
 
@@ -86,6 +91,28 @@ One-time setup:
 
 You can also load a PG&E **Download My Data** CSV in the same Settings card instead.
 
+## Sync across devices
+
+Events, tasks, stars and expenses can be shared by every device in the house through a free [Firebase](https://firebase.google.com) Firestore database. Data is encrypted in the browser with a household passphrase before it's sent, so the database only stores scrambled data, and the record's name is a hash of the passphrase.
+
+One-time setup:
+1. Create a Firebase project, then add a Firestore database in production mode.
+2. Replace the Firestore rules with:
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{db}/documents {
+       match /households/{id} {
+         allow get, create, update: if id.size() == 64;
+       }
+     }
+   }
+   ```
+3. Register a web app in Project settings and paste its `firebaseConfig` into `sync-config.js`.
+4. On the first device, open **Settings › Sync across devices**, type a passphrase and tap **Start a new household**. On every other device, type the same passphrase. Joining replaces that device's events, tasks and expenses with the shared ones.
+
+Changes show up on the other screens within a second or two. Edits made offline are kept and sync when the connection comes back, and two people editing at once both keep their changes.
+
 ## Deploying
 
 Every push to `main` deploys through `.github/workflows/pages.yml`, and it also runs every morning to refresh the PG&E data. One-time setup: in the repo go to **Settings > Pages** and set **Source** to **GitHub Actions**.
@@ -99,10 +126,11 @@ python3 -m http.server 8000
 
 ## Files
 
-- `index.html` – page shell (top bar, hero, tabs)
+- `index.html` – page shell (greeting, tabs)
 - `styles.css` – design tokens, light and dark themes, layout and motion
 - `app.js` – state, weather, views and actions
 - `icons.js` – inline SVG icon set
+- `sync.js`, `sync-config.js` – encrypted household sync (Firebase Firestore)
 - `avatars/` – Phu's and Nhi's avatars
 - `sw.js`, `manifest.webmanifest`, `icons/` – installable PWA and offline cache
 - `sync/` – the daily PG&E sync, the one-time sign-in script and the encryption helper

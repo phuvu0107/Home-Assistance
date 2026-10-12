@@ -495,6 +495,37 @@ label.btn { cursor: pointer; }
 }
 .demo-note { font-size: 12px; color: var(--text-3); text-align: center; margin-top: 18px; }
 
+/* ---------- Piggy Bank ---------- */
+.piggy-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 18px; margin-bottom: 16px; }
+.piggy-month { display: flex; flex-direction: column; margin-left: 6px; }
+.piggy-month h2 { margin: 0; font-size: 19px; font-weight: 600; }
+.piggy-month span { font-size: 13px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.split-toggle { display: flex; align-items: center; gap: 10px; font-weight: 500; color: var(--text-2); }
+.tile small .av { display: inline-block; vertical-align: middle; border-width: 1px; }
+.split-card { margin-bottom: 16px; }
+.split-people { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.split-person { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 14px; background: var(--muted-surface); }
+.split-person b { display: block; font-weight: 600; }
+.split-person small { color: var(--text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.settle { margin-top: 14px; padding: 14px 16px; border-radius: 14px; background: var(--accent-soft); color: var(--text); font-size: 16px; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.settle .settle-amt { margin-left: auto; font-size: 22px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.settle.even { background: var(--green-bg); color: var(--green-fg); font-weight: 600; }
+.ex-day + .ex-day { margin-top: 16px; }
+.ex-day-head { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; color: var(--text-3); margin: 0 4px 8px; font-variant-numeric: tabular-nums; }
+.row.expense .ex-main { min-width: 0; flex: 1; }
+.row.expense .ex-main b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex-amt { font-weight: 700; font-size: 17px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.piggy-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 24px 0 12px; color: var(--text-3); text-align: center; }
+.piggy-empty > .ico { font-size: 44px; color: var(--rose-fg); opacity: .7; }
+.energy-table tr[data-action] { cursor: pointer; }
+.energy-table tr.on td { color: var(--accent); }
+@media (max-width: 600px) {
+  .split-people { grid-template-columns: 1fr; }
+  .piggy-month h2 { font-size: 17px; }
+  .split-card .card-head { flex-wrap: wrap; }
+  .split-card .card-head .hint { flex-basis: 100%; margin-left: 0; }
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 1000px) {
   .grid-home { grid-template-columns: 1fr; grid-template-areas: "weather" "agenda" "tasks"; }
