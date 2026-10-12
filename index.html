@@ -17,23 +17,6 @@
 <body>
   <div class="app">
     <main class="main">
-      <header class="topbar">
-        <a class="brand" href="#/home">
-          <span class="brand-icon" data-icon="home"></span>
-          <span class="brand-name">Home Assistant</span>
-        </a>
-        <div class="search">
-          <span data-icon="search"></span>
-          <input id="search" type="search" placeholder="Search events and tasks" autocomplete="off">
-          <div class="search-results" id="search-results" hidden></div>
-        </div>
-        <div class="topbar-actions">
-          <a class="av-pair" href="#/settings" aria-label="Phu and Nhi">
-            <img class="av av-md av-blue" src="avatars/phu.svg" alt="Phu"><img class="av av-md av-rose" src="avatars/nhi.svg" alt="Nhi">
-          </a>
-        </div>
-      </header>
-
       <section class="hero" id="hero">
         <div class="sky" aria-hidden="true">
           <div class="sky-stars"><i style="left:38%;top:22%"></i><i style="left:52%;top:12%"></i><i style="left:61%;top:34%"></i><i style="left:70%;top:16%"></i><i style="left:79%;top:40%"></i><i style="left:86%;top:20%"></i><i style="left:46%;top:44%"></i><i style="left:93%;top:52%"></i></div>
@@ -51,7 +34,9 @@
             <path d="M26 22 C40 30 50 46 50 60 C42 44 34 34 26 22Z"/>
           </g>
         </svg>
-        <div class="hero-badge"><span data-icon="home"></span></div>
+        <a class="hero-people av-pair" href="#/settings" aria-label="Phu and Nhi">
+          <img class="av av-lg av-blue" src="avatars/phu.svg" alt="Phu"><img class="av av-lg av-rose" src="avatars/nhi.svg" alt="Nhi">
+        </a>
         <div class="hero-text">
           <h1 id="greeting">Good evening</h1>
           <p>Here's what's happening at home.</p>

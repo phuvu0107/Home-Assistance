@@ -475,11 +475,102 @@ function moveInk() {
   const r = t.getBoundingClientRect();
   const bar = t.parentElement.getBoundingClientRect();
   ink.style.width = `${r.width}px`;
-  ink.style.transform = `translateX(${r.left - bar.left + t.parentElement.scrollLeft - 6}px)`;
+  ink.style.transform = `translateX(${r.left - bar.left + t.parentElement.scrollLeft - t.parentElement.clientLeft - 6}px)`;
 }
 // The bar can change width without a window resize (a page scrollbar appearing, fonts loading).
 new ResizeObserver(moveInk).observe($('#tabs'));
 document.fonts?.ready.then(() => { moveInk(); requestAnimationFrame(() => $('#tabs').classList.add('ink-ready')); });
+
+// Light the tab up the moment a finger lands on it, before the tap finishes.
+$('#tabs').addEventListener('pointerdown', (e) => {
+  const t = e.target.closest('.tab');
+  if (!t || t.classList.contains('active')) return;
+  $('#tabs .tab.active')?.classList.remove('active');
+  t.classList.add('active');
+  moveInk();
+});
+
+/* Swipe left or right anywhere on a page to move to the next tab.
+   The page and the tab highlight follow the finger, then settle. */
+const swipe = { id: null, x: 0, y: 0, dx: 0, on: false, samples: [], done: false };
+const scrollsSideways = (el) => {
+  for (; el && el !== document.body; el = el.parentElement) {
+    if (el.scrollWidth > el.clientWidth + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowX)) return true;
+  }
+  return false;
+};
+function inkBetween(a, b, t) {
+  const ink = $('#tabs .tab-ink');
+  const bar = $('#tabs').getBoundingClientRect();
+  const ra = a.getBoundingClientRect(); const rb = b.getBoundingClientRect();
+  const left = ra.left + (rb.left - ra.left) * t; const width = ra.width + (rb.width - ra.width) * t;
+  ink.style.width = `${width}px`;
+  ink.style.transform = `translateX(${left - bar.left + $('#tabs').scrollLeft - $('#tabs').clientLeft - 6}px)`;
+}
+function swipeNeighbor(dir) {
+  const i = PAGES.findIndex((p) => p.id === currentRoute()) + dir;
+  return PAGES[i];
+}
+const view = $('#view');
+view.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse' || swipe.id !== null || !$('#sheet').hidden) return;
+  if (e.target.closest('input, textarea, select, .switch') || scrollsSideways(e.target)) return;
+  Object.assign(swipe, { id: e.pointerId, x: e.clientX, y: e.clientY, dx: 0, on: false, done: false, samples: [[e.timeStamp, e.clientX]] });
+});
+view.addEventListener('pointermove', (e) => {
+  if (e.pointerId !== swipe.id) return;
+  const dx = e.clientX - swipe.x; const dy = e.clientY - swipe.y;
+  if (!swipe.on) {
+    if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { swipe.id = null; return; }
+    if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    swipe.on = true; swipe.x = e.clientX; // start from here so the page doesn't jump
+    view.setPointerCapture(e.pointerId);
+    view.classList.add('dragging'); $('#tabs').classList.add('dragging');
+    return;
+  }
+  const raw = e.clientX - swipe.x;
+  const next = swipeNeighbor(raw < 0 ? 1 : -1);
+  // Past the first or last tab the page only gives a little, like a rubber band.
+  swipe.dx = next ? raw : raw / (1 + Math.abs(raw) / 60);
+  swipe.samples.push([e.timeStamp, e.clientX]); if (swipe.samples.length > 6) swipe.samples.shift();
+  const w = view.clientWidth;
+  view.style.transform = `translate3d(${swipe.dx}px,0,0)`;
+  view.style.opacity = String(1 - Math.min(Math.abs(swipe.dx) / w, 1) * 0.35);
+  const cur = $(`#tabs .tab[data-page="${currentRoute()}"]`);
+  if (next) inkBetween(cur, $(`#tabs .tab[data-page="${next.id}"]`), Math.min(Math.abs(raw) / (w * 0.6), 1));
+  else moveInk();
+});
+function endSwipe(e, cancelled) {
+  if (e.pointerId !== swipe.id) return;
+  swipe.id = null;
+  if (!swipe.on) return;
+  swipe.done = true; setTimeout(() => { swipe.done = false; }, 350);
+  const [t0, x0] = swipe.samples[0];
+  const v = (e.clientX - x0) / Math.max(e.timeStamp - t0, 1); // px per ms
+  const dir = swipe.dx < 0 ? 1 : -1;
+  const next = swipeNeighbor(dir);
+  const go = !cancelled && next && (Math.abs(swipe.dx) > view.clientWidth * 0.22 || (Math.abs(v) > 0.45 && Math.sign(v) === -dir));
+  $('#tabs').classList.remove('dragging');
+  view.classList.remove('dragging');
+  if (go) {
+    view.classList.add('leaving');
+    view.style.transform = `translate3d(${-dir * Math.min(view.clientWidth * 0.3, 160)}px,0,0)`;
+    view.style.opacity = '0';
+    setTimeout(() => {
+      view.classList.remove('leaving'); view.style.transform = ''; view.style.opacity = '';
+      location.hash = `#/${next.id}`;
+    }, 140);
+  } else {
+    view.classList.add('settling');
+    view.style.transform = ''; view.style.opacity = '';
+    moveInk();
+    setTimeout(() => view.classList.remove('settling'), 320);
+  }
+}
+view.addEventListener('pointerup', (e) => endSwipe(e, false));
+view.addEventListener('pointercancel', (e) => endSwipe(e, true));
+// A swipe that ends over a button shouldn't also press it.
+view.addEventListener('click', (e) => { if (swipe.done) { swipe.done = false; e.stopPropagation(); e.preventDefault(); } }, true);
 
 /* =========================================================
    Views
@@ -1117,38 +1208,6 @@ async function searchPlace() {
 }
 
 /* =========================================================
-   Search
-   ========================================================= */
-const searchInput = $('#search');
-const searchOut = $('#search-results');
-
-function runSearch() {
-  const q = searchInput.value.trim().toLowerCase();
-  if (!q) { searchOut.hidden = true; return; }
-  const hits = [];
-  PAGES.forEach((p) => { if (p.label.toLowerCase().includes(q)) hits.push({ ic: p.icon, label: p.label, meta: 'Page', href: `#/${p.id}` }); });
-  state.tasks.forEach((t) => { if (t.title.toLowerCase().includes(q)) hits.push({ ic: 'checkSquare', label: t.title, meta: `Task · ${whoName(t.who)}`, href: '#/tasks' }); });
-  state.events.forEach((ev) => { if (ev.title.toLowerCase().includes(q)) hits.push({ ic: 'calendar', label: ev.title, meta: `${dayLabel(ev.date)} · ${whoName(ev.who)}`, href: '#/calendar' }); });
-  searchOut.innerHTML = hits.length
-    ? hits.slice(0, 12).map((h) => `<button data-href="${h.href}">${icon(h.ic)}<span>${esc(h.label)}</span><small>${esc(h.meta)}</small></button>`).join('')
-    : '<div class="empty">No results</div>';
-  searchOut.hidden = false;
-}
-searchInput.addEventListener('input', runSearch);
-searchInput.addEventListener('focus', runSearch);
-searchOut.addEventListener('click', (e) => {
-  const b = e.target.closest('[data-href]');
-  if (!b) return;
-  location.hash = b.dataset.href;
-  searchInput.value = '';
-  searchOut.hidden = true;
-  searchInput.blur();
-});
-document.addEventListener('pointerdown', (e) => {
-  if (!e.target.closest('.search')) searchOut.hidden = true;
-});
-
-/* =========================================================
    Keep the screen awake (Wake Lock API)
    ========================================================= */
 let wakeLock = null;
@@ -1181,8 +1240,8 @@ syncWakeLock();
 
 window.addEventListener('hashchange', () => {
   closeSheet();
-  render();
   window.scrollTo(0, 0);
+  render();
 });
 
 let lastMinute = new Date().getMinutes();
