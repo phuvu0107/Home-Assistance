@@ -79,14 +79,14 @@ const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,
 const civil = (d) => ({ date: { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() }, time: { hours: 0 } });
 const dayOf = (c) => `${c.date.year}-${String(c.date.month).padStart(2, '0')}-${String(c.date.day).padStart(2, '0')}`;
 
-async function listAll(token, kind, filter) {
+async function listAll(token, kind, filter, max = 500) {
   const points = [];
   let pageToken;
   do {
-    const r = await call(token, `${kind}/dataPoints`, null, { filter, pageSize: 25, ...(pageToken ? { pageToken } : {}) });
+    const r = await call(token, `${kind}/dataPoints`, null, { ...(filter ? { filter } : {}), pageSize: 25, ...(pageToken ? { pageToken } : {}) });
     points.push(...(r.dataPoints || []));
     pageToken = r.nextPageToken;
-  } while (pageToken && points.length < 500);
+  } while (pageToken && points.length < max);
   return points;
 }
 
@@ -96,6 +96,7 @@ async function listAll(token, kind, filter) {
 export async function readDays(token) {
   const days = {};
   const skipped = [];
+  const reasons = {};
   const put = (d, k, v) => { (days[d] ||= {})[k] = v; };
   const end = new Date(); end.setDate(end.getDate() + 1);
   const start = new Date(end); start.setDate(start.getDate() - DAYS);
@@ -118,16 +119,30 @@ export async function readDays(token) {
     }
   })());
   tries.push((async () => {
-    for (const p of await listAll(token, 'sleep', `sleep.interval.civil_end_time >= "${isoDay(start)}"`)) {
+    // The date filter narrows the list; if Google rejects it, read the newest sessions instead
+    // (they come newest first) and keep the last 30 days.
+    const since = isoDay(start);
+    const points = await listAll(token, 'sleep', `sleep.interval.civil_end_time >= "${since}"`)
+      .catch((e) => (e instanceof SignInExpired ? Promise.reject(e) : listAll(token, 'sleep', '', 100)));
+    for (const p of points) {
       const s = p.sleep || {};
       const woke = s.interval?.civilEndTime;
+      if (!woke?.date || dayOf(woke) < since) continue;
       const sum = s.summary || {};
-      if (!woke || !Number(sum.minutesAsleep)) continue;
-      const stage = Object.fromEntries((sum.stagesSummary || []).map((x) => [x.type, Number(x.minutes || 0)]));
+      const stage = {};
+      // Totals per stage, from the summary when it's there, otherwise from the stage list itself.
+      if (sum.stagesSummary?.length) for (const x of sum.stagesSummary) stage[x.type] = (stage[x.type] || 0) + Number(x.minutes || 0);
+      else for (const x of s.stages || []) stage[x.type] = (stage[x.type] || 0) + (Date.parse(x.endTime) - Date.parse(x.startTime)) / 6e4 || 0;
+      const fromStages = Object.entries(stage).filter(([t]) => t !== 'AWAKE' && t !== 'SLEEP_STAGE_TYPE_UNSPECIFIED').reduce((a, [, m]) => a + m, 0);
+      const span = (Date.parse(s.interval?.endTime) - Date.parse(s.interval?.startTime)) / 6e4 || 0;
+      // Newer sessions can arrive before Fitbit finishes its summary, so fall back step by step.
+      const asleep = Math.round(Number(sum.minutesAsleep) || fromStages || Math.max(span - (stage.AWAKE || 0), 0));
+      if (!asleep) continue;
       const d = dayOf(woke);
       const cur = days[d]?.sleep || [0, 0, 0, 0, 0];
-      // Naps on the same day add up.
-      const add = [Number(sum.minutesAsleep), stage.DEEP || 0, stage.LIGHT || 0, stage.REM || 0, Number(sum.minutesAwake || 0)];
+      // Naps on the same day add up. Light includes classic "asleep" and "restless" time.
+      const light = (stage.LIGHT || 0) + (stage.ASLEEP || 0) + (stage.RESTLESS || 0);
+      const add = [asleep, stage.DEEP || 0, light, stage.REM || 0, Number(sum.minutesAwake) || stage.AWAKE || 0].map(Math.round);
       put(d, 'sleep', cur.map((v, i) => v + add[i]));
     }
   })());
@@ -137,8 +152,9 @@ export async function readDays(token) {
     if (r.status === 'rejected') {
       if (r.reason instanceof SignInExpired) throw r.reason;
       skipped.push(names[i]);
+      reasons[names[i]] = r.reason?.message || String(r.reason);
     }
   });
   if (skipped.length === names.length) throw new Error(results[0].reason?.message || "Couldn't read any Fitbit data.");
-  return { days, skipped };
+  return { days, skipped, reasons };
 }

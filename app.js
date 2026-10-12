@@ -528,13 +528,15 @@ const passFor = (who) => (healthPasses[who]?.exp > Date.now() ? healthPasses[who
 async function pullHealth(who, token) {
   healthBusy[who] = true; delete healthNote[who]; refreshHealthViews();
   try {
-    const { days, skipped } = await readDays(token);
+    const { days, skipped, reasons } = await readDays(token);
     const mine = state.health[who]?.days || {};
     const cutoff = isoDay(addDays(new Date(), -120));
     const merged = Object.fromEntries(Object.entries({ ...mine, ...Object.fromEntries(Object.entries(days).map(([d, v]) => [d, { ...mine[d], ...v }])) })
       .filter(([d]) => d >= cutoff).sort(([a], [b]) => a.localeCompare(b)));
     state.health[who] = { at: Date.now(), days: merged };
-    if (skipped.length) healthNote[who] = `Couldn't read ${skipped.join(', ')}. Reconnect and allow every box on Google's screen to include it.`;
+    // Say what Google answered, so a missing permission and a Fitbit-side problem look different.
+    if (skipped.length) healthNote[who] = `Couldn't read ${skipped.map((k) => `${k} (${reasons[k]})`).join(', ')}. If Google mentions permission, tap Update and allow every box on Google's screen.`;
+    else if (!Object.values(days).some((d) => d.sleep)) healthNote[who] = 'Fitbit returned no sleep for the last 30 days. Check that the watch was worn overnight and has synced in the Fitbit app.';
     save();
   } catch (e) {
     if (e instanceof SignInExpired) { delete healthPasses[who]; savePasses(); healthNote[who] = 'The Google sign-in ended. Tap Update to sign in again.'; }
