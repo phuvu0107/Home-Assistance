@@ -33,6 +33,10 @@ jobs:
         run: |
           mkdir -p _site/data
           cp -r index.html styles.css app.js icons.js sync.js sync-config.js sw.js manifest.webmanifest icons avatars _site/
+      - name: Add household sync config
+        env:
+          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
+        run: python3 sync/make_sync_config.py _site/sync-config.js
       - uses: actions/setup-python@v5
         if: env.HAS_PGE == 'true'
         with:
