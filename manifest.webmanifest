@@ -1,7 +1,7 @@
 {
   "name": "Home Assistant",
   "short_name": "Home",
-  "description": "Touch-friendly home dashboard for a fridge-mounted tablet.",
+  "description": "Touch-friendly home dashboard for any tablet, laptop or wall-mounted screen.",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",

@@ -1,4 +1,5 @@
 import { icon, hydrateIcons } from './icons.js';
+import { createSync, syncAvailable } from './sync.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -43,6 +44,7 @@ function defaultState() {
       { id: 't6', title: 'Book dentist follow-up', who: 'nhi', repeat: 'once', stars: 3, doneOn: '' },
     ],
     stars: { phu: 0, nhi: 0 },
+    expenses: [],
   };
 }
 
@@ -58,8 +60,10 @@ function loadState() {
 }
 
 let state = loadState();
+let onSaved = () => {}; // household sync hooks in here
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
+  onSaved();
 }
 
 /* =========================================================
@@ -330,6 +334,8 @@ async function syncEnergy() {
     const data = await decryptEnergy(box, energyPass);
     energy = energy || { electric: {}, gas: {} };
     for (const k of ['electric', 'gas']) energy[k] = { ...(energy[k] || {}), ...(data[k] || {}) };
+    energy.bills = { ...(energy.bills || {}), ...(data.bills || {}) };
+    if (data.forecast) energy.forecast = data.forecast;
     energy.syncedAt = data.syncedAt;
     saveEnergy();
     energySync = { state: Date.now() - data.syncedAt > 36 * 36e5 ? 'stale' : 'ok', at: data.syncedAt };
@@ -366,10 +372,58 @@ function syncBanner(always = false, link = true) {
 }
 
 // Daily or monthly rows for a range, newest last. Each row: { key, label, kwh, therms, eCost, gCost, cost }
+/* PG&E bills every 29 or 30 days, so "this bill" follows the billing cycle, not the calendar month.
+   Cycle start dates come from past bills and the current bill's forecast in the synced file. */
+const dayAt = (iso) => new Date(`${iso}T12:00`);
+const daysIncl = (a, b) => Math.round((dayAt(b) - dayAt(a)) / 864e5) + 1;
+function cycleStarts() {
+  const s = new Set(Object.keys(energy?.bills || {}));
+  if (energy?.forecast?.start) s.add(energy.forecast.start);
+  return [...s].sort();
+}
+// The billing cycle that contains `iso` (today by default), or null before any cycle dates have synced.
+function cycleFor(iso = isoDay(new Date())) {
+  const starts = cycleStarts();
+  const i = starts.filter((d) => d <= iso).length - 1;
+  if (i < 0) return null;
+  let start = starts[i];
+  if (starts[i + 1]) return { start, end: isoDay(addDays(dayAt(starts[i + 1]), -1)), known: true };
+  const f = energy.forecast;
+  let end = f?.start === start && f.end ? f.end : isoDay(addDays(dayAt(start), 29));
+  if (daysIncl(start, end) > 31) end = isoDay(addDays(dayAt(end), -1));
+  let known = f?.start === start;
+  // The bill closed but the next one hasn't synced yet: assume a 30-day cycle follows.
+  while (end < iso) { start = isoDay(addDays(dayAt(end), 1)); end = isoDay(addDays(dayAt(start), 29)); known = false; }
+  return { start, end, known };
+}
+function previousCycle(c) {
+  const before = isoDay(addDays(dayAt(c.start), -1));
+  const p = cycleFor(before);
+  return p && p.start < c.start ? { ...p, end: before } : { start: isoDay(addDays(dayAt(before), -29)), end: before, known: false };
+}
+const cycleRange = (c) => `${fmtShort(c.start)} – ${fmtShort(c.end)}`;
+// PG&E's projection for the current bill, when the forecast matches this cycle.
+function billForecast(c) {
+  const f = energy?.forecast;
+  if (!f || !c || f.start !== c.start) return null;
+  const sum = (i) => (f.electric?.[i] || 0) + (f.gas?.[i] || 0);
+  return { toDate: sum(0), projected: sum(1), typical: sum(2) };
+}
+const billed = (start) => { const b = energy?.bills?.[start]; return b ? (b.electric?.[1] || 0) + (b.gas?.[1] || 0) : null; };
+
 function energyRows(range) {
   const all = energyDays();
   if (!all.length) return [];
   const last = new Date(`${all[all.length - 1]}T12:00`);
+  if (range === 'cycle' || range === 'last') {
+    let c = cycleFor();
+    if (!c) return energyRows('30');
+    if (range === 'last') c = previousCycle(c);
+    return Array.from({ length: daysIncl(c.start, c.end) }, (_, i) => {
+      const key = isoDay(addDays(dayAt(c.start), i));
+      return { key, label: fmtShort(key), days: all.includes(key) ? 1 : 0, ...dayTotal(key) };
+    });
+  }
   if (range === '12m') {
     return Array.from({ length: 12 }, (_, i) => {
       const m = new Date(last.getFullYear(), last.getMonth() - 11 + i, 1);
@@ -416,19 +470,29 @@ function energyCard() {
   const head = `<div class="card-head">${icon('zap')}<h2>Energy</h2>${all.length ? `<a class="link" href="#/energy">Details ${icon('arrowRight')}</a>` : ''}</div>`;
   if (!all.length) return `<div class="card a-energy">${head}${syncBanner()}</div>`;
   const last = all[all.length - 1];
-  const rows = energyRows('30');
-  const now = energyTotals(rows);
-  const prev = sumDays(energyRows('60').slice(0, 30).filter((r) => r.days).map((r) => r.key));
-  const month = sumDays(all.filter((d) => d.slice(0, 7) === last.slice(0, 7)));
-  const hasCost = now.cost > 0;
-  const change = prev.cost > 0 && energyRows('60').slice(0, 30).filter((r) => r.days).length >= 25 ? Math.round(((now.cost - prev.cost) / prev.cost) * 100) : null;
+  const c = cycleFor();
+  const fmt = (t) => (t.cost > 0 ? fmtMoney(t.cost) : `${Math.round(t.kwh)} kWh`);
+  let stats; let rows;
+  if (c) {
+    rows = energyRows('cycle');
+    const now = energyTotals(rows);
+    const fc = billForecast(c);
+    const prev = previousCycle(c);
+    const prevT = energyTotals(energyRows('last'));
+    const dayN = Math.min(daysIncl(c.start, isoDay(new Date())), daysIncl(c.start, c.end));
+    stats = `<div><small>This bill so far</small><b>${fmt(now)}</b><span class="stat-note">Day ${dayN} of ${daysIncl(c.start, c.end)} · since ${fmtShort(c.start)}</span></div>
+      ${fc && fc.projected ? `<div><small>Projected bill</small><b>${fmtMoney(fc.projected)}</b><span class="stat-note">PG&amp;E's estimate</span></div>`
+        : `<div><small>Last bill</small><b>${fmt(billed(prev.start) !== null ? { cost: billed(prev.start) } : prevT)}</b><span class="stat-note">${cycleRange(prev)}</span></div>`}`;
+  } else {
+    rows = energyRows('30');
+    const now = energyTotals(rows);
+    const month = sumDays(all.filter((d) => d.slice(0, 7) === last.slice(0, 7)));
+    stats = `<div><small>${new Date(`${last}T12:00`).toLocaleDateString([], { month: 'long' })} so far</small><b>${fmt(month)}</b></div>
+      <div><small>Last 30 days</small><b>${fmt(now)}</b></div>`;
+  }
   return `<div class="card a-energy">${head}
     <div class="energy">
-      <div class="energy-stats">
-        <div><small>${new Date(`${last}T12:00`).toLocaleDateString([], { month: 'long' })} so far</small><b>${hasCost ? fmtMoney(month.cost) : `${Math.round(month.kwh)} kWh`}</b></div>
-        <div><small>Last 30 days</small><b>${hasCost ? fmtMoney(now.cost) : `${Math.round(now.kwh)} kWh`}</b>
-          ${change === null ? '' : change === 0 ? '<span class="trend">Same as the 30 days before</span>' : `<span class="trend ${change > 0 ? 'up' : 'down'}">${icon(change > 0 ? 'arrowUp' : 'arrowDown')}${Math.abs(change)}% vs the 30 days before</span>`}</div>
-      </div>
+      <div class="energy-stats">${stats}</div>
       ${energyChart(rows)}
     </div>
     <p class="hint energy-foot">PG&amp;E data through ${fmtShort(last)}</p>
@@ -448,6 +512,7 @@ const PAGES = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'calendar', label: 'Calendar', icon: 'calendar' },
   { id: 'tasks', label: 'Tasks', icon: 'checkSquare' },
+  { id: 'piggy', label: 'Piggy Bank', icon: 'piggy' },
   { id: 'energy', label: 'Energy', icon: 'zap' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
@@ -475,11 +540,102 @@ function moveInk() {
   const r = t.getBoundingClientRect();
   const bar = t.parentElement.getBoundingClientRect();
   ink.style.width = `${r.width}px`;
-  ink.style.transform = `translateX(${r.left - bar.left + t.parentElement.scrollLeft - 6}px)`;
+  ink.style.transform = `translateX(${r.left - bar.left + t.parentElement.scrollLeft - t.parentElement.clientLeft - 6}px)`;
 }
 // The bar can change width without a window resize (a page scrollbar appearing, fonts loading).
 new ResizeObserver(moveInk).observe($('#tabs'));
 document.fonts?.ready.then(() => { moveInk(); requestAnimationFrame(() => $('#tabs').classList.add('ink-ready')); });
+
+// Light the tab up the moment a finger lands on it, before the tap finishes.
+$('#tabs').addEventListener('pointerdown', (e) => {
+  const t = e.target.closest('.tab');
+  if (!t || t.classList.contains('active')) return;
+  $('#tabs .tab.active')?.classList.remove('active');
+  t.classList.add('active');
+  moveInk();
+});
+
+/* Swipe left or right anywhere on a page to move to the next tab.
+   The page and the tab highlight follow the finger, then settle. */
+const swipe = { id: null, x: 0, y: 0, dx: 0, on: false, samples: [], done: false };
+const scrollsSideways = (el) => {
+  for (; el && el !== document.body; el = el.parentElement) {
+    if (el.scrollWidth > el.clientWidth + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowX)) return true;
+  }
+  return false;
+};
+function inkBetween(a, b, t) {
+  const ink = $('#tabs .tab-ink');
+  const bar = $('#tabs').getBoundingClientRect();
+  const ra = a.getBoundingClientRect(); const rb = b.getBoundingClientRect();
+  const left = ra.left + (rb.left - ra.left) * t; const width = ra.width + (rb.width - ra.width) * t;
+  ink.style.width = `${width}px`;
+  ink.style.transform = `translateX(${left - bar.left + $('#tabs').scrollLeft - $('#tabs').clientLeft - 6}px)`;
+}
+function swipeNeighbor(dir) {
+  const i = PAGES.findIndex((p) => p.id === currentRoute()) + dir;
+  return PAGES[i];
+}
+const view = $('#view');
+view.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse' || swipe.id !== null || !$('#sheet').hidden) return;
+  if (e.target.closest('input, textarea, select, .switch') || scrollsSideways(e.target)) return;
+  Object.assign(swipe, { id: e.pointerId, x: e.clientX, y: e.clientY, dx: 0, on: false, done: false, samples: [[e.timeStamp, e.clientX]] });
+});
+view.addEventListener('pointermove', (e) => {
+  if (e.pointerId !== swipe.id) return;
+  const dx = e.clientX - swipe.x; const dy = e.clientY - swipe.y;
+  if (!swipe.on) {
+    if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { swipe.id = null; return; }
+    if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    swipe.on = true; swipe.x = e.clientX; // start from here so the page doesn't jump
+    view.setPointerCapture(e.pointerId);
+    view.classList.add('dragging'); $('#tabs').classList.add('dragging');
+    return;
+  }
+  const raw = e.clientX - swipe.x;
+  const next = swipeNeighbor(raw < 0 ? 1 : -1);
+  // Past the first or last tab the page only gives a little, like a rubber band.
+  swipe.dx = next ? raw : raw / (1 + Math.abs(raw) / 60);
+  swipe.samples.push([e.timeStamp, e.clientX]); if (swipe.samples.length > 6) swipe.samples.shift();
+  const w = view.clientWidth;
+  view.style.transform = `translate3d(${swipe.dx}px,0,0)`;
+  view.style.opacity = String(1 - Math.min(Math.abs(swipe.dx) / w, 1) * 0.35);
+  const cur = $(`#tabs .tab[data-page="${currentRoute()}"]`);
+  if (next) inkBetween(cur, $(`#tabs .tab[data-page="${next.id}"]`), Math.min(Math.abs(raw) / (w * 0.6), 1));
+  else moveInk();
+});
+function endSwipe(e, cancelled) {
+  if (e.pointerId !== swipe.id) return;
+  swipe.id = null;
+  if (!swipe.on) return;
+  swipe.done = true; setTimeout(() => { swipe.done = false; }, 350);
+  const [t0, x0] = swipe.samples[0];
+  const v = (e.clientX - x0) / Math.max(e.timeStamp - t0, 1); // px per ms
+  const dir = swipe.dx < 0 ? 1 : -1;
+  const next = swipeNeighbor(dir);
+  const go = !cancelled && next && (Math.abs(swipe.dx) > view.clientWidth * 0.22 || (Math.abs(v) > 0.45 && Math.sign(v) === -dir));
+  $('#tabs').classList.remove('dragging');
+  view.classList.remove('dragging');
+  if (go) {
+    view.classList.add('leaving');
+    view.style.transform = `translate3d(${-dir * Math.min(view.clientWidth * 0.3, 160)}px,0,0)`;
+    view.style.opacity = '0';
+    setTimeout(() => {
+      view.classList.remove('leaving'); view.style.transform = ''; view.style.opacity = '';
+      location.hash = `#/${next.id}`;
+    }, 140);
+  } else {
+    view.classList.add('settling');
+    view.style.transform = ''; view.style.opacity = '';
+    moveInk();
+    setTimeout(() => view.classList.remove('settling'), 320);
+  }
+}
+view.addEventListener('pointerup', (e) => endSwipe(e, false));
+view.addEventListener('pointercancel', (e) => endSwipe(e, true));
+// A swipe that ends over a button shouldn't also press it.
+view.addEventListener('click', (e) => { if (swipe.done) { swipe.done = false; e.stopPropagation(); e.preventDefault(); } }, true);
 
 /* =========================================================
    Views
@@ -543,16 +699,22 @@ function dayLabel(iso) {
 const timeLabel = (e) => (e.time ? fmtTime(new Date(`${e.date}T${e.time}`)) : 'All day');
 
 // Compact event used in the calendar grids: avatar, start time, title.
+// Items marked important get a red "Important" tag and red styling everywhere they show.
+const impTag = (item) => (item.important ? '<span class="imp-tag">Important</span>' : '');
+const impRow = (on) => `<div class="setting-row imp-row"><div><b>Important</b><div class="hint">Shows an Important tag and turns it red.</div></div>
+  <button class="switch imp-switch" id="imp-switch" role="switch" aria-checked="${!!on}" data-action="toggle-important"></button></div>`;
+const pickedImportant = () => $('#imp-switch')?.getAttribute('aria-checked') === 'true';
+
 function eventChip(e) {
-  return `<button class="ev-chip" data-action="edit-event" data-id="${e.id}">
-    ${avatar(e.who, 'xs')}<b>${e.time ? timeLabel(e) : ''}</b><span>${esc(e.title)}</span></button>`;
+  return `<button class="ev-chip${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}">
+    ${avatar(e.who, 'xs')}<b>${e.time ? timeLabel(e) : ''}</b>${impTag(e)}<span>${esc(e.title)}</span></button>`;
 }
 
 function eventRow(e, withDate = false) {
   const when = [withDate ? dayLabel(e.date) : '', timeLabel(e)].filter(Boolean).join(' · ');
-  return `<button class="row" data-action="edit-event" data-id="${e.id}">
+  return `<button class="row${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}">
     ${avatar(e.who, 'md') || `<span class="ibox c-purple-ico">${icon('calendar')}</span>`}
-    <span><b>${esc(e.title)}</b><small>${when}</small></span>${icon('chevron', 'chev')}</button>`;
+    <span><b>${esc(e.title)}${impTag(e)}</b><small>${when}</small></span>${icon('chevron', 'chev')}</button>`;
 }
 
 function weekStrip() {
@@ -578,9 +740,9 @@ const tasksFor = (id) => state.tasks.filter((t) => t.who === id);
 
 function taskCard(t, u) {
   const done = isDone(t);
-  return `<div class="task ${done ? `done c-${u.color}` : ''}">
+  return `<div class="task ${done ? `done c-${u.color}` : ''}${t.important ? ' imp' : ''}">
     <button class="task-body" data-action="edit-task" data-id="${t.id}">
-      <b>${esc(t.title)}</b>
+      <b>${esc(t.title)}${impTag(t)}</b>
       <small>${REPEAT_LABEL[t.repeat]} <span class="stars">${icon('star')}${t.stars}</span></small>
     </button>
     <button class="check ${done ? 'on' : ''}" data-action="toggle-task" data-id="${t.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}" aria-pressed="${done}">${icon('check')}</button>
@@ -666,11 +828,14 @@ function weekView() {
       ? `<div class="now-line" style="top:${((nowMin - DAY_START * 60) / 60) * HOUR_PX}px"></div>` : '';
     return `<div class="wk-col" data-action="add-event-at" data-d="${iso}">
       ${timed.map(({ e, start, end, lane, lanes }) => {
-        const top = Math.max(0, ((start - DAY_START * 60) / 60) * HOUR_PX);
-        const height = Math.max(26, ((end - start) / 60) * HOUR_PX - 3);
-        return `<button class="wk-ev ${e.who ? `c-${e.who === 'both' ? 'purple' : userOf(e.who).color}` : 'c-purple'}" data-action="edit-event" data-id="${e.id}"
+        // Clip to the visible hours, so an event starting before 6 AM doesn't run past its end.
+        const from = Math.min(Math.max(start, DAY_START * 60), DAY_END * 60);
+        const to = Math.min(Math.max(end, DAY_START * 60), DAY_END * 60);
+        const top = Math.min(((from - DAY_START * 60) / 60) * HOUR_PX, (DAY_END - DAY_START) * HOUR_PX - 26);
+        const height = Math.max(26, ((to - from) / 60) * HOUR_PX - 3);
+        return `<button class="wk-ev ${e.who ? `c-${e.who === 'both' ? 'purple' : userOf(e.who).color}` : 'c-purple'}${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}"
           style="top:${top}px;height:${height}px;left:calc(${(lane / lanes) * 100}% + 2px);width:calc(${100 / lanes}% - 4px)">
-          <span class="wk-ev-top">${avatar(e.who, 'xs')}<b>${timeLabel(e)}</b></span><span class="wk-ev-title">${esc(e.title)}</span></button>`;
+          <span class="wk-ev-top">${avatar(e.who, 'xs')}<b>${timeLabel(e)}</b>${impTag(e)}</span><span class="wk-ev-title">${esc(e.title)}</span></button>`;
       }).join('')}${nowLine}</div>`;
   }).join('');
   return `<div class="wk">
@@ -743,40 +908,252 @@ views.tasks = () => `
       </div>`).join('')}
   </div>`;
 
+/* =========================================================
+   Household sync (same events, tasks and expenses on every device)
+   ========================================================= */
+const HOUSE_PASS_KEY = 'home-dashboard.household-pass.v1';
+const HOUSE_BASE_KEY = 'home-dashboard.household-base.v1';
+let housePass = '';
+try { housePass = localStorage.getItem(HOUSE_PASS_KEY) || ''; } catch { housePass = ''; }
+let houseSync = { state: housePass ? 'connecting' : 'off' };
+let houseTyped = ''; // passphrase waiting on "start a new household"
+const calmToRender = () => $('#sheet').hidden && !document.activeElement?.matches('input, textarea');
+const house = createSync({
+  getState: () => state,
+  onRemote: (apply) => {
+    apply(state);
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
+    if (calmToRender()) renderView(); // an open sheet re-renders the page when it closes
+  },
+  onStatus: (st) => {
+    houseSync = st;
+    if (currentRoute() === 'settings' && calmToRender()) renderView();
+  },
+  onBase: (b) => { try { b ? localStorage.setItem(HOUSE_BASE_KEY, JSON.stringify(b)) : localStorage.removeItem(HOUSE_BASE_KEY); } catch { /* ignore */ } },
+});
+onSaved = () => { if (house.connected) house.changed(); };
+function houseMessage() {
+  const at = houseSync.at ? ago(houseSync.at) : '';
+  switch (houseSync.state) {
+    case 'ok': return { ok: true, text: `Synced with every device on this passphrase. Last sync ${at}.` };
+    case 'connecting': return { ok: true, text: 'Connecting…' };
+    case 'new': return { ok: false, text: 'No household uses this passphrase yet. Check it for typos, or start a new household with what is on this device.' };
+    case 'offline': return { ok: false, text: 'Offline. Changes are saved here and will sync when the connection is back.' };
+    case 'badpass': return { ok: false, text: "That passphrase doesn't unlock this household's data." };
+    case 'error': return { ok: false, text: "Couldn't reach the sync service. It will keep trying." };
+    default: return { ok: false, text: 'Not syncing. Events, tasks and expenses stay on this device only.' };
+  }
+}
+function houseCard() {
+  if (!syncAvailable()) {
+    return `<div class="card">
+      <div class="card-head">${icon('users')}<h2>Sync across devices</h2></div>
+      <div class="sync-banner">${icon('users')}<span>Not set up yet. Each device keeps its own events, tasks and expenses until sync is turned on for this site.</span></div>
+    </div>`;
+  }
+  const m = houseMessage();
+  return `<div class="card">
+    <div class="card-head">${icon('users')}<h2>Sync across devices</h2></div>
+    ${m.ok ? `<p class="sync-line">${icon('check')}${m.text}</p>` : `<div class="sync-banner">${icon('users')}<span>${m.text}</span></div>`}
+    ${houseSync.state === 'new' ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 16px"><button class="btn" data-action="house-create">Start a new household</button><button class="btn ghost" data-action="house-cancel">Cancel</button></div>` : ''}
+    <div class="field"><label for="house-pass">Household passphrase</label>
+      <div style="display:flex;gap:8px"><input class="input" id="house-pass" type="password" autocomplete="off" placeholder="${housePass ? 'Saved on this device' : 'Same phrase on every device'}">
+      <button class="btn" data-action="house-connect">${housePass ? 'Update' : 'Connect'}</button></div>
+      <div class="hint">Type the same passphrase on each device. Everything is encrypted with it before it leaves this device. Joining a household replaces this device's events, tasks and expenses with the shared ones.</div></div>
+    ${housePass ? '<button class="btn ghost" data-action="house-disconnect">Stop syncing on this device</button>' : ''}
+  </div>`;
+}
+
+/* ---------- Piggy Bank (shared expenses) ---------- */
+const fmtCash = (n) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+const monthKey = (d) => isoDay(d).slice(0, 7);
+let piggyMonth = monthKey(new Date());
+const monthBounds = (key) => { const [y, m] = key.split('-').map(Number); return [new Date(y, m - 1, 1), new Date(y, m, 0)]; };
+const monthName = (key) => monthBounds(key)[0].toLocaleDateString([], { month: 'long', year: 'numeric' });
+const monthRange = (key) => monthBounds(key).map((d) => d.toLocaleDateString([], { month: 'short', day: 'numeric' })).join(' – ');
+const expensesIn = (key) => state.expenses.filter((x) => x.date.startsWith(key)).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+
+// Who paid what, and who owes whom for the shared (split 50/50) expenses.
+function expenseStats(list) {
+  const paid = Object.fromEntries(USERS.map((u) => [u.id, 0]));
+  const sharedPaid = { ...paid };
+  let total = 0; let shared = 0;
+  list.forEach((x) => {
+    total += x.amount; paid[x.paidBy] = (paid[x.paidBy] || 0) + x.amount;
+    if (x.split) { shared += x.amount; sharedPaid[x.paidBy] = (sharedPaid[x.paidBy] || 0) + x.amount; }
+  });
+  const [a, b] = USERS;
+  const net = sharedPaid[a.id] - shared / 2; // > 0 means b owes a
+  return { total, paid, shared, each: shared / 2, owed: Math.abs(net), from: net > 0 ? b : a, to: net > 0 ? a : b };
+}
+
+function expenseRow(x, showSplit) {
+  const u = userOf(x.paidBy);
+  const note = x.split ? (showSplit ? `Split · ${fmtCash(x.amount / 2)} each` : 'Split') : `Just ${u?.name}`;
+  return `<button class="row expense" data-action="edit-expense" data-id="${x.id}">
+    ${avatar(x.paidBy, 'md')}
+    <span class="ex-main"><b>${esc(x.title)}</b><small>${u?.name} paid · ${note}</small></span>
+    <span class="ex-amt">${fmtCash(x.amount)}</span></button>`;
+}
+
+views.piggy = () => {
+  const key = piggyMonth;
+  const list = expensesIn(key);
+  const st = expenseStats(list);
+  const showSplit = !!state.settings.showSplit;
+  const [first, last] = monthBounds(key);
+  const isNow = key === monthKey(new Date());
+  const daysSoFar = isNow ? new Date().getDate() : last.getDate();
+  const byDay = {};
+  list.forEach((x) => { (byDay[x.date] ||= []).push(x); });
+  const months = [...new Set(state.expenses.map((x) => x.date.slice(0, 7)))].sort().reverse();
+
+  return `<div class="section-title">Piggy Bank<span class="spacer"></span>
+    <button class="btn-round accent" data-action="add-expense" aria-label="Add expense">${icon('plus')}</button></div>
+  <div class="card piggy-bar">
+    <button class="btn-round" data-action="piggy-move" data-d="-1" aria-label="Previous month">${icon('chevronLeft')}</button>
+    <button class="btn-round" data-action="piggy-move" data-d="1" aria-label="Next month">${icon('chevron')}</button>
+    <div class="piggy-month"><h2>${monthName(key)}</h2><span>${monthRange(key)}</span></div>
+    ${isNow ? '' : '<button class="btn ghost sm" data-action="piggy-today">This month</button>'}
+    <span class="spacer"></span>
+    <div class="split-toggle"><span>Show split</span><button class="switch" role="switch" aria-checked="${showSplit}" data-action="toggle-split" aria-label="Show split"></button></div>
+  </div>
+  <div class="energy-tiles">
+    <div class="card tile"><small>Total spent</small><b>${fmtCash(st.total)}</b><span>${list.length} expense${list.length === 1 ? '' : 's'}</span></div>
+    ${USERS.map((u) => `<div class="card tile"><small>${avatarImg(u, 'xs')}&nbsp;${u.name} paid</small><b>${fmtCash(st.paid[u.id])}</b><span>${st.total ? Math.round((st.paid[u.id] / st.total) * 100) : 0}% of the month</span></div>`).join('')}
+    <div class="card tile"><small>Average per day</small><b>${fmtCash(st.total / daysSoFar)}</b><span>over ${daysSoFar} day${daysSoFar === 1 ? '' : 's'}</span></div>
+  </div>
+  ${showSplit ? `<div class="card split-card">
+    <div class="card-head">${icon('users')}<h2>Split 50/50</h2><span class="hint">${fmtCash(st.shared)} of shared costs, ${fmtCash(st.each)} each</span></div>
+    <div class="split-people">${USERS.map((u) => {
+      const sp = expensesIn(key).filter((x) => x.split && x.paidBy === u.id).reduce((a, x) => a + x.amount, 0);
+      return `<div class="split-person">${avatarImg(u, 'md')}<div><b>${u.name}</b><small>Paid ${fmtCash(sp)} · share ${fmtCash(st.each)}</small></div></div>`;
+    }).join('')}</div>
+    <div class="settle ${st.owed < 0.005 ? 'even' : ''}">${st.owed < 0.005 ? 'All square this month' : `<b>${st.from.name}</b> owes <b>${st.to.name}</b> <b class="settle-amt">${fmtCash(st.owed)}</b>`}</div>
+  </div>` : ''}
+  <div class="card">
+    <div class="card-head">${icon('calendar')}<h2>Log</h2><span class="hint">${first.toLocaleDateString([], { month: 'short', day: 'numeric' })} to ${last.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
+    ${list.length ? Object.entries(byDay).map(([d, xs]) => `<div class="ex-day"><div class="ex-day-head"><span>${dayLabel(d)}</span><span>${fmtCash(xs.reduce((a, x) => a + x.amount, 0))}</span></div>
+      <div class="list">${xs.map((x) => expenseRow(x, showSplit)).join('')}</div></div>`).join('')
+    : `<div class="piggy-empty">${icon('piggy')}<p>Nothing logged for ${monthName(key)} yet.</p><button class="btn" data-action="add-expense">${icon('plus')} Add an expense</button></div>`}
+  </div>
+  ${months.length ? `<div class="card">
+    <div class="card-head">${icon('piggy')}<h2>By month</h2></div>
+    <div class="table-wrap"><table class="energy-table">
+      <thead><tr><th>Month</th><th>Dates</th>${USERS.map((u) => `<th>${u.name}</th>`).join('')}<th>Total</th></tr></thead>
+      <tbody>${months.map((m) => { const s2 = expenseStats(expensesIn(m)); return `<tr class="${m === key ? 'on' : ''}" data-action="piggy-goto" data-m="${m}">
+        <td>${monthName(m)}</td><td class="muted">${monthRange(m)}</td>${USERS.map((u) => `<td>${fmtCash(s2.paid[u.id])}</td>`).join('')}<td><b>${fmtCash(s2.total)}</b></td></tr>`; }).join('')}</tbody>
+    </table></div>
+  </div>` : ''}`;
+};
+
+function openExpenseSheet(ex) {
+  const today = isoDay(new Date());
+  const inMonth = piggyMonth === monthKey(new Date()) ? today : isoDay(monthBounds(piggyMonth)[0]);
+  const x = ex || { id: '', title: '', amount: '', date: inMonth, paidBy: USERS[0].id, split: true };
+  openSheet(`${sheetHead(ex ? 'Edit expense' : 'New expense', 'piggy')}
+    <div class="field"><label for="ex-title">What was it?</label><input class="input" id="ex-title" value="${esc(x.title)}" placeholder="e.g. Groceries"></div>
+    <div class="field-row">
+      <div class="field"><label for="ex-amount">Amount</label><input class="input" id="ex-amount" type="number" inputmode="decimal" step="0.01" min="0" value="${x.amount}" placeholder="0.00"></div>
+      <div class="field"><label for="ex-date">Day</label><input class="input" type="date" id="ex-date" value="${x.date}"></div>
+    </div>
+    <div class="field"><label>Who paid?</label>${whoPicker(x.paidBy, false)}</div>
+    <div class="setting-row imp-row"><div><b>Split 50/50</b><div class="hint">Counts toward what each of you owes. Turn off for a personal expense.</div></div>
+      <button class="switch" id="ex-split" role="switch" aria-checked="${!!x.split}" data-action="toggle-important"></button></div>
+    <div class="sheet-actions">
+      ${ex ? `<button class="btn danger" data-action="del-expense" data-id="${x.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
+      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="save-expense" data-id="${x.id}">${ex ? 'Save' : 'Add expense'}</button>
+    </div>`);
+  if (!ex) setTimeout(() => $('#ex-title')?.focus(), 50);
+}
+
 /* ---------- Energy ---------- */
-const ENERGY_RANGES = { 30: '30 days', 90: '90 days', '12m': '12 months' };
+const ENERGY_RANGES = [['cycle', 'This bill'], ['last', 'Last bill'], ['90', '90 days'], ['12m', '12 months']];
 views.energy = () => {
-  const range = state.settings.energyRange || '30';
+  const range = ENERGY_RANGES.some(([k]) => k === state.settings.energyRange) ? state.settings.energyRange : 'cycle';
   const all = energyDays();
   if (!all.length) {
     return `<div class="section-title">Energy</div>
     <div class="card energy-empty">${syncBanner()}
-      <p class="hint">Once PG&amp;E data comes in, this page shows your daily and monthly use and cost, split into electric and gas.</p></div>`;
+      <p class="hint">Once PG&amp;E data comes in, this page shows your use and cost for the current bill, past bills and the last year, split into electric and gas.</p></div>`;
   }
+  const today = isoDay(new Date());
+  const cur = cycleFor();
+  const isBill = range === 'cycle' || range === 'last';
+  const c = isBill && cur ? (range === 'last' ? previousCycle(cur) : cur) : null;
   const rows = energyRows(range);
   const t = energyTotals(rows);
-  const months = energyRows('12m').filter((r) => r.days).reverse();
   const perDay = t.days ? t.cost / t.days : 0;
-  return `<div class="section-title">Energy<span class="spacer"></span>
-    <div class="seg">${Object.entries(ENERGY_RANGES).map(([k, l]) => `<button class="${range === k ? 'on' : ''}" data-action="energy-range" data-v="${k}">${l}</button>`).join('')}</div></div>
-  ${syncBanner(true)}
-  <div class="energy-tiles">
-    <div class="card tile"><small>Total cost</small><b>${fmtMoney(t.cost)}</b><span>${t.days} day${t.days === 1 ? '' : 's'} of data</span></div>
-    <div class="card tile"><small><i class="key-e"></i>Electric</small><b>${fmtMoney(t.eCost)}</b><span>${Math.round(t.kwh).toLocaleString()} kWh</span></div>
-    <div class="card tile"><small><i class="key-g"></i>Gas</small><b>${fmtMoney(t.gCost)}</b><span>${Math.round(t.therms).toLocaleString()} therms</span></div>
-    <div class="card tile"><small>Average per day</small><b>${fmtMoney(perDay)}</b><span>${t.days ? (t.kwh / t.days).toFixed(1) : 0} kWh a day</span></div>
-  </div>
-  <div class="card energy-main">${energyChart(rows, 220)}</div>
-  <div class="card">
-    <div class="card-head">${icon('calendar')}<h2>By month</h2><span class="hint">PG&amp;E data through ${fmtShort(all[all.length - 1])}</span></div>
+  const fc = range === 'cycle' ? billForecast(c) : null;
+  const bill = c && range === 'last' ? billed(c.start) : null;
+  let note = '';
+  if (isBill && !c) note = `<p class="hint cycle-note">Billing cycle dates come with the next morning's PG&amp;E sync. Until then this shows the last 30 days.</p>`;
+  else if (range === 'cycle') {
+    const dayN = Math.min(daysIncl(c.start, today), daysIncl(c.start, c.end));
+    const left = daysIncl(today, c.end) - 1;
+    note = `<div class="card cycle-bar"><div><small>Current bill</small><b>${cycleRange(c)}</b></div>
+      <div><small>Day</small><b>${dayN} of ${daysIncl(c.start, c.end)}</b></div>
+      <div><small>Days left</small><b>${Math.max(left, 0)}</b></div>
+      <div class="cycle-progress"><span style="width:${Math.round((dayN / daysIncl(c.start, c.end)) * 100)}%"></span></div>
+      <p class="hint">${c.known ? '' : 'Bill dates are estimated until PG&amp;E sends this cycle. '}PG&amp;E data through ${fmtShort(all[all.length - 1])}; the latest day or two can lag.</p></div>`;
+  } else if (range === 'last') {
+    note = `<p class="hint cycle-note">Last bill: ${cycleRange(c)} (${daysIncl(c.start, c.end)} days)${c.known ? '' : ', estimated dates'}.</p>`;
+  }
+  const lastTile = fc && fc.projected
+    ? `<div class="card tile"><small>Projected bill</small><b>${fmtMoney(fc.projected)}</b><span>PG&amp;E's estimate${fc.typical ? ` · usually ${fmtMoney(fc.typical)}` : ''}</span></div>`
+    : bill !== null
+      ? `<div class="card tile"><small>Billed</small><b>${fmtMoney(bill)}</b><span>${fmtMoney(perDay)} a day on average</span></div>`
+      : `<div class="card tile"><small>Average per day</small><b>${fmtMoney(perDay)}</b><span>${t.days ? (t.kwh / t.days).toFixed(1) : 0} kWh a day</span></div>`;
+
+  // Past bills when cycle dates are known, calendar months otherwise.
+  const starts = cycleStarts();
+  let table;
+  if (cur && starts.length >= 2) {
+    const cycles = [];
+    for (let x = cur, i = 0; x && i < 13; i++) {
+      cycles.push(x);
+      const p = previousCycle(x);
+      if (!p.known) break; // only bills PG&E has actually sent
+      x = p;
+    }
+    table = `<div class="card-head">${icon('calendar')}<h2>By bill</h2><span class="hint">Each PG&amp;E billing cycle, newest first</span></div>
+    <div class="table-wrap"><table class="energy-table">
+      <thead><tr><th>Bill</th><th>Electric</th><th>Gas</th><th>Total</th></tr></thead>
+      <tbody>${cycles.map((x) => {
+        const m = energyTotals(all.filter((d) => d >= x.start && d <= x.end).map((d) => ({ days: 1, ...dayTotal(d) })));
+        const b = billed(x.start);
+        const isCur = x.start === cur.start;
+        return `<tr><td>${cycleRange(x)} <span class="muted">(${daysIncl(x.start, x.end)} days${isCur ? ', so far' : ''})</span></td>
+          <td>${fmtMoney(m.eCost)} <span class="muted">${Math.round(m.kwh)} kWh</span></td>
+          <td>${fmtMoney(m.gCost)} <span class="muted">${Math.round(m.therms)} therms</span></td>
+          <td><b>${fmtMoney(m.cost)}</b>${b !== null && !isCur ? ` <span class="muted">billed ${fmtMoney(b)}</span>` : ''}</td></tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+  } else {
+    const months = energyRows('12m').filter((r) => r.days).reverse();
+    table = `<div class="card-head">${icon('calendar')}<h2>By month</h2><span class="hint">PG&amp;E data through ${fmtShort(all[all.length - 1])}</span></div>
     <div class="table-wrap"><table class="energy-table">
       <thead><tr><th>Month</th><th>Electric</th><th>Gas</th><th>Total</th></tr></thead>
       <tbody>${months.map((m) => `<tr><td>${new Date(`${m.key}-15T12:00`).toLocaleDateString([], { month: 'long', year: 'numeric' })}${m.days < 28 ? ` <span class="muted">(${m.days} days)</span>` : ''}</td>
         <td>${fmtMoney(m.eCost)} <span class="muted">${Math.round(m.kwh)} kWh</span></td>
         <td>${fmtMoney(m.gCost)} <span class="muted">${Math.round(m.therms)} therms</span></td>
         <td><b>${fmtMoney(m.cost)}</b></td></tr>`).join('')}</tbody>
-    </table></div>
-  </div>`;
+    </table></div>`;
+  }
+
+  return `<div class="section-title">Energy<span class="spacer"></span>
+    <div class="seg">${ENERGY_RANGES.map(([k, l]) => `<button class="${range === k ? 'on' : ''}" data-action="energy-range" data-v="${k}">${l}</button>`).join('')}</div></div>
+  ${syncBanner(true)}
+  ${note}
+  <div class="energy-tiles">
+    <div class="card tile"><small>${range === 'cycle' && c ? 'So far this bill' : 'Total cost'}</small><b>${fmtMoney(t.cost)}</b><span>${t.days} day${t.days === 1 ? '' : 's'} of data</span></div>
+    <div class="card tile"><small><i class="key-e"></i>Electric</small><b>${fmtMoney(t.eCost)}</b><span>${Math.round(t.kwh).toLocaleString()} kWh</span></div>
+    <div class="card tile"><small><i class="key-g"></i>Gas</small><b>${fmtMoney(t.gCost)}</b><span>${Math.round(t.therms).toLocaleString()} therms</span></div>
+    ${lastTile}
+  </div>
+  <div class="card energy-main">${energyChart(rows, 220)}</div>
+  <div class="card">${table}</div>`;
 };
 
 views.settings = () => {
@@ -784,6 +1161,7 @@ views.settings = () => {
   return `
   <div class="section-title">Settings</div>
   <div class="page-grid" style="grid-template-columns:repeat(auto-fill,minmax(380px,1fr))">
+    ${houseCard()}
     <div class="card">
       <div class="card-head">${icon('home')}<h2>Household</h2></div>
       <div class="profiles">${USERS.map((u) => `<div class="profile">${avatar(u.id, 'lg')}<b>${u.name}</b></div>`).join('')}</div>
@@ -800,7 +1178,7 @@ views.settings = () => {
         <div class="seg">${['auto', 'light', 'dark'].map((t) => `<button class="${s.theme === t ? 'on' : ''}" data-action="set-theme" data-v="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></div>
       <div class="setting-row"><div><b>24-hour clock</b></div>
         <button class="switch" role="switch" aria-checked="${s.clock24}" data-action="set-clock24"></button></div>
-      <div class="setting-row"><div><b>Keep screen on</b><div class="hint">Stops the Surface from sleeping while the dashboard is open.</div></div>
+      <div class="setting-row"><div><b>Keep screen on</b><div class="hint">Stops the screen from sleeping while the dashboard is open.</div></div>
         <button class="switch" role="switch" aria-checked="${s.wakeLock}" data-action="set-wake"></button></div>
     </div>
     <div class="card">
@@ -810,7 +1188,7 @@ views.settings = () => {
         <div style="display:flex;gap:8px"><input class="input" id="energy-pass" type="password" autocomplete="off" placeholder="${energyPass ? 'Saved on this device' : 'The ENERGY_PASSPHRASE you chose'}">
         <button class="btn" data-action="energy-connect">${energyPass ? 'Update' : 'Connect'}</button></div></div>
       <details class="setup"${energyPass ? '' : ' open'}><summary>How to sign in to PG&amp;E (one time)</summary>
-        <p class="hint">The fridge never signs in itself. A GitHub job signs in to PG&amp;E every morning and saves your usage, locked with your passphrase.</p>
+        <p class="hint">This device never signs in to PG&amp;E itself. A GitHub job signs in to PG&amp;E every morning and saves your usage, locked with your passphrase.</p>
         <ol class="hint">
           <li>In the Home-Assistance repo on GitHub, open <b>Settings › Secrets and variables › Actions</b> and add <code>PGE_USERNAME</code>, <code>PGE_PASSWORD</code> and <code>ENERGY_PASSPHRASE</code> (a phrase you make up).</li>
           <li>PG&amp;E sends a code the first time a new device signs in. On your computer run <code>python3 sync/pge_pair.py</code>, enter the code, and save the line it prints as <code>PGE_LOGIN_DATA</code>.</li>
@@ -826,7 +1204,7 @@ views.settings = () => {
     </div>
     <div class="card">
       <div class="card-head">${icon('sparkles')}<h2>About</h2></div>
-      <p class="hint">Events, tasks and settings are saved on this device only. Weather comes from Open-Meteo.</p>
+      <p class="hint">Display settings stay on this device. Events, tasks and expenses are shared with your other devices when sync is on. Weather comes from Open-Meteo.</p>
       <button class="btn danger" data-action="reset">${icon('trash')} Clear events and tasks</button>
     </div>
   </div>`;
@@ -917,6 +1295,7 @@ function openEventSheet(ev, date, time = '') {
       <div class="field"><label for="ev-end">Ends</label><input class="input" type="time" id="ev-end" value="${e.end || ''}"></div>
     </div>
     <p class="hint">Leave Starts empty for an all-day event.</p>
+    ${impRow(e.important)}
     <div class="sheet-actions">
       ${ev ? `<button class="btn danger" data-action="del-event" data-id="${e.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
@@ -936,6 +1315,7 @@ function openTaskSheet(task, who = USERS[0].id) {
   openSheet(`${sheetHead(task ? 'Edit task' : 'New task', 'checkSquare')}
     <div class="field"><label for="task-title">Task</label><input class="input" id="task-title" value="${esc(t.title)}" placeholder="e.g. Take out trash"></div>
     <div class="field"><label>Assigned to</label>${whoPicker(t.who, false)}</div>
+    ${impRow(t.important)}
     <div class="field-row">
       <div class="field"><label>Repeats</label><div class="seg" id="task-repeat">${Object.entries(REPEAT_LABEL).map(([k, l]) => `<button class="${t.repeat === k ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${l}</button>`).join('')}</div></div>
       <div class="field"><label>Stars</label><div class="seg" id="task-stars">${[1, 3, 5, 10].map((n) => `<button class="${t.stars === n ? 'on' : ''}" data-action="pick-seg" data-v="${n}">${n}</button>`).join('')}</div></div>
@@ -955,6 +1335,7 @@ const actions = {
   'pick-who': (el) => {
     el.parentElement.querySelectorAll('.who-opt').forEach((b) => b.classList.toggle('on', b === el));
   },
+  'toggle-important': (el) => el.setAttribute('aria-checked', String(el.getAttribute('aria-checked') !== 'true')),
   'pick-seg': (el) => {
     el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
   },
@@ -979,7 +1360,7 @@ const actions = {
     const title = $('#ev-title').value.trim();
     const date = $('#ev-date').value;
     if (!title || !date) { toast('Add a title and a date'); return; }
-    const data = { title, date, time: $('#ev-time').value || '', end: $('#ev-end').value || '', who: pickedWho() };
+    const data = { title, date, time: $('#ev-time').value || '', end: $('#ev-end').value || '', who: pickedWho(), important: pickedImportant() };
     const existing = state.events.find((x) => x.id === el.dataset.id);
     if (existing) Object.assign(existing, data);
     else state.events.push({ id: `e${Date.now()}`, ...data });
@@ -1001,6 +1382,7 @@ const actions = {
       who: pickedWho() || USERS[0].id,
       repeat: $('#task-repeat .on')?.dataset.v || 'daily',
       stars: Number($('#task-stars .on')?.dataset.v || 5),
+      important: pickedImportant(),
     };
     const existing = state.tasks.find((x) => x.id === el.dataset.id);
     if (existing) Object.assign(existing, data);
@@ -1031,6 +1413,26 @@ const actions = {
     fetchWeather();
   },
   'energy-range': (el) => { state.settings.energyRange = el.dataset.v; save(); },
+  'house-connect': async () => {
+    const v = $('#house-pass').value;
+    if (!v) { toast('Type the passphrase first'); return; }
+    $('#house-pass').blur();
+    if (v !== housePass) house.disconnect();
+    const r = await house.connect(v);
+    if (r === 'new') { houseTyped = v; return; }
+    if (r === 'ok') { housePass = v; try { localStorage.setItem(HOUSE_PASS_KEY, v); } catch { /* ignore */ } toast('Synced'); renderView(); }
+  },
+  'house-create': async () => {
+    if (!houseTyped) return;
+    const r = await house.connect(houseTyped, { create: true });
+    if (r === 'ok') { housePass = houseTyped; try { localStorage.setItem(HOUSE_PASS_KEY, housePass); } catch { /* ignore */ } toast('Household created'); }
+    houseTyped = ''; renderView();
+  },
+  'house-cancel': () => { houseTyped = ''; houseSync = { state: housePass ? 'ok' : 'off' }; },
+  'house-disconnect': () => {
+    house.disconnect(); housePass = '';
+    try { localStorage.removeItem(HOUSE_PASS_KEY); } catch { /* ignore */ }
+  },
   'energy-connect': () => {
     const v = $('#energy-pass').value;
     if (!v) { toast('Type the passphrase first'); return; }
@@ -1046,15 +1448,41 @@ const actions = {
     energySync = { state: 'off' };
   },
   'clear-energy': () => { energy = null; try { localStorage.removeItem(ENERGY_KEY); } catch { /* ignore */ } toast('Energy data removed'); },
+  'add-expense': () => openExpenseSheet(null),
+  'edit-expense': (el) => openExpenseSheet(state.expenses.find((x) => x.id === el.dataset.id)),
+  'save-expense': (el) => {
+    const title = $('#ex-title').value.trim();
+    const amount = Math.round(Number($('#ex-amount').value) * 100) / 100;
+    const date = $('#ex-date').value;
+    if (!title || !(amount > 0) || !date) { toast('Add what it was, the amount and the day'); return; }
+    const data = { title, amount, date, paidBy: pickedWho() || USERS[0].id, split: $('#ex-split').getAttribute('aria-checked') === 'true' };
+    const existing = state.expenses.find((x) => x.id === el.dataset.id);
+    if (existing) Object.assign(existing, data);
+    else state.expenses.push({ id: `x${Date.now()}`, ...data });
+    piggyMonth = date.slice(0, 7);
+    closeSheet();
+  },
+  'del-expense': (el) => {
+    state.expenses = state.expenses.filter((x) => x.id !== el.dataset.id);
+    closeSheet();
+  },
+  'piggy-move': (el) => {
+    const [y, m] = piggyMonth.split('-').map(Number);
+    piggyMonth = monthKey(new Date(y, m - 1 + Number(el.dataset.d), 1));
+  },
+  'piggy-today': () => { piggyMonth = monthKey(new Date()); },
+  'piggy-goto': (el) => { piggyMonth = el.dataset.m; window.scrollTo({ top: 0, behavior: 'smooth' }); },
+  'toggle-split': () => { state.settings.showSplit = !state.settings.showSplit; },
+
   reset: () => {
     if (!confirm('Clear all events and tasks on this device?')) return;
-    state = { ...defaultState(), settings: state.settings, events: [], tasks: [] };
+    state = { ...defaultState(), settings: state.settings, expenses: state.expenses, events: [], tasks: [] };
     save();
   },
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['pick-who', 'pick-seg', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search']);
+const NO_RERENDER = new Set(['pick-who', 'pick-seg', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -1104,38 +1532,6 @@ async function searchPlace() {
 }
 
 /* =========================================================
-   Search
-   ========================================================= */
-const searchInput = $('#search');
-const searchOut = $('#search-results');
-
-function runSearch() {
-  const q = searchInput.value.trim().toLowerCase();
-  if (!q) { searchOut.hidden = true; return; }
-  const hits = [];
-  PAGES.forEach((p) => { if (p.label.toLowerCase().includes(q)) hits.push({ ic: p.icon, label: p.label, meta: 'Page', href: `#/${p.id}` }); });
-  state.tasks.forEach((t) => { if (t.title.toLowerCase().includes(q)) hits.push({ ic: 'checkSquare', label: t.title, meta: `Task · ${whoName(t.who)}`, href: '#/tasks' }); });
-  state.events.forEach((ev) => { if (ev.title.toLowerCase().includes(q)) hits.push({ ic: 'calendar', label: ev.title, meta: `${dayLabel(ev.date)} · ${whoName(ev.who)}`, href: '#/calendar' }); });
-  searchOut.innerHTML = hits.length
-    ? hits.slice(0, 12).map((h) => `<button data-href="${h.href}">${icon(h.ic)}<span>${esc(h.label)}</span><small>${esc(h.meta)}</small></button>`).join('')
-    : '<div class="empty">No results</div>';
-  searchOut.hidden = false;
-}
-searchInput.addEventListener('input', runSearch);
-searchInput.addEventListener('focus', runSearch);
-searchOut.addEventListener('click', (e) => {
-  const b = e.target.closest('[data-href]');
-  if (!b) return;
-  location.hash = b.dataset.href;
-  searchInput.value = '';
-  searchOut.hidden = true;
-  searchInput.blur();
-});
-document.addEventListener('pointerdown', (e) => {
-  if (!e.target.closest('.search')) searchOut.hidden = true;
-});
-
-/* =========================================================
    Keep the screen awake (Wake Lock API)
    ========================================================= */
 let wakeLock = null;
@@ -1165,11 +1561,17 @@ render();
 fetchWeather();
 syncEnergy();
 syncWakeLock();
+if (housePass && syncAvailable()) {
+  let savedBase = null;
+  try { savedBase = JSON.parse(localStorage.getItem(HOUSE_BASE_KEY)); } catch { savedBase = null; }
+  house.resume(housePass, savedBase);
+}
+window.addEventListener('online', () => house.retry());
 
 window.addEventListener('hashchange', () => {
   closeSheet();
-  render();
   window.scrollTo(0, 0);
+  render();
 });
 
 let lastMinute = new Date().getMinutes();
