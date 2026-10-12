@@ -5,6 +5,7 @@ import { icon, hydrateIcons } from './icons.js';
    ========================================================= */
 const STORE_KEY = 'home-dashboard.v2';
 const WEATHER_KEY = 'home-dashboard.weather.v1';
+const ENERGY_KEY = 'home-dashboard.energy.v1';
 
 // The two people in the household. `color` picks one of the existing c-* color families.
 const USERS = [
@@ -243,6 +244,97 @@ async function fetchWeather() {
   if (currentRoute() === 'home') renderView();
 }
 
+/* =========================================================
+   Energy (PG&E Green Button CSV, loaded by hand in Settings)
+   ========================================================= */
+// Shape: { electric: { 'YYYY-MM-DD': [kWh, cost] }, gas: { 'YYYY-MM-DD': [therms, cost] } }
+let energy = null;
+try { energy = JSON.parse(localStorage.getItem(ENERGY_KEY)); } catch { energy = null; }
+const saveEnergy = () => { try { localStorage.setItem(ENERGY_KEY, JSON.stringify(energy)); } catch { /* ignore */ } };
+
+const csvCells = (line) => (line.match(/("([^"]|"")*"|[^,]*)(,|$)/g) || []).map((c) => c.replace(/,$/, '').replace(/^"|"$/g, '').replace(/""/g, '"').trim());
+const money = (v) => Number(String(v || '').replace(/[$,\s]/g, '')) || 0;
+
+// Reads a PG&E "Download My Data" CSV (usage or billing export) into daily totals.
+// Returns the number of days read, or 0 when the file isn't in that format.
+function importGreenButton(text) {
+  const lines = text.split(/\r?\n/);
+  const at = lines.findIndex((l) => /^"?TYPE"?,/i.test(l));
+  if (at < 0) return 0;
+  const head = csvCells(lines[at]).map((h) => h.toUpperCase());
+  const col = (re) => head.findIndex((h) => re.test(h));
+  const iType = col(/^TYPE$/); const iDate = col(/^(START )?DATE$/); const iUse = col(/^USAGE/);
+  const iUnit = col(/^UNITS$/); const iCost = col(/^COST$/);
+  if (iDate < 0 || iUse < 0) return 0;
+  energy = energy || { electric: {}, gas: {} };
+  const days = new Set();
+  const fresh = {};
+  for (const line of lines.slice(at + 1)) {
+    const c = csvCells(line);
+    if (c.length <= iUse || !/^\d{4}-\d{2}-\d{2}$/.test(c[iDate])) continue;
+    const label = `${c[iType] || ''} ${iUnit >= 0 ? c[iUnit] : ''} ${head[iUse]}`.toLowerCase();
+    const kind = /gas|therm/.test(label) ? 'gas' : 'electric';
+    const key = `${kind}|${c[iDate]}`;
+    // A day in a new file replaces that day from older files instead of adding to it.
+    if (!fresh[key]) { fresh[key] = true; energy[kind][c[iDate]] = [0, 0]; }
+    const d = energy[kind][c[iDate]];
+    d[0] += Number(c[iUse]) || 0;
+    d[1] += iCost >= 0 ? money(c[iCost]) : 0;
+    days.add(c[iDate]);
+  }
+  if (!days.size) return 0;
+  energy.loadedAt = Date.now();
+  saveEnergy();
+  return days.size;
+}
+
+const energyDays = () => [...new Set([...Object.keys(energy?.electric || {}), ...Object.keys(energy?.gas || {})])].sort();
+const dayTotal = (iso) => {
+  const e = energy.electric[iso] || [0, 0]; const g = energy.gas[iso] || [0, 0];
+  return { kwh: e[0], therms: g[0], eCost: e[1], gCost: g[1], cost: e[1] + g[1] };
+};
+const sumDays = (list) => list.map(dayTotal).reduce((a, d) => ({ kwh: a.kwh + d.kwh, therms: a.therms + d.therms, cost: a.cost + d.cost }), { kwh: 0, therms: 0, cost: 0 });
+const fmtMoney = (n) => `$${n.toFixed(n >= 100 ? 0 : 2)}`;
+const fmtShort = (iso) => new Date(`${iso}T12:00`).toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+function energyCard() {
+  const all = energyDays();
+  if (!all.length) return '';
+  const last = all[all.length - 1];
+  const span = (from, n) => Array.from({ length: n }, (_, i) => isoDay(addDays(new Date(`${from}T12:00`), i)));
+  const recent = span(isoDay(addDays(new Date(`${last}T12:00`), -29)), 30);
+  const before = span(isoDay(addDays(new Date(`${last}T12:00`), -59)), 30).filter((d) => all.includes(d));
+  const now = sumDays(recent.filter((d) => all.includes(d)));
+  const prev = sumDays(before);
+  const month = sumDays(all.filter((d) => d.slice(0, 7) === last.slice(0, 7)));
+  const hasCost = now.cost > 0;
+  const val = (d) => (hasCost ? d.cost : d.kwh);
+  const totals = recent.map((d) => dayTotal(d));
+  const max = Math.max(...totals.map(val), 0.01);
+  const bars = totals.map((d, i) => {
+    const hE = ((hasCost ? d.eCost : d.kwh) / max) * 100;
+    const hG = hasCost ? (d.gCost / max) * 100 : 0;
+    return `<rect class="bar-e" x="${i * 10 + 1.5}" y="${100 - hE}" width="7" height="${hE}" rx="1.5"></rect>${hG ? `<rect class="bar-g" x="${i * 10 + 1.5}" y="${100 - hE - hG}" width="7" height="${hG}" rx="1.5"></rect>` : ''}`;
+  }).join('');
+  const change = prev.cost > 0 && before.length >= 25 ? Math.round(((now.cost - prev.cost) / prev.cost) * 100) : null;
+  return `<div class="card a-energy">
+    <div class="card-head">${icon('zap')}<h2>Energy</h2><span class="hint">PG&amp;E data through ${fmtShort(last)}</span></div>
+    <div class="energy">
+      <div class="energy-stats">
+        <div><small>${new Date(`${last}T12:00`).toLocaleDateString([], { month: 'long' })} so far</small><b>${hasCost ? fmtMoney(month.cost) : `${Math.round(month.kwh)} kWh`}</b></div>
+        <div><small>Last 30 days</small><b>${hasCost ? fmtMoney(now.cost) : `${Math.round(now.kwh)} kWh`}</b>
+          ${change === null ? '' : change === 0 ? '<span class="trend">Same as the 30 days before</span>' : `<span class="trend ${change > 0 ? 'up' : 'down'}">${icon(change > 0 ? 'arrowUp' : 'arrowDown')}${Math.abs(change)}% vs the 30 days before</span>`}</div>
+        <div><small>Used</small><b class="sm">${Math.round(now.kwh)} kWh${now.therms ? ` · ${Math.round(now.therms)} therms` : ''}</b></div>
+      </div>
+      <div class="energy-chart">
+        <div class="chart-top"><span>${hasCost ? 'Cost' : 'kWh'} per day</span><span>${hasCost ? `${now.therms ? '<i class="key-e"></i>Electric <i class="key-g"></i>Gas · ' : ''}max ${fmtMoney(max)}` : `max ${max.toFixed(1)} kWh`}</span></div>
+        <svg viewBox="0 0 300 100" preserveAspectRatio="none" role="img" aria-label="Daily ${hasCost ? 'cost' : 'usage'}, last 30 days">${bars}</svg>
+        <div class="chart-axis"><span>${fmtShort(recent[0])}</span><span>${fmtShort(last)}</span></div>
+      </div>
+    </div>
+  </div>`;
+}
+
 function weatherValid() {
   const { lat, lon } = state.settings.place;
   return weather && weather.unit === state.settings.unit && weather.placeKey === `${lat},${lon}`;
@@ -420,6 +512,7 @@ views.home = () => `
         }).join('')}
       </div>
     </div>
+    ${energyCard()}
   </div>`;
 
 /* ---------- Calendar ---------- */
@@ -568,6 +661,15 @@ views.settings = () => {
         <button class="switch" role="switch" aria-checked="${s.clock24}" data-action="set-clock24"></button></div>
       <div class="setting-row"><div><b>Keep screen on</b><div class="hint">Stops the Surface from sleeping while the dashboard is open.</div></div>
         <button class="switch" role="switch" aria-checked="${s.wakeLock}" data-action="set-wake"></button></div>
+    </div>
+    <div class="card">
+      <div class="card-head">${icon('zap')}<h2>Energy</h2></div>
+      <p class="hint">On PG&amp;E's Energy Usage page, choose <b>Download My Data</b>, pick CSV and a date range, then load the file here. Electric and gas files both work, and newer files update older days.</p>
+      ${energyDays().length ? `<p class="hint">Loaded ${energyDays().length} days, ${fmtShort(energyDays()[0])} to ${fmtShort(energyDays().at(-1))}.</p>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <label class="btn">${icon('plug')} Load PG&amp;E file<input type="file" id="energy-file" accept=".csv,text/csv" multiple hidden></label>
+        ${energyDays().length ? `<button class="btn ghost" data-action="clear-energy">${icon('trash')} Remove</button>` : ''}
+      </div>
     </div>
     <div class="card">
       <div class="card-head">${icon('sparkles')}<h2>About</h2></div>
@@ -774,6 +876,7 @@ const actions = {
     toast(`Weather location set to ${el.dataset.name}`);
     fetchWeather();
   },
+  'clear-energy': () => { energy = null; try { localStorage.removeItem(ENERGY_KEY); } catch { /* ignore */ } toast('Energy data removed'); },
   reset: () => {
     if (!confirm('Clear all events and tasks on this device?')) return;
     state = { ...defaultState(), settings: state.settings, events: [], tasks: [] };
@@ -801,6 +904,14 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#she
 // Refresh the page behind a sheet when it closes, so a saved event or task shows up.
 const sheetObserver = new MutationObserver(() => { if ($('#sheet').hidden) renderView(); });
 sheetObserver.observe($('#sheet'), { attributes: true, attributeFilter: ['hidden'] });
+
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 'energy-file') return;
+  let read = 0;
+  for (const f of e.target.files) read += importGreenButton(await f.text());
+  toast(read ? `Energy data now covers ${energyDays().length} days` : "That file doesn't look like a PG&E Download My Data CSV");
+  renderView();
+});
 
 document.addEventListener('keydown', (e) => {
   if (e.target.id === 'set-place' && e.key === 'Enter') searchPlace();
