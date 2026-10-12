@@ -938,6 +938,8 @@ const house = createSync({
   },
   onStatus: (st) => {
     houseSync = st;
+    // The saved passphrase stopped working: ask for it again.
+    if (st.state === 'badpass' && housePass && !houseSheetOpen()) openHouseSheet();
     if (currentRoute() === 'settings' && calmToRender()) renderView();
   },
   onBase: (b) => { try { b ? localStorage.setItem(HOUSE_BASE_KEY, JSON.stringify(b)) : localStorage.removeItem(HOUSE_BASE_KEY); } catch { /* ignore */ } },
@@ -968,12 +970,38 @@ function houseCard() {
     ${m.ok ? `<p class="sync-line">${icon('check')}${m.text}</p>` : `<div class="sync-banner">${icon('users')}<span>${m.text}</span></div>`}
     ${houseSync.state === 'new' ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 16px"><button class="btn" data-action="house-create">Start a new household</button><button class="btn ghost" data-action="house-cancel">Cancel</button></div>` : ''}
     <div class="field"><label for="house-pass">Household passphrase</label>
-      <div style="display:flex;gap:8px"><input class="input" id="house-pass" type="password" autocomplete="off" placeholder="${housePass ? 'Saved on this device' : 'Same phrase on every device'}">
+      <div style="display:flex;gap:8px"><input class="input" id="house-pass" data-house-pass type="password" autocomplete="off" placeholder="${housePass ? 'Saved on this device' : 'Same phrase on every device'}">
       <button class="btn" data-action="house-connect">${housePass ? 'Update' : 'Connect'}</button></div>
       <div class="hint">Type the same passphrase on each device. Everything is encrypted with it before it leaves this device. Joining a household replaces this device's events, tasks and expenses with the shared ones.</div></div>
     ${housePass ? '<button class="btn ghost" data-action="house-disconnect">Stop syncing on this device</button>' : ''}
   </div>`;
 }
+
+// Sign-in panel: pops up when this device isn't in a household yet, or its passphrase
+// needs typing again. "Not now" keeps the device on its own until the app is opened again.
+const houseSheetOpen = () => !$('#sheet').hidden && $('#sheet').dataset.kind === 'house';
+function openHouseSheet() {
+  const st = houseSync.state;
+  const note = st === 'new' ? 'No household uses this passphrase yet. Check it for typos, or start a new household with what is on this device.'
+    : st === 'badpass' ? "That passphrase doesn't unlock the household. Type it again."
+    : st === 'error' ? "Couldn't reach the sync service. Check the connection and try again."
+    : st === 'offline' ? "You're offline. Connect to the internet to join the household." : '';
+  openSheet(`${sheetHead('Join your household', 'users')}
+    <p class="house-intro">Type your household passphrase to see the same events, tasks and expenses as everyone else.</p>
+    ${note ? `<div class="sync-banner">${icon('users')}<span>${note}</span></div>` : ''}
+    ${st === 'new' ? `<div class="sheet-actions" style="justify-content:flex-start;margin:0 0 16px">
+        <button class="btn" data-action="house-create">Start a new household</button>
+        <button class="btn ghost" data-action="house-cancel">Try again</button></div>` : `
+    <div class="field"><label for="house-pass-pop">Household passphrase</label>
+      <input class="input" id="house-pass-pop" data-house-pass type="password" autocomplete="off" placeholder="Same phrase on every device"></div>
+    <div class="sheet-actions">
+      <button class="btn ghost" data-action="close-sheet">Not now</button>
+      <button class="btn" data-action="house-connect" ${st === 'connecting' ? 'disabled' : ''}>${st === 'connecting' ? 'Connecting…' : 'Connect'}</button>
+    </div>`}`);
+  $('#sheet').dataset.kind = 'house';
+}
+// The passphrase box next to the button that was tapped (Settings card or the pop-up).
+const houseInput = (el) => (el?.closest('.sheet, .card') || document).querySelector('[data-house-pass]');
 
 /* ---------- Piggy Bank (shared expenses) ---------- */
 const fmtCash = (n) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -1265,6 +1293,7 @@ function openSheet(html) {
   clearTimeout(sheetTimer);
   $('#sheet').classList.remove('closing');
   $('#sheet-backdrop').classList.remove('closing');
+  delete $('#sheet').dataset.kind;
   $('#sheet').innerHTML = html;
   $('#sheet').hidden = false;
   $('#sheet-backdrop').hidden = false;
@@ -1424,22 +1453,38 @@ const actions = {
     fetchWeather();
   },
   'energy-range': (el) => { state.settings.energyRange = el.dataset.v; save(); },
-  'house-connect': async () => {
-    const v = $('#house-pass').value;
+  'house-connect': async (el) => {
+    const popup = houseSheetOpen() && !!el.closest('.sheet');
+    const input = houseInput(el);
+    const v = input?.value || '';
     if (!v) { toast('Type the passphrase first'); return; }
-    $('#house-pass').blur();
+    input.blur();
     if (v !== housePass) house.disconnect();
+    if (popup) { houseSync = { state: 'connecting' }; openHouseSheet(); }
     const r = await house.connect(v);
-    if (r === 'new') { houseTyped = v; return; }
-    if (r === 'ok') { housePass = v; try { localStorage.setItem(HOUSE_PASS_KEY, v); } catch { /* ignore */ } toast('Synced'); renderView(); }
+    if (r === 'new') houseTyped = v;
+    if (r === 'ok') {
+      housePass = v; try { localStorage.setItem(HOUSE_PASS_KEY, v); } catch { /* ignore */ }
+      toast('Synced');
+      if (popup) closeSheet();
+    } else if (popup) openHouseSheet();
+    renderView();
   },
   'house-create': async () => {
     if (!houseTyped) return;
+    const popup = houseSheetOpen();
     const r = await house.connect(houseTyped, { create: true });
-    if (r === 'ok') { housePass = houseTyped; try { localStorage.setItem(HOUSE_PASS_KEY, housePass); } catch { /* ignore */ } toast('Household created'); }
+    if (r === 'ok') {
+      housePass = houseTyped; try { localStorage.setItem(HOUSE_PASS_KEY, housePass); } catch { /* ignore */ }
+      toast('Household created');
+      if (popup) closeSheet();
+    } else if (popup) openHouseSheet();
     houseTyped = ''; renderView();
   },
-  'house-cancel': () => { houseTyped = ''; houseSync = { state: housePass ? 'ok' : 'off' }; },
+  'house-cancel': () => {
+    houseTyped = ''; houseSync = { state: housePass ? 'ok' : 'off' };
+    if (houseSheetOpen()) openHouseSheet();
+  },
   'house-disconnect': () => {
     house.disconnect(); housePass = '';
     try { localStorage.removeItem(HOUSE_PASS_KEY); } catch { /* ignore */ }
@@ -1523,6 +1568,7 @@ document.addEventListener('change', async (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.target.id === 'set-place' && e.key === 'Enter') searchPlace();
+  if (e.target.matches?.('[data-house-pass]') && e.key === 'Enter') e.target.closest('.sheet, .card')?.querySelector('[data-action="house-connect"]')?.click();
 });
 
 async function searchPlace() {
@@ -1576,6 +1622,8 @@ if (housePass && syncAvailable()) {
   let savedBase = null;
   try { savedBase = JSON.parse(localStorage.getItem(HOUSE_BASE_KEY)); } catch { savedBase = null; }
   house.resume(housePass, savedBase);
+} else if (syncAvailable()) {
+  openHouseSheet(); // not in a household yet: ask every time the app opens
 }
 window.addEventListener('online', () => house.retry());
 
