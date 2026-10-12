@@ -761,6 +761,15 @@ function personHead(u, size = 'lg') {
 }
 
 /* ---------- Home ---------- */
+// Today's calendar events, shown above each person's tasks on Home. Events that have ended fade back.
+function todayEvent(e) {
+  const now = new Date();
+  const endAt = e.time ? new Date(`${e.date}T${e.end || e.time}`) : null;
+  const past = endAt && endAt < now;
+  return `<button class="today-ev${e.important ? ' imp' : ''}${past ? ' past' : ''}" data-action="edit-event" data-id="${e.id}">
+    ${icon('calendar')}<b>${e.time ? fmtTime(new Date(`${e.date}T${e.time}`)) : 'All day'}</b><span>${esc(e.title)}</span>${impTag(e)}</button>`;
+}
+
 views.home = () => `
   <div class="grid-home">
     ${weatherCard()}
@@ -769,11 +778,13 @@ views.home = () => `
       <div class="list">${upcomingEvents(4).map((e) => eventRow(e, true)).join('') || '<p class="muted">Nothing on the calendar yet.</p>'}</div>
     </div>
     <div class="card a-tasks">
-      <div class="card-head">${icon('checkSquare')}<h2>Today's tasks</h2><a class="link" href="#/tasks">All tasks ${icon('arrowRight')}</a></div>
+      <div class="card-head">${icon('checkSquare')}<h2>Today</h2><a class="link" href="#/tasks">All tasks ${icon('arrowRight')}</a></div>
       <div class="home-tasks">
         ${USERS.map((u) => {
           const open = tasksFor(u.id).filter((t) => !isDone(t));
+          const evs = eventsOn(isoDay(new Date())).filter((e) => !e.who || e.who === 'both' || e.who === u.id);
           return `<div class="home-person">${personHead(u, 'md')}
+            ${evs.length ? `<div class="today-evs">${evs.map(todayEvent).join('')}</div>` : ''}
             <div class="task-list">${open.slice(0, 2).map((t) => taskCard(t, u)).join('') || '<p class="muted">All done for now.</p>'}</div>
             ${open.length > 2 ? `<a class="more-link" href="#/tasks">+${open.length - 2} more</a>` : ''}</div>`;
         }).join('')}

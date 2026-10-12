@@ -348,6 +348,15 @@ label.btn { cursor: pointer; }
 .home-person .task-body { padding: 6px 10px; }
 .home-person .task-body b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-person .check { width: 34px; height: 34px; font-size: 17px; }
+.today-evs { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.today-ev { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; border: 0; border-radius: 12px; padding: 8px 12px; background: var(--purple-bg); color: var(--text); text-align: left; font-size: 14px; }
+.today-ev > .ico { color: var(--purple-fg); font-size: 16px; }
+.today-ev b { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.today-ev span:not(.imp-tag) { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+.today-ev .imp-tag { margin-left: auto; }
+.today-ev.imp { background: var(--imp-bg); box-shadow: inset 3px 0 0 var(--imp); }
+.today-ev.imp > .ico, .today-ev.imp b { color: var(--imp); }
+.today-ev.past { opacity: .55; }
 .home-person .more-link { display: block; margin-top: 8px; font-size: 13px; color: var(--text-2); font-weight: 500; }
 
 /* Calendar */
@@ -465,10 +474,10 @@ label.btn { cursor: pointer; }
 .sheet-backdrop.closing { animation: backdrop-out .16s ease-in forwards; }
 
 /* Everything tappable gives a little squish under the finger. */
-.btn, .btn-round, .tab, .row, .task, .ev-chip, .wk-ev, .cal .day, .who-opt, .seg button, .check, .add-task, .switch, .av-pair {
+.btn, .btn-round, .tab, .row, .task, .today-ev, .ev-chip, .wk-ev, .cal .day, .who-opt, .seg button, .check, .add-task, .switch, .av-pair {
   transition: transform .15s ease, background-color .2s, color .2s, box-shadow .2s;
 }
-.btn:active, .btn-round:active, .tab:active, .row:active, .ev-chip:active, .wk-ev:active, .who-opt:active, .seg button:active, .add-task:active, .av-pair:active { transform: scale(.96); }
+.btn:active, .btn-round:active, .tab:active, .row:active, .today-ev:active, .ev-chip:active, .wk-ev:active, .who-opt:active, .seg button:active, .add-task:active, .av-pair:active { transform: scale(.96); }
 .task:active, .cal .day:active { transform: scale(.985); }
 .check:active { transform: scale(.88); }
 .seg button.on { transition: background-color .25s, box-shadow .25s, color .2s, transform .15s; }
