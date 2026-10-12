@@ -383,6 +383,19 @@ label.btn { cursor: pointer; }
 .day-evs { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .more { font-size: 11px; color: var(--text-3); padding-left: 4px; }
 
+/* Today's tasks on the calendar: a tick box and title in the person's color */
+.task-chip { display: flex; align-items: center; gap: 4px; min-width: 0; border-radius: 8px; padding: 2px 6px 2px 2px; border: 1px dashed transparent; font-size: 12px; }
+.task-chip.c-blue { --tc: var(--blue-fg); }
+.task-chip.c-rose { --tc: var(--rose-fg); }
+.task-chip { --tc: var(--accent); border-color: color-mix(in srgb, var(--tc) 35%, transparent); }
+.tc-check { flex: none; width: 18px; height: 18px; display: grid; place-items: center; padding: 0; border-radius: 6px; border: 1.5px solid var(--tc); background: transparent; color: transparent; }
+.tc-check svg { width: 12px; height: 12px; stroke-width: 3; }
+.task-chip.done .tc-check { background: var(--tc); color: #fff; }
+.tc-title { flex: 1; min-width: 0; border: 0; background: none; padding: 2px 0; text-align: left; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-chip.done .tc-title { text-decoration: line-through; color: var(--text-3); }
+.task-chip.imp { box-shadow: inset 3px 0 0 var(--imp); padding-left: 5px; }
+.sheet-sub { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; font-size: 15px; font-weight: 600; }
+
 .wk { --gutter: 56px; }
 .wk-head, .wk-allrow, .wk-grid { display: grid; grid-template-columns: var(--gutter) repeat(7, minmax(0, 1fr)); }
 .wk-day { text-align: center; padding-bottom: 8px; }
@@ -579,6 +592,8 @@ label.btn { cursor: pointer; }
   .wk-ev-top .av, .ev-chip .av { display: none; }
   .cal .day { min-height: 72px; padding: 4px; }
   .ev-chip span:not(.imp-tag) { display: none; }
+  .tc-title { display: none; }
+  .task-chip { padding: 2px; justify-content: center; }
 }
 .energy-empty .sync-banner { margin-top: 0; }
 .profiles { margin-bottom: 16px; }

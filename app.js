@@ -836,6 +836,23 @@ function isDone(t) {
   return true;
 }
 const tasksFor = (id) => state.tasks.filter((t) => t.who === id);
+// Tasks have no date of their own, so the calendar shows them on today: the open ones,
+// plus any ticked off today (struck through), each person's together.
+const tasksToday = () => {
+  const today = isoDay(new Date());
+  const order = USERS.map((u) => u.id);
+  return state.tasks.filter((t) => !isDone(t) || t.doneOn === today)
+    .sort((a, b) => order.indexOf(a.who) - order.indexOf(b.who) || isDone(a) - isDone(b));
+};
+
+// Compact task for the calendar grids: a tick box and the title, in the person's color.
+function taskChip(t) {
+  const done = isDone(t);
+  const u = userOf(t.who);
+  return `<div class="task-chip c-${u?.color || 'purple'}${done ? ' done' : ''}${t.important ? ' imp' : ''}">
+    <button class="tc-check" data-action="toggle-task" data-id="${t.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}" aria-pressed="${done}">${icon('check')}</button>
+    <button class="tc-title" data-action="edit-task" data-id="${t.id}">${esc(t.title)}</button></div>`;
+}
 
 function taskCard(t, u) {
   const done = isDone(t);
@@ -930,7 +947,11 @@ function weekView() {
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const head = days.map((d) => `<div class="wk-day ${isoDay(d) === todayIso ? 'today' : ''}">
       <small>${d.toLocaleDateString([], { weekday: 'short' })}</small><b>${d.getDate()}</b></div>`).join('');
-  const allDay = days.map((d) => `<div class="wk-allday">${eventsOn(isoDay(d)).filter((e) => !e.time).map(eventChip).join('')}</div>`).join('');
+  const allDay = days.map((d) => {
+    const iso = isoDay(d);
+    const tasks = iso === todayIso ? tasksToday().map(taskChip).join('') : '';
+    return `<div class="wk-allday">${eventsOn(iso).filter((e) => !e.time).map(eventChip).join('')}${tasks}</div>`;
+  }).join('');
   const cols = days.map((d) => {
     const iso = isoDay(d);
     const timed = laneLayout(eventsOn(iso).filter((e) => e.time));
@@ -950,7 +971,7 @@ function weekView() {
   }).join('');
   return `<div class="wk">
     <div class="wk-head"><div></div>${head}</div>
-    <div class="wk-allrow"><div class="wk-gutter-label">All day</div>${allDay}</div>
+    <div class="wk-allrow"><div class="wk-gutter-label">All day${days.some((d) => isoDay(d) === todayIso) && state.tasks.length ? '<br>&amp; tasks' : ''}</div>${allDay}</div>
     <div class="wk-scroll" id="wk-scroll">
       <div class="wk-grid" style="height:${hours.length * HOUR_PX}px">
         <div class="wk-hours">${hours.map((h) => `<span style="top:${(h - DAY_START) * HOUR_PX}px">${fmtTime(new Date(2000, 0, 1, h), false)}</span>`).join('')}</div>
@@ -971,9 +992,10 @@ function monthView() {
     const d = addDays(start, i);
     const iso = isoDay(d);
     const evs = eventsOn(iso);
+    const items = [...evs.map(eventChip), ...(iso === todayIso ? tasksToday().map(taskChip) : [])];
     return `<div class="day ${d.getMonth() !== m ? 'other' : ''} ${iso === todayIso ? 'today' : ''}" data-action="open-day" data-d="${iso}">
       <span class="day-num">${d.getDate()}</span>
-      <div class="day-evs">${evs.slice(0, 3).map(eventChip).join('')}${evs.length > 3 ? `<span class="more">+${evs.length - 3} more</span>` : ''}</div>
+      <div class="day-evs">${items.slice(0, 4).join('')}${items.length > 4 ? `<span class="more">+${items.length - 4} more</span>` : ''}</div>
     </div>`;
   }).join('');
   return `<div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="dow">${d}</div>`).join('')}${cells}</div>`;
@@ -1518,11 +1540,23 @@ function openEventSheet(ev, date, time = '') {
     </div>`);
 }
 
-function openDaySheet(iso) {
+function daySheetHtml(iso) {
   const evs = eventsOn(iso);
-  openSheet(`${sheetHead(new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }), 'calendar')}
+  const tasks = iso === isoDay(new Date()) ? tasksToday() : [];
+  return `${sheetHead(new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }), 'calendar')}
     <div class="list">${evs.map((e) => eventRow(e)).join('') || '<p class="muted">No events.</p>'}</div>
-    <div class="sheet-actions"><button class="btn" data-action="add-event" data-d="${iso}">${icon('plus')} Add event</button></div>`);
+    ${USERS.map((u) => {
+      const mine = tasks.filter((t) => t.who === u.id);
+      return mine.length ? `<h3 class="sheet-sub">${avatar(u.id, 'xs')}${u.name}'s tasks</h3>
+        <div class="task-list">${mine.map((t) => taskCard(t, u)).join('')}</div>` : '';
+    }).join('')}
+    <div class="sheet-actions"><button class="btn" data-action="add-event" data-d="${iso}">${icon('plus')} Add event</button></div>`;
+}
+
+function openDaySheet(iso) {
+  openSheet(daySheetHtml(iso));
+  $('#sheet').dataset.kind = 'day';
+  $('#sheet').dataset.d = iso;
 }
 
 function openTaskSheet(task, who = USERS[0].id) {
@@ -1614,6 +1648,9 @@ const actions = {
     t.doneOn = done ? '' : isoDay(new Date());
     state.stars[t.who] = Math.max(0, (state.stars[t.who] || 0) + (done ? -t.stars : t.stars));
     if (!done) toast(`+${t.stars} stars for ${userOf(t.who).name}`);
+    // Ticked from the day pop-up: redraw it so the tick shows there too.
+    const sheet = $('#sheet');
+    if (!sheet.hidden && sheet.dataset.kind === 'day') sheet.innerHTML = daySheetHtml(sheet.dataset.d);
   },
 
   'set-unit': (el) => { state.settings.unit = el.dataset.v; save(); fetchWeather(); },
