@@ -29,7 +29,6 @@ function defaultState() {
       theme: 'auto',
       wakeLock: true,
       clock24: false,
-      calView: 'week',
     },
     events: [
       { id: 'e1', title: 'Soccer practice', date: isoDay(today), time: '17:30', end: '19:00', who: 'phu' },
@@ -96,12 +95,18 @@ function fmtTime(date, withMinutes = true) {
   });
 }
 
-function toast(msg) {
+// A short note at the bottom of the screen. `undo` is an optional [label, fn] button.
+function toast(msg, undo) {
   const el = $('#toast');
   el.textContent = msg;
+  if (undo) {
+    const b = Object.assign(document.createElement('button'), { className: 'toast-btn', textContent: undo[0] });
+    b.onclick = (e) => { e.stopPropagation(); el.hidden = true; undo[1](); };
+    el.append(b);
+  }
   el.hidden = false;
   clearTimeout(toast.t);
-  toast.t = setTimeout(() => { el.hidden = true; }, 2200);
+  toast.t = setTimeout(() => { el.hidden = true; }, undo ? 4500 : 2200);
 }
 
 function partOfDay(h) {
@@ -188,8 +193,12 @@ function updateSky(now) {
   const sunLine = sky.kind === 'sun'
     ? `Sunset at ${fmtTime(new Date(sky.set))}`
     : `Sunrise at ${fmtTime(new Date(now < sky.rise ? sky.rise : sunToday().nextRise))}`;
-  const label = weatherValid() ? `${Math.round(weather.temp)}° ${wmo(weather.code, weather.isDay).label} · ${sunLine}` : sunLine;
-  if ($('#sun-note').textContent !== label) $('#sun-note').textContent = label;
+  if ($('#sun-note').textContent !== sunLine) $('#sun-note').textContent = sunLine;
+  // Weather sits in the panel's corner; there is no separate card to wait on.
+  const wx = weatherValid()
+    ? `${icon(wmo(weather.code, weather.isDay).icon)}<b>${Math.round(weather.temp)}°</b><span>${wmo(weather.code, weather.isDay).label}<br>H ${Math.round(weather.hi)}° · L ${Math.round(weather.lo)}°</span>` : '';
+  const box = $('#hero-wx');
+  if (box.dataset.v !== wx) { box.innerHTML = wx; box.dataset.v = wx; }
 }
 
 /* =========================================================
@@ -616,42 +625,90 @@ function weatherValid() {
 /* =========================================================
    Navigation
    ========================================================= */
+// Five pages you use every day get a tab; the rest sit under More. Swiping moves between the five.
 const PAGES = [
-  { id: 'home', label: 'Home', icon: 'home' },
-  { id: 'calendar', label: 'Calendar', icon: 'calendar' },
-  { id: 'tasks', label: 'Tasks', icon: 'checkSquare' },
-  { id: 'fridge', label: 'Fridge', icon: 'fridge' },
-  { id: 'piggy', label: 'Piggy Bank', icon: 'piggy' },
-  { id: 'energy', label: 'Energy', icon: 'zap' },
-  { id: 'health', label: 'Health', icon: 'heart' },
-  { id: 'board', label: 'Leaderboard', icon: 'trophy' },
-  { id: 'settings', label: 'Settings', icon: 'settings' },
+  { id: 'home', label: 'Home', icon: 'home', main: true },
+  { id: 'calendar', label: 'Calendar', icon: 'calendar', main: true },
+  { id: 'tasks', label: 'Chores', icon: 'checkSquare', main: true },
+  { id: 'fridge', label: 'Kitchen', icon: 'fridge', main: true },
+  { id: 'piggy', label: 'Money', icon: 'piggy', main: true },
+  { id: 'energy', label: 'Energy', icon: 'zap', note: 'PG&E use and bills' },
+  { id: 'health', label: 'Health', icon: 'heart', note: 'Steps, sleep and heart rate' },
+  { id: 'settings', label: 'Settings', icon: 'settings', note: 'Display, household and connections' },
 ];
+const MAIN = PAGES.filter((p) => p.main);
+const ROUTE_ALIAS = { board: 'tasks' }; // the Leaderboard now lives on Chores
 
 const currentRoute = () => {
-  const r = location.hash.replace(/^#\/?/, '').split('?')[0];
+  let r = location.hash.replace(/^#\/?/, '').split('?')[0];
+  r = ROUTE_ALIAS[r] || r;
   return PAGES.some((p) => p.id === r) ? r : 'home';
 };
 
 // The tabs are drawn once; switching tabs slides the highlight to the new one.
+// Phones get them as a bar along the bottom, wide screens as a rail down the left.
 function renderNav() {
   const r = currentRoute();
   const tabs = $('#tabs');
   if (!tabs.children.length) {
-    tabs.innerHTML = `<span class="tab-ink" aria-hidden="true"></span>${PAGES.map((p) => `
-      <a class="tab" href="#/${p.id}" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span></a>`).join('')}`;
+    tabs.innerHTML = `<span class="tab-ink" aria-hidden="true"></span>${MAIN.map((p) => `
+      <a class="tab" href="#/${p.id}" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span></a>`).join('')}
+      <button class="tab" data-page="more" data-action="open-more">${icon('more')}<span>More</span></button>`;
   }
-  tabs.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === r));
+  const on = MAIN.some((p) => p.id === r) ? r : 'more';
+  tabs.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === on));
   moveInk();
+}
+// The highlight is placed by measuring the tab, so it works for the bottom bar and the side rail alike.
+function tabBox(t) {
+  const bar = t.parentElement;
+  const a = t.getBoundingClientRect(); const b = bar.getBoundingClientRect();
+  return { left: a.left - b.left + bar.scrollLeft - bar.clientLeft, top: a.top - b.top + bar.scrollTop - bar.clientTop, width: a.width, height: a.height };
+}
+function placeInk(box) {
+  const ink = $('#tabs .tab-ink');
+  if (!ink || !box) return;
+  ink.style.width = `${box.width}px`; ink.style.height = `${box.height}px`;
+  ink.style.transform = `translate(${box.left}px, ${box.top}px)`;
 }
 function moveInk() {
   const t = $('#tabs .tab.active');
-  const ink = $('#tabs .tab-ink');
-  if (!t || !ink) return;
-  const r = t.getBoundingClientRect();
-  const bar = t.parentElement.getBoundingClientRect();
-  ink.style.width = `${r.width}px`;
-  ink.style.transform = `translateX(${r.left - bar.left + t.parentElement.scrollLeft - t.parentElement.clientLeft - 6}px)`;
+  if (t) placeInk(tabBox(t));
+}
+function openMore() {
+  openSheet(`${sheetHead('More', 'more')}
+    <div class="list more-list">${PAGES.filter((p) => !p.main).map((p) => `<a class="row" href="#/${p.id}">
+      <span class="ibox c-purple-ico">${icon(p.icon)}</span><span><b>${p.label}</b><small>${p.note}</small></span>${icon('chevron', 'chev')}</a>`).join('')}</div>`);
+  $('#sheet').dataset.kind = 'more';
+}
+
+// One add button, in the same corner on every page. Pages that can add more than one kind of
+// thing open a short menu.
+const FAB = {
+  home: { action: 'add-menu', label: 'Add' },
+  calendar: { action: 'add-event', label: 'Add event' },
+  tasks: { action: 'add-task', label: 'Add chore' },
+  fridge: { action: 'add-menu', label: 'Add to kitchen' },
+  piggy: { action: 'add-expense', label: 'Add expense' },
+};
+function setFab(r) {
+  const fab = $('#fab'); const f = FAB[r];
+  fab.hidden = !f;
+  if (!f) return;
+  fab.dataset.action = f.action;
+  fab.dataset.d = isoDay(new Date());
+  fab.setAttribute('aria-label', f.label);
+  if (!fab.firstChild) fab.innerHTML = icon('plus');
+}
+function openAddMenu() {
+  const opt = (action, ic, title, note) => `<button class="row" data-action="${action}" data-d="${isoDay(new Date())}"><span class="ibox c-purple-ico">${icon(ic)}</span><span><b>${title}</b><small>${note}</small></span>${icon('chevron', 'chev')}</button>`;
+  const scan = `<label class="row"><span class="ibox c-purple-ico">${icon('receipt')}</span><span><b>Scan a receipt</b><small>Snap a grocery receipt and pick what goes in</small></span>${icon('chevron', 'chev')}<input type="file" id="receipt-file" accept="image/*" hidden></label>`;
+  const items = currentRoute() === 'fridge'
+    ? [opt('add-fridge', 'plus', 'Add an item', 'Type in one thing'), scan]
+    : [opt('add-task', 'checkSquare', 'Chore', 'Something to do, with stars'), opt('add-event', 'calendar', 'Event', 'Something on the calendar'),
+      opt('add-fridge', 'fridge', 'Kitchen item', 'Something in the fridge'), opt('add-expense', 'piggy', 'Expense', 'Something you paid for')];
+  openSheet(`${sheetHead(currentRoute() === 'fridge' ? 'Add to kitchen' : 'Add', 'plus')}<div class="list more-list">${items.join('')}</div>`);
+  $('#sheet').dataset.kind = 'add';
 }
 // The bar can change width without a window resize (a page scrollbar appearing, fonts loading).
 new ResizeObserver(moveInk).observe($('#tabs'));
@@ -678,19 +735,16 @@ const scrollsSideways = (el) => {
 };
 // Tab positions are measured once when a drag starts, so moving the finger never forces a layout.
 function measureTabs() {
-  const tabs = $('#tabs'); const bar = tabs.getBoundingClientRect();
-  const off = tabs.scrollLeft - tabs.clientLeft - 6 - bar.left;
-  return Object.fromEntries([...tabs.querySelectorAll('.tab')].map((t) => { const r = t.getBoundingClientRect(); return [t.dataset.page, { left: r.left + off, width: r.width }]; }));
+  return Object.fromEntries([...$('#tabs').querySelectorAll('.tab')].map((t) => [t.dataset.page, tabBox(t)]));
 }
 function inkBetween(a, b, t) {
-  const ink = $('#tabs .tab-ink');
-  const left = a.left + (b.left - a.left) * t; const width = a.width + (b.width - a.width) * t;
-  ink.style.width = `${width}px`;
-  ink.style.transform = `translateX(${left}px)`;
+  const mix = (k) => a[k] + (b[k] - a[k]) * t;
+  placeInk({ left: mix('left'), top: mix('top'), width: mix('width'), height: mix('height') });
 }
+// Only the five main pages swipe; a page from More stays put.
 function swipeNeighbor(dir) {
-  const i = PAGES.findIndex((p) => p.id === currentRoute()) + dir;
-  return PAGES[i];
+  const i = MAIN.findIndex((p) => p.id === currentRoute());
+  return i < 0 ? undefined : MAIN[i + dir];
 }
 const view = $('#view');
 view.addEventListener('pointerdown', (e) => {
@@ -801,35 +855,6 @@ view.addEventListener('click', (e) => { if (swipe.done) { swipe.done = false; e.
    ========================================================= */
 const views = {};
 
-function weatherCard() {
-  if (!weatherValid()) {
-    return `<div class="card a-weather weather-card">
-      <div class="card-head">${icon('sun')}<h2>Weather</h2></div>
-      <p class="muted">${navigator.onLine ? 'Loading weather…' : 'Offline. Weather will load when the connection is back.'}</p></div>`;
-  }
-  const w = wmo(weather.code, weather.isDay);
-  const u = state.settings.unit;
-  const hours = weather.hours.map((h) => {
-    const hw = wmo(h.code, h.isDay);
-    const label = fmtTime(new Date(h.time), false);
-    return `<div class="hour">${icon(hw.icon, hw.icon === 'sun' ? 'sun' : '')}<small>${label}</small><b>${Math.round(h.temp)}°</b></div>`;
-  }).join('');
-  return `<div class="card a-weather weather-card">
-    <div class="card-head"><span style="color:var(--amber-fg);font-size:24px;display:inline-flex">${icon(w.icon)}</span><h2>Weather</h2>
-</div>
-    <div class="weather-now">
-      <div class="big-ico ${weather.isDay ? '' : 'night'}">${icon(w.icon)}</div>
-      <div><div class="temp">${Math.round(weather.temp)}°${u}</div><div class="cond">${w.label}</div></div>
-      <div class="hl">H: ${Math.round(weather.hi)}° &nbsp; L: ${Math.round(weather.lo)}°<br>${esc(state.settings.place.name)}</div>
-    </div>
-    <div class="hourly">
-      <div class="hour now">${icon(w.icon)}<small>Now</small><b>${Math.round(weather.temp)}°</b></div>
-      ${hours}
-    </div>
-    ${weekStrip()}
-  </div>`;
-}
-
 /* ---------- People ---------- */
 // One avatar for a person, or an overlapping pair for 'both'. Unassigned returns ''.
 function avatar(who, size = 'md') {
@@ -844,11 +869,6 @@ const whoName = (who) => (who === 'both' ? `${USERS[0].name} & ${USERS[1].name}`
 const byStart = (a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''));
 const eventsOn = (iso) => state.events.filter((e) => e.date === iso).sort(byStart);
 
-function upcomingEvents(limit) {
-  const todayIso = isoDay(new Date());
-  return state.events.filter((e) => e.date >= todayIso).sort(byStart).slice(0, limit);
-}
-
 function dayLabel(iso) {
   if (iso === isoDay(new Date())) return 'Today';
   if (iso === isoDay(addDays(new Date(), 1))) return 'Tomorrow';
@@ -858,9 +878,9 @@ function dayLabel(iso) {
 const timeLabel = (e) => (e.time ? fmtTime(new Date(`${e.date}T${e.time}`)) : 'All day');
 
 // Compact event used in the calendar grids: avatar, start time, title.
-// Items marked important get a red "Important" tag and red styling everywhere they show.
-const impTag = (item) => (item.important ? '<span class="imp-tag">Important</span>' : '');
-const impRow = (on) => `<div class="setting-row imp-row"><div><b>Important</b><div class="hint">Shows an Important tag and turns it red.</div></div>
+// Items marked important get a small red dot wherever they show.
+const impTag = (item) => (item.important ? '<span class="imp-dot" role="img" aria-label="Important" title="Important"></span>' : '');
+const impRow = (on) => `<div class="setting-row imp-row"><div><b>Important</b><div class="hint">Marks it with a red dot.</div></div>
   <button class="switch imp-switch" id="imp-switch" role="switch" aria-checked="${!!on}" data-action="toggle-important"></button></div>`;
 const pickedImportant = () => $('#imp-switch')?.getAttribute('aria-checked') === 'true';
 
@@ -960,16 +980,17 @@ function taskChip(t) {
     <button class="tc-title" data-action="edit-task" data-id="${t.id}">${esc(t.title)}</button></div>`;
 }
 
-// `face` puts the person's avatar on the row, for lists that mix both people.
+// `face` puts the person's avatar and name on the row, for lists that mix both people.
+let justTicked = null; // the tick that was just made gets a little pop
 function taskCard(t, u, face = false) {
   const done = isDone(t);
-  return `<div class="task ${done ? `done c-${u.color}` : ''}${t.important ? ' imp' : ''}${face ? ' with-face' : ''}">
+  return `<div class="task${done ? ' done' : ''}${t.important ? ' imp' : ''}${face ? ' with-face' : ''}">
     ${face ? avatar(u.id, 'sm') : ''}
     <button class="task-body" data-action="edit-task" data-id="${t.id}">
       <b>${esc(t.title)}${impTag(t)}</b>
-      <small>${REPEAT_LABEL[t.repeat]} <span class="stars">${icon('star')}${t.stars}</span></small>
+      <small>${face ? `${u.name} · ` : ''}${REPEAT_LABEL[t.repeat]} <span class="stars">${icon('star')}${t.stars}</span></small>
     </button>
-    <button class="check ${done ? 'on' : ''}" data-action="toggle-task" data-id="${t.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}" aria-pressed="${done}">${icon('check')}</button>
+    <button class="check ${done ? 'on' : ''}${done && justTicked === t.id ? ' pop' : ''}" data-action="toggle-task" data-id="${t.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}" aria-pressed="${done}">${icon('check')}</button>
   </div>`;
 }
 
@@ -978,9 +999,7 @@ function personHead(u, size = 'lg') {
   const done = list.filter(isDone).length;
   return `<div class="person-head">
     ${avatar(u.id, size)}
-    <div><h2>${u.name}</h2>
-      <div class="pills"><span class="pill">${icon('check')}${done}/${list.length}</span><span class="pill">${icon('star')}${state.stars[u.id] || 0}</span></div>
-    </div>
+    <div><h2>${u.name}</h2><small>${list.length ? `${done} of ${list.length} done` : 'No chores yet'}</small></div>
   </div>`;
 }
 
@@ -996,34 +1015,74 @@ function todayEvent(e) {
     <button class="tev-check" data-action="toggle-event" data-id="${e.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(e.title)}" aria-pressed="${done}">${icon('check')}</button></div>`;
 }
 
-views.home = () => `
-  <div class="grid-home">
-    ${weatherCard()}
-    <div class="card a-agenda">
-      <div class="card-head">${icon('calendar')}<h2>Coming up</h2><a class="link" href="#/calendar">Calendar ${icon('arrowRight')}</a></div>
-      <div class="list">${upcomingEvents(4).map((e) => eventRow(e, true)).join('') || '<p class="muted">Nothing on the calendar yet.</p>'}</div>
-    </div>
-    <div class="card a-tasks">
-      <div class="card-head">${icon('checkSquare')}<h2>Today</h2><a class="link" href="#/tasks">All tasks ${icon('arrowRight')}</a></div>
-      <div class="home-tasks">
-        ${USERS.map((u) => {
-          const open = tasksFor(u.id).filter((t) => !isDone(t));
-          const evs = eventsOn(isoDay(new Date())).filter((e) => !e.who || e.who === 'both' || e.who === u.id);
-          return `<div class="home-person">${personHead(u, 'md')}
-            ${evs.length ? `<div class="today-evs">${evs.map(todayEvent).join('')}</div>` : ''}
-            <div class="task-list">${open.slice(0, 2).map((t) => taskCard(t, u)).join('') || '<p class="muted">All done for now.</p>'}</div>
-            ${open.length > 2 ? `<a class="more-link" href="#/tasks">+${open.length - 2} more</a>` : ''}</div>`;
-        }).join('')}
-      </div>
-    </div>
-    ${energyCard()}
+// Home answers "what needs us today?" at a glance: how many chores each person has left,
+// what to use up in the kitchen, then today's list and what's coming.
+function glanceRow() {
+  const people = USERS.map((u) => {
+    const left = tasksFor(u.id).filter((t) => !isDone(t)).length;
+    return `<a class="glance" href="#/tasks">${avatar(u.id, 'sm')}<span><b>${left || icon('check')}</b><small>${u.name} · ${left ? `${left === 1 ? 'chore' : 'chores'} left` : 'all done'}</small></span></a>`;
+  });
+  const soon = (state.fridge || []).filter((it) => daysLeft(it) !== null && daysLeft(it) <= 2).length;
+  const kitchen = (state.fridge || []).length
+    ? `<a class="glance" href="#/fridge"><span class="ibox c-amber-ico">${icon('fridge')}</span><span><b>${soon || icon('check')}</b><small>${soon ? 'to use soon' : 'kitchen all fresh'}</small></span></a>` : '';
+  return `<div class="glances">${people.join('')}${kitchen}</div>`;
+}
+
+// Who's ahead this week, as one line for the Today card.
+function leadLine() {
+  const from = weekStartIso();
+  const score = (u) => (state.log || []).filter((l) => l.who === u.id && l.date >= from).reduce((a, l) => a + l.stars, 0);
+  const [a, b] = USERS.map((u) => ({ u, n: score(u) })).sort((x, y) => y.n - x.n);
+  if (!a.n) return '';
+  return a.n === b.n ? `All square at ${a.n} ★` : `${a.u.name} leads by ${a.n - b.n} ★`;
+}
+
+// The rest of the week's weather, shown once it has loaded (the panel above has the current temperature).
+function forecastCard() {
+  if (!weatherValid()) return '';
+  const hours = weather.hours.map((h) => {
+    const hw = wmo(h.code, h.isDay);
+    return `<div class="hour">${icon(hw.icon, hw.icon === 'sun' ? 'sun' : '')}<small>${fmtTime(new Date(h.time), false)}</small><b>${Math.round(h.temp)}°</b></div>`;
+  }).join('');
+  return `<div class="card forecast">
+    <div class="card-head">${icon('partly')}<h2>Forecast</h2><span class="hint">${esc(state.settings.place.name)}</span></div>
+    <div class="hourly">${hours}</div>
+    ${weekStrip()}
   </div>`;
+}
+
+views.home = () => {
+  const today = isoDay(new Date());
+  const evs = eventsOn(today);
+  // Both people's chores in one list, each row with a face; ticked ones sink to the bottom.
+  const order = USERS.map((u) => u.id);
+  const tasks = tasksToday().sort((a, b) => isDone(a) - isDone(b) || order.indexOf(a.who) - order.indexOf(b.who));
+  const lead = leadLine();
+  const next = state.events.filter((e) => e.date > today).sort(byStart).slice(0, 4);
+  return `${glanceRow()}
+  <div class="grid-home">
+    <div class="card a-today">
+      <div class="card-head">${icon('checkSquare')}<h2>Today</h2>${lead ? `<a class="link" href="#/tasks">${lead} ${icon('arrowRight')}</a>` : ''}</div>
+      ${evs.length ? `<div class="today-evs">${evs.map(todayEvent).join('')}</div>` : ''}
+      <div class="task-list">${tasks.map((t) => taskCard(t, userOf(t.who) || USERS[0], true)).join('')
+        || `<p class="empty-line">${icon('check')} Nothing left today.${lead ? ` ${lead}.` : ''}</p>`}</div>
+    </div>
+    <div class="home-side">
+      <div class="card a-agenda">
+        <div class="card-head">${icon('calendar')}<h2>Coming up</h2><a class="link" href="#/calendar">Calendar ${icon('arrowRight')}</a></div>
+        <div class="list">${next.map((e) => eventRow(e, true)).join('') || '<p class="empty-line">Nothing else on the calendar this week.</p>'}</div>
+      </div>
+      ${forecastCard()}
+      ${energyDays().length ? energyCard() : ''}
+    </div>
+  </div>`;
+};
 
 /* ---------- Calendar ---------- */
 let calCursor = new Date();
 const HOUR_PX = 52;
-const DAY_START = 6; // 6 AM
-const DAY_END = 23; // 11 PM
+const DAY_START = 7; // 7 AM
+const DAY_END = 22; // 10 PM
 
 const minutesOf = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
 
@@ -1059,7 +1118,7 @@ function weekView() {
       <small>${d.toLocaleDateString([], { weekday: 'short' })}</small><b>${d.getDate()}</b></div>`).join('');
   const allDay = days.map((d) => {
     const iso = isoDay(d);
-    const tasks = iso === todayIso ? tasksToday().map(taskChip).join('') : '';
+    const tasks = iso === todayIso && calChores() ? tasksToday().map(taskChip).join('') : '';
     return `<div class="wk-allday">${eventsOn(iso).filter((e) => !e.time).map(eventChip).join('')}${tasks}</div>`;
   }).join('');
   const cols = days.map((d) => {
@@ -1069,7 +1128,7 @@ function weekView() {
       ? `<div class="now-line" style="top:${((nowMin - DAY_START * 60) / 60) * HOUR_PX}px"></div>` : '';
     return `<div class="wk-col" data-action="add-event-at" data-d="${iso}">
       ${timed.map(({ e, start, end, lane, lanes }) => {
-        // Clip to the visible hours, so an event starting before 6 AM doesn't run past its end.
+        // Clip to the visible hours, so an event starting before 7 AM doesn't run past its end.
         const from = Math.min(Math.max(start, DAY_START * 60), DAY_END * 60);
         const to = Math.min(Math.max(end, DAY_START * 60), DAY_END * 60);
         const top = Math.min(((from - DAY_START * 60) / 60) * HOUR_PX, (DAY_END - DAY_START) * HOUR_PX - 26);
@@ -1081,7 +1140,7 @@ function weekView() {
   }).join('');
   return `<div class="wk">
     <div class="wk-head"><div></div>${head}</div>
-    <div class="wk-allrow"><div class="wk-gutter-label">All day${days.some((d) => isoDay(d) === todayIso) && state.tasks.length ? '<br>&amp; tasks' : ''}</div>${allDay}</div>
+    <div class="wk-allrow"><div class="wk-gutter-label">All day${calChores() && days.some((d) => isoDay(d) === todayIso) && state.tasks.length ? '<br>&amp; chores' : ''}</div>${allDay}</div>
     <div class="wk-scroll" id="wk-scroll">
       <div class="wk-grid" style="height:${hours.length * HOUR_PX}px">
         <div class="wk-hours">${hours.map((h) => `<span style="top:${(h - DAY_START) * HOUR_PX}px">${fmtTime(new Date(2000, 0, 1, h), false)}</span>`).join('')}</div>
@@ -1102,7 +1161,7 @@ function monthView() {
     const d = addDays(start, i);
     const iso = isoDay(d);
     const evs = eventsOn(iso);
-    const items = [...evs.map(eventChip), ...(iso === todayIso ? tasksToday().map(taskChip) : [])];
+    const items = [...evs.map(eventChip), ...(iso === todayIso && calChores() ? tasksToday().map(taskChip) : [])];
     return `<div class="day ${d.getMonth() !== m ? 'other' : ''} ${iso === todayIso ? 'today' : ''}" data-action="open-day" data-d="${iso}">
       <span class="day-num">${d.getDate()}</span>
       <div class="day-evs">${items.slice(0, 4).join('')}${items.length > 4 ? `<span class="more">+${items.length - 4} more</span>` : ''}</div>
@@ -1111,8 +1170,27 @@ function monthView() {
   return `<div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="dow">${d}</div>`).join('')}${cells}</div>`;
 }
 
+// The week as a list, the easiest way to read a calendar on a phone.
+function agendaView() {
+  const start = addDays(calCursor, -calCursor.getDay());
+  const todayIso = isoDay(new Date());
+  const days = Array.from({ length: 7 }, (_, i) => isoDay(addDays(start, i)));
+  const blocks = days.map((iso) => {
+    const evs = eventsOn(iso);
+    const tasks = iso === todayIso && calChores() ? tasksToday() : [];
+    if (!evs.length && !tasks.length && iso !== todayIso) return '';
+    return `<div class="ag-day${iso === todayIso ? ' today' : ''}"><div class="ag-head">${dayLabel(iso)}${iso === todayIso || iso === isoDay(addDays(new Date(), 1)) ? `<small>${new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</small>` : ''}</div>
+      <div class="list">${evs.map((e) => eventRow(e)).join('')}${tasks.map((t) => taskCard(t, userOf(t.who) || USERS[0], true)).join('')}
+      ${!evs.length && !tasks.length ? '<p class="empty-line">Nothing planned today.</p>' : ''}</div></div>`;
+  }).join('');
+  return `<div class="agenda">${blocks || '<p class="empty-line">Nothing planned this week.</p>'}</div>`;
+}
+// Phones start on the list; wider screens on the week grid. A choice made here sticks on this device.
+const calView = () => state.settings.calPick || (matchMedia('(max-width: 600px)').matches ? 'agenda' : 'week');
+const calChores = () => !!state.settings.calChores;
+
 function calTitle() {
-  if (state.settings.calView === 'month') return calCursor.toLocaleDateString([], { month: 'long', year: 'numeric' });
+  if (calView() === 'month') return calCursor.toLocaleDateString([], { month: 'long', year: 'numeric' });
   const s = addDays(calCursor, -calCursor.getDay());
   const e = addDays(s, 6);
   const mon = (d) => d.toLocaleDateString([], { month: 'short' });
@@ -1120,8 +1198,9 @@ function calTitle() {
   return `${mon(s)} ${s.getDate()} – ${endPart}, ${e.getFullYear()}`;
 }
 
+const CAL_VIEWS = { agenda: 'List', week: 'Week', month: 'Month' };
 views.calendar = () => {
-  const v = state.settings.calView;
+  const v = calView();
   return `
   <div class="card cal-card">
     <div class="cal-bar">
@@ -1130,28 +1209,31 @@ views.calendar = () => {
       <h2>${calTitle()}</h2>
       <button class="btn ghost sm" data-action="cal-today">Today</button>
       <span class="spacer"></span>
-      <div class="seg">${['week', 'month'].map((x) => `<button class="${v === x ? 'on' : ''}" data-action="cal-view" data-v="${x}">${x === 'week' ? 'Week' : 'Month'}</button>`).join('')}</div>
-      <button class="btn-round accent" data-action="add-event" data-d="${isoDay(new Date())}" aria-label="Add event">${icon('plus')}</button>
+      <button class="chip-toggle${calChores() ? ' on' : ''}" data-action="cal-chores" aria-pressed="${calChores()}">${icon('checkSquare')} Chores</button>
+      <div class="seg">${Object.entries(CAL_VIEWS).map(([x, l]) => `<button class="${v === x ? 'on' : ''}" data-action="cal-view" data-v="${x}">${l}</button>`).join('')}</div>
     </div>
-    <div class="cal-body">${v === 'month' ? monthView() : weekView()}</div>
+    <div class="cal-body">${v === 'month' ? monthView() : v === 'agenda' ? agendaView() : weekView()}</div>
   </div>`;
 };
 
 /* ---------- Tasks ---------- */
-views.tasks = () => `
-  <div class="section-title">Tasks<span class="spacer"></span>
-    <button class="btn-round accent" data-action="add-task" aria-label="Add task">${icon('plus')}</button></div>
+// Chores: who's ahead on stars at the top, then each person's list, then the stars history.
+views.tasks = () => {
+  const b = boardParts();
+  return `<div class="section-title">Chores<span class="spacer"></span>${b.seg}</div>
+  <div class="lb-cards">${b.cards}</div>
+  ${b.note}
   <div class="board">
     ${USERS.map((u) => `
       <div class="card board-col">
-        ${personHead(u)}
-        <div class="task-list">${tasksFor(u.id).map((t) => taskCard(t, u)).join('') || '<p class="muted">No tasks yet.</p>'}</div>
-        <button class="add-task" data-action="add-task" data-who="${u.id}">${icon('plus')} Add a task for ${u.name}</button>
+        ${personHead(u, 'md')}
+        <div class="task-list">${tasksFor(u.id).map((t) => taskCard(t, u)).join('') || `<button class="empty-line as-btn" data-action="add-task" data-who="${u.id}">${icon('plus')} Add ${u.name}'s first chore</button>`}</div>
       </div>`).join('')}
-  </div>`;
+  </div>
+  ${b.history}`;
+};
 
 /* ---------- Leaderboard ---------- */
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const BOARD_PERIODS = { week: 'This week', month: 'This month', all: 'All time' };
 
 function boardStart(period) {
@@ -1204,48 +1286,42 @@ function boardChart(period, entries) {
   </div>`;
 }
 
-views.board = () => {
+function boardParts() {
   const period = BOARD_PERIODS[state.settings.boardPeriod] ? state.settings.boardPeriod : 'week';
   const from = boardStart(period);
   const entries = (state.log || []).filter((l) => l.date >= from);
   // All time uses the running totals, which also count stars earned before the log began.
   const score = (u) => (period === 'all' ? state.stars[u.id] || 0 : entries.filter((l) => l.who === u.id).reduce((a, l) => a + l.stars, 0));
-  const ranked = USERS.map((u) => ({ u, stars: score(u), mine: entries.filter((l) => l.who === u.id) }))
-    .sort((a, b) => b.stars - a.stars);
+  const ranked = USERS.map((u) => ({ u, stars: score(u) })).sort((a, b) => b.stars - a.stars);
   const tied = ranked.length > 1 && ranked[0].stars === ranked[1].stars;
   const gap = ranked.length > 1 ? ranked[0].stars - ranked[1].stars : 0;
   const seg = `<div class="seg">${Object.entries(BOARD_PERIODS).map(([k, l]) => `<button class="${period === k ? 'on' : ''}" data-action="board-period" data-v="${k}">${l}</button>`).join('')}</div>`;
-  const cards = ranked.map(({ u, stars, mine }, i) => {
+  const cards = ranked.map(({ u, stars }, i) => {
     const lead = !tied && i === 0 && stars > 0;
     const s = streak(u.id);
-    return `<div class="card lb-card c-${u.color}${lead ? ' lead' : ''}">
-      <div class="lb-rank">${tied ? '=' : i + 1}</div>
-      ${avatar(u.id, 'lg')}
+    return `<div class="card lb-card${lead ? ' lead' : ''}">
+      ${avatar(u.id, 'md')}
       <div class="lb-who"><h2>${u.name}${lead ? `<span class="lb-tag">${icon('trophy')} Leading${gap ? ` by ${gap}` : ''}</span>` : ''}</h2>
-        <div class="pills">
-          <span class="pill">${icon('checkSquare')}${plural(mine.filter((l) => l.kind === 'task').length, 'task')}</span>
-          <span class="pill">${icon('calendar')}${plural(mine.filter((l) => l.kind === 'event').length, 'event')}</span>
-          ${s ? `<span class="pill">${icon('flame')}${s}-day streak</span>` : ''}
-        </div></div>
+        <small>${s ? `${icon('flame')} ${s}-day streak` : 'No streak yet'}</small></div>
       <div class="lb-stars">${icon('star')}<b>${stars}</b></div>
     </div>`;
   }).join('');
-  const recent = [...entries].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12);
-  return `<div class="section-title">Leaderboard<span class="spacer"></span>${seg}</div>
-    <div class="lb-cards">${cards}</div>
-    ${tied && ranked[0].stars > 0 ? '<p class="hint lb-note">All square. The next tick takes the lead.</p>' : ''}
-    <div class="lb-grid">
-      <div class="card">${boardChart(period, state.log || [])}</div>
+  const recent = [...entries].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
+  // The chart only earns its space once there are a few days to compare.
+  const activeDays = new Set((period === 'all' ? state.log || [] : entries).map((l) => l.date)).size;
+  const history = recent.length ? `<div class="lb-grid${activeDays >= 3 ? '' : ' one'}">
+      ${activeDays >= 3 ? `<div class="card">${boardChart(period, state.log || [])}</div>` : ''}
       <div class="card">
-        <div class="card-head">${icon('star')}<h2>Recent</h2></div>
-        <div class="list lb-recent">${recent.map((l) => `<div class="lb-row">${avatar(l.who, 'sm')}<span><b>${esc(l.title)}</b><small>${l.kind === 'event' ? 'Event' : 'Task'} · ${dayLabel(l.date)}</small></span><em>+${l.stars}</em></div>`).join('')
-          || `<p class="muted">Nothing ticked off ${period === 'all' ? 'yet' : BOARD_PERIODS[period].toLowerCase()}. Tick off tasks on the Tasks tab or events on Home and the Calendar to earn stars.</p>`}</div>
+        <div class="card-head">${icon('star')}<h2>Recent stars</h2></div>
+        <div class="list lb-recent">${recent.map((l) => `<div class="lb-row">${avatar(l.who, 'sm')}<span><b>${esc(l.title)}</b><small>${l.kind === 'event' ? 'Event' : 'Chore'} · ${dayLabel(l.date)}</small></span><em>+${l.stars}</em></div>`).join('')}</div>
       </div>
-    </div>`;
-};
+    </div>` : '';
+  const note = tied && ranked[0].stars > 0 ? '<p class="hint lb-note">All square. The next tick takes the lead.</p>' : '';
+  return { seg, cards, note, history };
+}
 
 /* =========================================================
-   Household sync (same events, tasks and expenses on every device)
+   Household sync (same events, chores and expenses on every device)
    ========================================================= */
 const HOUSE_PASS_KEY = 'home-dashboard.household-pass.v1';
 const HOUSE_BASE_KEY = 'home-dashboard.household-base.v1';
@@ -1285,12 +1361,11 @@ function houseMessage() {
   }
 }
 function houseCard() {
-  const head = `<div class="card-head">${icon('home')}<h2>Household</h2></div>
-    <div class="profiles">${USERS.map((u) => `<div class="profile">${avatar(u.id, 'lg')}<b>${u.name}</b></div>`).join('')}</div>
+  const head = `<div class="profiles">${USERS.map((u) => `<div class="profile">${avatar(u.id, 'lg')}<b>${u.name}</b></div>`).join('')}</div>
     <h3 class="set-sub">Sync across devices</h3>`;
   if (!syncAvailable()) {
     return `<div class="card">${head}
-      <p class="hint">Not set up yet. Each device keeps its own events, tasks and expenses until sync is turned on for this site.</p>
+      <p class="hint">Not set up yet. Each device keeps its own events, chores and expenses until sync is turned on for this site.</p>
     </div>`;
   }
   const m = houseMessage();
@@ -1300,7 +1375,7 @@ function houseCard() {
     <div class="field"><label for="house-pass">Household passphrase</label>
       <div style="display:flex;gap:8px"><input class="input" id="house-pass" data-house-pass type="password" autocomplete="off" placeholder="${housePass ? 'Saved on this device' : 'Same phrase on every device'}">
       <button class="btn" data-action="house-connect">${housePass ? 'Update' : 'Connect'}</button></div>
-      <div class="hint">Type the same passphrase on each device. Everything is encrypted with it before it leaves this device. Joining a household replaces this device's events, tasks and expenses with the shared ones.</div></div>
+      <div class="hint">Type the same passphrase on each device. Everything is encrypted with it before it leaves this device. Joining a household replaces this device's events, chores and expenses with the shared ones.</div></div>
     ${housePass ? '<button class="btn ghost" data-action="house-disconnect">Stop syncing on this device</button>' : ''}
   </div>`;
 }
@@ -1315,7 +1390,7 @@ function openHouseSheet() {
     : st === 'error' ? "Couldn't reach the sync service. Check the connection and try again."
     : st === 'offline' ? "You're offline. Connect to the internet to join the household." : '';
   openSheet(`${sheetHead('Join your household', 'users')}
-    <p class="house-intro">Type your household passphrase to see the same events, tasks and expenses as everyone else.</p>
+    <p class="house-intro">Type your household passphrase to see the same events, chores and expenses as everyone else.</p>
     ${note ? `<div class="sync-banner">${icon('users')}<span>${note}</span></div>` : ''}
     ${st === 'new' ? `<div class="sheet-actions" style="justify-content:flex-start;margin:0 0 16px">
         <button class="btn" data-action="house-create">Start a new household</button>
@@ -1382,51 +1457,44 @@ views.piggy = () => {
   const all = expensesIn(key);
   const list = spending(all);
   const st = expenseStats(all);
-  const showSplit = !!state.settings.showSplit;
-  const [first, last] = monthBounds(key);
+  const showSplit = state.settings.showSplit !== false; // on unless turned off in Settings
+  const [, last] = monthBounds(key);
   const isNow = key === monthKey(new Date());
   const daysSoFar = isNow ? new Date().getDate() : last.getDate();
   const byDay = {};
   all.forEach((x) => { (byDay[x.date] ||= []).push(x); });
   const months = [...new Set(state.expenses.map((x) => x.date.slice(0, 7)))].sort().reverse();
 
-  return `<div class="section-title">Piggy Bank<span class="spacer"></span>
-    <button class="btn-round accent" data-action="add-expense" aria-label="Add expense">${icon('plus')}</button></div>
-  <div class="card piggy-bar">
+  // What people come here for first: who owes whom. Then where the month's money went.
+  const balance = showSplit ? `<div class="card balance${st.owed < 0.005 ? ' even' : ''}">
+    ${st.owed < 0.005 ? `<span class="bal-icon">${icon('check')}</span><div><b>All square</b><small>${fmtCash(st.shared)} shared in ${monthName(key).split(' ')[0]}, ${fmtCash(st.each)} each</small></div>`
+      : `${avatar(st.from.id, 'md')}<div><small>${st.from.name} owes ${st.to.name}</small><b class="bal-amt">${fmtCash(st.owed)}</b></div>
+      <button class="btn" data-action="settle-up">${icon('check')} Settle up</button>`}
+  </div>` : '';
+  const share = (u) => (st.total ? (st.paid[u.id] / st.total) * 100 : 0);
+  return `<div class="section-title">Money</div>
+  <div class="month-nav">
     <button class="btn-round" data-action="piggy-move" data-d="-1" aria-label="Previous month">${icon('chevronLeft')}</button>
-    <button class="btn-round" data-action="piggy-move" data-d="1" aria-label="Next month">${icon('chevron')}</button>
     <div class="piggy-month"><h2>${monthName(key)}</h2><span>${monthRange(key)}</span></div>
+    <button class="btn-round" data-action="piggy-move" data-d="1" aria-label="Next month">${icon('chevron')}</button>
     ${isNow ? '' : '<button class="btn ghost sm" data-action="piggy-today">This month</button>'}
-    <span class="spacer"></span>
-    <div class="split-toggle"><span>Show split</span><button class="switch" role="switch" aria-checked="${showSplit}" data-action="toggle-split" aria-label="Show split"></button></div>
   </div>
-  <div class="energy-tiles">
-    <div class="card tile"><small>Total spent</small><b>${fmtCash(st.total)}</b><span>${list.length} expense${list.length === 1 ? '' : 's'}</span></div>
-    ${USERS.map((u) => `<div class="card tile"><small>${avatarImg(u, 'xs')}&nbsp;${u.name} paid</small><b>${fmtCash(st.paid[u.id])}</b><span>${st.total ? Math.round((st.paid[u.id] / st.total) * 100) : 0}% of the month</span></div>`).join('')}
-    <div class="card tile"><small>Average per day</small><b>${fmtCash(st.total / daysSoFar)}</b><span>over ${daysSoFar} day${daysSoFar === 1 ? '' : 's'}</span></div>
+  ${balance}
+  <div class="card spend">
+    <div class="spend-top"><b>${fmtCash(st.total)}</b><span>spent · ${list.length} expense${list.length === 1 ? '' : 's'} · ${fmtCash(st.total / daysSoFar)} a day</span></div>
+    ${st.total ? `<div class="spend-bar">${USERS.map((u) => `<i class="bar-${u.color}" style="width:${share(u).toFixed(1)}%"></i>`).join('')}</div>
+    <div class="spend-key">${USERS.map((u) => `<span>${avatarImg(u, 'xs')}${u.name} paid <b>${fmtCash(st.paid[u.id])}</b> · ${Math.round(share(u))}%</span>`).join('')}</div>` : ''}
   </div>
-  ${showSplit ? `<div class="card split-card">
-    <div class="card-head">${icon('users')}<h2>Split 50/50</h2><span class="hint">${fmtCash(st.shared)} of shared costs, ${fmtCash(st.each)} each</span></div>
-    <div class="split-people">${USERS.map((u) => {
-      const sp = list.filter((x) => x.split && (x.paidBy === u.id || x.paidBy === 'both')).reduce((a, x) => a + (x.paidBy === 'both' ? x.amount / 2 : x.amount), 0);
-      return `<div class="split-person">${avatarImg(u, 'md')}<div><b>${u.name}</b><small>Paid ${fmtCash(sp)} · share ${fmtCash(st.each)}</small></div></div>`;
-    }).join('')}</div>
-    <div class="settle ${st.owed < 0.005 ? 'even' : ''}">${st.owed < 0.005 ? 'All square this month' : `<b>${st.from.name}</b> owes <b>${st.to.name}</b> <b class="settle-amt">${fmtCash(st.owed)}</b>
-      <button class="btn sm" data-action="settle-up">${icon('check')} Settle up</button>`}</div>
-  </div>` : ''}
   <div class="card">
-    <div class="card-head">${icon('calendar')}<h2>Log</h2><span class="hint">${first.toLocaleDateString([], { month: 'short', day: 'numeric' })} to ${last.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
+    <div class="card-head">${icon('calendar')}<h2>Log</h2></div>
     ${all.length ? Object.entries(byDay).map(([d, xs]) => `<div class="ex-day"><div class="ex-day-head"><span>${dayLabel(d)}</span><span>${fmtCash(spending(xs).reduce((a, x) => a + x.amount, 0))}</span></div>
       <div class="list">${xs.map((x) => expenseRow(x, showSplit)).join('')}</div></div>`).join('')
     : `<div class="piggy-empty">${icon('piggy')}<p>Nothing logged for ${monthName(key)} yet.</p><button class="btn" data-action="add-expense">${icon('plus')} Add an expense</button></div>`}
   </div>
-  ${months.length ? `<div class="card">
+  ${months.length > 1 ? `<div class="card">
     <div class="card-head">${icon('piggy')}<h2>By month</h2></div>
-    <div class="table-wrap"><table class="energy-table">
-      <thead><tr><th>Month</th><th>Dates</th>${USERS.map((u) => `<th>${u.name}</th>`).join('')}<th>Total</th></tr></thead>
-      <tbody>${months.map((m) => { const s2 = expenseStats(expensesIn(m)); return `<tr class="${m === key ? 'on' : ''}" data-action="piggy-goto" data-m="${m}">
-        <td>${monthName(m)}</td><td class="muted">${monthRange(m)}</td>${USERS.map((u) => `<td>${fmtCash(s2.paid[u.id])}</td>`).join('')}<td><b>${fmtCash(s2.total)}</b></td></tr>`; }).join('')}</tbody>
-    </table></div>
+    <div class="list">${months.map((m) => { const s2 = expenseStats(expensesIn(m)); return `<button class="row month-row${m === key ? ' on' : ''}" data-action="piggy-goto" data-m="${m}">
+      <span class="ex-main"><b>${monthName(m)}</b><small>${USERS.map((u) => `${u.name} ${fmtCash(s2.paid[u.id])}`).join(' · ')}</small></span><span class="ex-amt">${fmtCash(s2.total)}</span></button>`; }).join('')}</div>
   </div>` : ''}`;
 };
 
@@ -1464,30 +1532,31 @@ function useLabel(it) {
   return `<span class="use${d <= 2 ? ' soon' : ''}">Use in ${d} day${d === 1 ? '' : 's'}</span>`;
 }
 function fridgeRow(it) {
-  return `<div class="fr-row${daysLeft(it) !== null && daysLeft(it) <= 0 ? ' late' : ''}">
+  const d = daysLeft(it);
+  return `<div class="fr-row">
+    <span class="fr-ico">${icon(catOf(it.cat).icon)}</span>
     <button class="fr-main" data-action="edit-fridge" data-id="${it.id}">
-      <b>${esc(it.name)}</b><small>Added ${fmtShort(it.added)}${it.use ? ' · ' : ''}${useLabel(it)}</small></button>
-    <span class="fr-qty">${it.qty}</span>
+      <b>${esc(it.name)}</b><small>${it.use ? useLabel(it) : `Added ${fmtShort(it.added)}`}</small></button>
+    <span class="fr-qty${d !== null && d <= 0 ? ' late' : ''}">×${it.qty}</span>
     <button class="btn-round sm" data-action="use-fridge" data-id="${it.id}" aria-label="Use one ${esc(it.name)}">${icon('minus')}</button></div>`;
 }
+// One list, soonest use-by first, so nothing shows twice. Chips at the top narrow it to one kind.
+let fridgeCat = 'all';
 views.fridge = () => {
   const items = state.fridge || [];
-  const scan = `<label class="btn ghost">${icon('receipt')} Scan receipt<input type="file" id="receipt-file" accept="image/*" hidden></label>`;
-  const head = `<div class="section-title">Fridge<span class="spacer"></span>${scan}
-    <button class="btn-round accent" data-action="add-fridge" aria-label="Add an item">${icon('plus')}</button></div>`;
   if (!items.length) {
-    return `${head}<div class="card fr-empty">${icon('fridge')}<p>Nothing logged yet. Add what's in the fridge, or snap a grocery receipt and the items get added for you.</p>
-      <div class="fr-empty-btns"><button class="btn" data-action="add-fridge">${icon('plus')} Add an item</button>${scan.replace('btn ghost', 'btn ghost')}</div></div>`;
+    return `<div class="section-title">Kitchen</div><div class="card fr-empty">${icon('fridge')}<p>Nothing logged yet. Add what's in the fridge, or snap a grocery receipt and the items get added for you.</p>
+      <div class="fr-empty-btns"><button class="btn" data-action="add-fridge">${icon('plus')} Add an item</button><label class="btn ghost">${icon('receipt')} Scan receipt<input type="file" id="receipt-file" accept="image/*" hidden></label></div></div>`;
   }
-  const soon = items.filter((it) => daysLeft(it) !== null && daysLeft(it) <= 2).sort((a, b) => daysLeft(a) - daysLeft(b));
-  const groups = FRIDGE_CATS.map((c) => [c, items.filter((it) => catOf(it.cat).id === c.id).sort((a, b) => (a.use || '9').localeCompare(b.use || '9') || a.name.localeCompare(b.name))])
-    .filter(([, list]) => list.length);
-  return `${head}
-  ${soon.length ? `<div class="card fr-soon"><div class="card-head">${icon('clock')}<h2>Use soon</h2><span class="hint">${soon.length} item${soon.length === 1 ? '' : 's'}</span></div>
-    <div class="fr-list">${soon.map(fridgeRow).join('')}</div></div>` : ''}
-  <div class="fr-grid">${groups.map(([c, list]) => `<div class="card">
-    <div class="card-head">${icon(c.icon)}<h2>${c.label}</h2><span class="hint">${list.reduce((n, it) => n + it.qty, 0)}</span></div>
-    <div class="fr-list">${list.map(fridgeRow).join('')}</div></div>`).join('')}</div>`;
+  const cats = FRIDGE_CATS.filter((c) => items.some((it) => catOf(it.cat).id === c.id));
+  if (fridgeCat !== 'all' && !cats.some((c) => c.id === fridgeCat)) fridgeCat = 'all';
+  const shown = items.filter((it) => fridgeCat === 'all' || catOf(it.cat).id === fridgeCat)
+    .sort((a, b) => (a.use || '9').localeCompare(b.use || '9') || a.name.localeCompare(b.name));
+  const soon = items.filter((it) => daysLeft(it) !== null && daysLeft(it) <= 2).length;
+  const chip = (id, label, n) => `<button class="chip${fridgeCat === id ? ' on' : ''}" data-action="fridge-cat" data-v="${id}">${label}<span>${n}</span></button>`;
+  return `<div class="section-title">Kitchen<span class="spacer"></span><span class="hint">${soon ? `${soon} to use soon` : 'All fresh'}</span></div>
+  <div class="chips fr-chips">${chip('all', 'All', items.length)}${cats.map((c) => chip(c.id, c.label, items.filter((it) => catOf(it.cat).id === c.id).length)).join('')}</div>
+  <div class="card"><div class="fr-list">${shown.map(fridgeRow).join('')}</div></div>`;
 };
 const catSelect = (id, cur) => `<select class="input" id="${id}">${FRIDGE_CATS.map((c) => `<option value="${c.id}"${c.id === cur ? ' selected' : ''}>${c.label}</option>`).join('')}</select>`;
 function openFridgeSheet(it) {
@@ -1679,33 +1748,36 @@ views.health = () => {
     </table></div></div>`;
 };
 
-function healthCard() {
+function healthBody() {
   preloadGoogle().catch(() => {});
-  const head = `<div class="card-head">${icon('heart')}<h2>Fitbit health</h2></div>`;
   if (!healthAvailable()) {
-    return `<div class="card">${head}
-      <p class="hint">Not set up yet. Fitbit sign-in needs a one-time setup for this site.</p>
+    return `<p class="hint">Not set up yet. Fitbit sign-in needs a one-time setup for this site.</p>
       <details class="setup"><summary>One-time setup</summary><ol class="hint">
         <li>In Google Cloud, turn on the <b>Google Health API</b> and add each person's Google account as a test user.</li>
         <li>Create a <b>Web application</b> OAuth client with <code>${esc(location.origin)}</code> as an authorized JavaScript origin.</li>
         <li>Save its client ID as the GitHub secret <code>GOOGLE_HEALTH_CLIENT_ID</code> and run <b>Deploy to GitHub Pages</b>.</li>
-      </ol></details></div>`;
+      </ol></details>`;
   }
-  return `<div class="card">${head}
-    ${USERS.map((u) => healthRow(u.id)).join('')}
+  return `${USERS.map((u) => healthRow(u.id)).join('')}
     <p class="hint">Each person signs in with the Google account their Fitbit uses. Google's pass lasts about an hour and stays on this screen only; the daily numbers are shared with the household when sync is on.</p>
-    ${healthPeople().length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${healthPeople().map((u) => `<button class="btn ghost" data-action="health-disconnect" data-v="${u.id}">${icon('trash')} Remove ${u.name}'s data</button>`).join('')}</div>` : ''}
-  </div>`;
+    ${healthPeople().length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${healthPeople().map((u) => `<button class="btn ghost" data-action="health-disconnect" data-v="${u.id}">${icon('trash')} Remove ${u.name}'s data</button>`).join('')}</div>` : ''}`;
 }
+
+// A connection is one row with its status; tapping it opens the details and setup steps.
+let openConn = null; // stays open across re-renders
+const connRow = (id, ic, title, status, ok, body) => `<details class="conn" data-conn="${id}"${openConn === id ? ' open' : ''}>
+  <summary><span class="ibox ${ok ? 'c-green-ico' : 'c-amber-ico'}">${icon(ic)}</span><span class="conn-text"><b>${title}</b><small>${status}</small></span>${icon('chevron', 'chev')}</summary>
+  <div class="conn-body">${body}</div></details>`;
 
 views.settings = () => {
   const s = state.settings;
+  const pge = syncMessage();
+  const fit = healthPeople();
   return `
   <div class="settings">
   <div class="section-title">Settings</div>
-    <h3 class="set-group">General</h3>
+    <h3 class="set-group">Display</h3>
     <div class="card">
-      <div class="card-head">${icon('monitor')}<h2>Display &amp; weather</h2></div>
       <div class="field"><label for="set-place">Weather location</label>
         <div style="display:flex;gap:8px"><input class="input" id="set-place" placeholder="Search a city" value="${esc(s.place.name)}">
         <button class="btn" data-action="place-search" aria-label="Search">${icon('search')}</button></div>
@@ -1715,48 +1787,48 @@ views.settings = () => {
       <div class="setting-row"><div><b>Theme</b><div class="hint">Auto goes dark from 9 PM to 6 AM.</div></div>
         <div class="seg">${['auto', 'light', 'dark'].map((t) => `<button class="${s.theme === t ? 'on' : ''}" data-action="set-theme" data-v="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></div>
       <div class="setting-row"><div><b>24-hour clock</b></div>
-        <button class="switch" role="switch" aria-checked="${s.clock24}" data-action="set-clock24"></button></div>
+        <button class="switch" role="switch" aria-checked="${s.clock24}" data-action="set-clock24" aria-label="24-hour clock"></button></div>
       <div class="setting-row"><div><b>Keep screen on</b><div class="hint">Stops the screen from sleeping while the dashboard is open.</div></div>
-        <button class="switch" role="switch" aria-checked="${s.wakeLock}" data-action="set-wake"></button></div>
+        <button class="switch" role="switch" aria-checked="${s.wakeLock}" data-action="set-wake" aria-label="Keep screen on"></button></div>
+      <div class="setting-row"><div><b>Show who owes whom</b><div class="hint">The 50/50 balance and Settle up on the Money tab.</div></div>
+        <button class="switch" role="switch" aria-checked="${s.showSplit !== false}" data-action="toggle-split" aria-label="Show who owes whom"></button></div>
     </div>
+    <h3 class="set-group">Household</h3>
     ${houseCard()}
     <h3 class="set-group">Connections</h3>
-    <div class="card">
-      <div class="card-head">${icon('zap')}<h2>PG&amp;E energy</h2></div>
-      ${syncBanner(true, false)}
-      <div class="field"><label for="energy-pass">Sync passphrase</label>
-        <div style="display:flex;gap:8px"><input class="input" id="energy-pass" type="password" autocomplete="off" placeholder="${energyPass ? 'Saved on this device' : 'The ENERGY_PASSPHRASE you chose'}">
-        <button class="btn" data-action="energy-connect">${energyPass ? 'Update' : 'Connect'}</button></div></div>
-      <details class="setup"><summary>How to sign in to PG&amp;E (one time)</summary>
-        <p class="hint">This device never signs in to PG&amp;E itself. A GitHub job signs in to PG&amp;E every morning and saves your usage, locked with your passphrase.</p>
-        <ol class="hint">
-          <li>In the Home-Assistance repo on GitHub, open <b>Settings › Secrets and variables › Actions</b> and add <code>PGE_USERNAME</code>, <code>PGE_PASSWORD</code> and <code>ENERGY_PASSPHRASE</code> (a phrase you make up).</li>
-          <li>PG&amp;E sends a code the first time a new device signs in. On your computer run <code>python3 sync/pge_pair.py</code>, enter the code, and save the line it prints as <code>PGE_LOGIN_DATA</code>.</li>
-          <li>In the repo's <b>Actions</b> tab, run <b>Deploy to GitHub Pages</b>. It then runs every morning by itself.</li>
-          <li>Type the same passphrase above and tap Connect.</li>
-        </ol></details>
-      <p class="hint">Or load a PG&amp;E <b>Download My Data</b> CSV by hand.${energyDays().length ? ` ${energyDays().length} days stored, ${fmtShort(energyDays()[0])} to ${fmtShort(energyDays().at(-1))}.` : ''}</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <label class="btn ghost">${icon('plug')} Load PG&amp;E file<input type="file" id="energy-file" accept=".csv,text/csv" multiple hidden></label>
-        ${energyPass ? `<button class="btn ghost" data-action="energy-disconnect">Stop syncing</button>` : ''}
-        ${energyDays().length ? `<button class="btn ghost" data-action="clear-energy">${icon('trash')} Remove data</button>` : ''}
-      </div>
+    <div class="card conns">
+      ${connRow('pge', 'zap', 'PG&amp;E energy', energyDays().length ? `${energyDays().length} days of data${pge.ok ? '' : ' · not syncing'}` : 'Not connected', pge.ok, `
+        ${syncBanner(true, false)}
+        <div class="field"><label for="energy-pass">Sync passphrase</label>
+          <div style="display:flex;gap:8px"><input class="input" id="energy-pass" type="password" autocomplete="off" placeholder="${energyPass ? 'Saved on this device' : 'The ENERGY_PASSPHRASE you chose'}">
+          <button class="btn" data-action="energy-connect">${energyPass ? 'Update' : 'Connect'}</button></div></div>
+        <details class="setup"><summary>How to sign in to PG&amp;E (one time)</summary>
+          <p class="hint">This device never signs in to PG&amp;E itself. A GitHub job signs in to PG&amp;E every morning and saves your usage, locked with your passphrase.</p>
+          <ol class="hint">
+            <li>In the Home-Assistance repo on GitHub, open <b>Settings › Secrets and variables › Actions</b> and add <code>PGE_USERNAME</code>, <code>PGE_PASSWORD</code> and <code>ENERGY_PASSPHRASE</code> (a phrase you make up).</li>
+            <li>PG&amp;E sends a code the first time a new device signs in. On your computer run <code>python3 sync/pge_pair.py</code>, enter the code, and save the line it prints as <code>PGE_LOGIN_DATA</code>.</li>
+            <li>In the repo's <b>Actions</b> tab, run <b>Deploy to GitHub Pages</b>. It then runs every morning by itself.</li>
+            <li>Type the same passphrase above and tap Connect.</li>
+          </ol></details>
+        <p class="hint">Or load a PG&amp;E <b>Download My Data</b> CSV by hand.${energyDays().length ? ` ${energyDays().length} days stored, ${fmtShort(energyDays()[0])} to ${fmtShort(energyDays().at(-1))}.` : ''}</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <label class="btn ghost">${icon('plug')} Load PG&amp;E file<input type="file" id="energy-file" accept=".csv,text/csv" multiple hidden></label>
+          ${energyPass ? `<button class="btn ghost" data-action="energy-disconnect">Stop syncing</button>` : ''}
+          ${energyDays().length ? `<button class="btn ghost" data-action="clear-energy">${icon('trash')} Remove data</button>` : ''}
+        </div>`)}
+      ${connRow('fitbit', 'heart', 'Fitbit health', !healthAvailable() ? 'Not set up for this site' : fit.length ? `${fit.map((u) => u.name).join(' and ')} connected` : 'Nobody connected yet', healthAvailable() && fit.length > 0, healthBody())}
+      ${connRow('email', 'bell', 'Summary email', '7 AM, noon, 5 PM and 9 PM', true, `
+        <p class="hint">A GitHub job emails the household with what's on, open chores, stars and anything in the fridge to use up.</p>
+        <details class="setup"><summary>Turn it on (one time)</summary><ol class="hint">
+          <li>On the sending Gmail account, create an <b>app password</b> (Google Account › Security › 2-Step Verification › App passwords).</li>
+          <li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add <code>EMAIL_SMTP_USER</code> (that Gmail address), <code>EMAIL_SMTP_PASSWORD</code> (the app password), <code>EMAIL_TO</code> (who gets it, comma separated) and <code>HOUSEHOLD_PASSPHRASE</code> (the passphrase you sync with).</li>
+          <li>To try it now, run <b>Daily summary email</b> in the repo's <b>Actions</b> tab.</li>
+        </ol></details>`)}
     </div>
-    ${healthCard()}
+    <h3 class="set-group">Danger zone</h3>
     <div class="card">
-      <div class="card-head">${icon('bell')}<h2>Summary email</h2></div>
-      <p class="hint">A GitHub job emails the household at 7 AM, noon, 5 PM and 9 PM with what's on, open tasks, stars and anything in the fridge to use up.</p>
-      <details class="setup"><summary>Turn it on (one time)</summary><ol class="hint">
-        <li>On the sending Gmail account, create an <b>app password</b> (Google Account › Security › 2-Step Verification › App passwords).</li>
-        <li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add <code>EMAIL_SMTP_USER</code> (that Gmail address), <code>EMAIL_SMTP_PASSWORD</code> (the app password), <code>EMAIL_TO</code> (who gets it, comma separated) and <code>HOUSEHOLD_PASSPHRASE</code> (the passphrase you sync with).</li>
-        <li>To try it now, run <b>Daily summary email</b> in the repo's <b>Actions</b> tab.</li>
-      </ol></details>
-    </div>
-    <h3 class="set-group">Data</h3>
-    <div class="card">
-      <div class="card-head">${icon('sparkles')}<h2>About</h2></div>
-      <p class="hint">Display settings stay on this device. Events, tasks and expenses are shared with your other devices when sync is on. Weather comes from Open-Meteo.</p>
-      <button class="btn danger" data-action="reset">${icon('trash')} Clear events and tasks</button>
+      <p class="hint">Display settings stay on this device. Events, chores and expenses are shared with your other devices when sync is on. Weather comes from Open-Meteo.</p>
+      <button class="btn danger" data-action="reset">${icon('trash')} Clear events and chores</button>
     </div>
   </div>`;
 };
@@ -1796,6 +1868,9 @@ let lastRoute = null;
 function render() {
   const r = currentRoute();
   const order = (id) => PAGES.findIndex((p) => p.id === id);
+  // The big sky panel is for Home; other pages get a slim strip with the time.
+  $('#hero').classList.toggle('slim', r !== 'home');
+  setFab(r);
   const anim = lastRoute && lastRoute !== r ? (order(r) > order(lastRoute) ? 'fwd' : 'back') : null;
   lastRoute = r;
   renderNav();
@@ -1888,8 +1963,8 @@ function openDaySheet(iso) {
 
 function openTaskSheet(task, who = USERS[0].id) {
   const t = task || { id: '', title: '', who, repeat: 'daily', stars: 5 };
-  openSheet(`${sheetHead(task ? 'Edit task' : 'New task', 'checkSquare')}
-    <div class="field"><label for="task-title">Task</label><input class="input" id="task-title" value="${esc(t.title)}" placeholder="e.g. Take out trash"></div>
+  openSheet(`${sheetHead(task ? 'Edit chore' : 'New chore', 'checkSquare')}
+    <div class="field"><label for="task-title">Chore</label><input class="input" id="task-title" value="${esc(t.title)}" placeholder="e.g. Take out trash"></div>
     <div class="field"><label>Assigned to</label>${whoPicker(t.who, false)}</div>
     ${impRow(t.important)}
     <div class="field-row">
@@ -1899,7 +1974,7 @@ function openTaskSheet(task, who = USERS[0].id) {
     <div class="sheet-actions">
       ${task ? `<button class="btn danger" data-action="del-task" data-id="${t.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
-      <button class="btn" data-action="save-task" data-id="${t.id}">${task ? 'Save' : 'Add task'}</button>
+      <button class="btn" data-action="save-task" data-id="${t.id}">${task ? 'Save' : 'Add chore'}</button>
     </div>`);
 }
 
@@ -1908,6 +1983,8 @@ function openTaskSheet(task, who = USERS[0].id) {
    ========================================================= */
 const actions = {
   'close-sheet': closeSheet,
+  'open-more': openMore,
+  'add-menu': openAddMenu,
   'pick-who': (el) => {
     el.parentElement.querySelectorAll('.who-opt').forEach((b) => b.classList.toggle('on', b === el));
   },
@@ -1918,12 +1995,13 @@ const actions = {
 
   'cal-move': (el) => {
     const d = Number(el.dataset.d);
-    calCursor = state.settings.calView === 'month'
+    calCursor = calView() === 'month'
       ? new Date(calCursor.getFullYear(), calCursor.getMonth() + d, 1)
       : addDays(calCursor, d * 7);
   },
   'cal-today': () => { calCursor = new Date(); },
-  'cal-view': (el) => { state.settings.calView = el.dataset.v; save(); },
+  'cal-view': (el) => { state.settings.calPick = el.dataset.v; save(); },
+  'cal-chores': () => { state.settings.calChores = !state.settings.calChores; save(); },
   'open-day': (el) => openDaySheet(el.dataset.d),
   'add-event': (el) => openEventSheet(null, el.dataset.d),
   'add-event-at': (el, e) => {
@@ -1967,7 +2045,7 @@ const actions = {
   'edit-task': (el) => openTaskSheet(state.tasks.find((x) => x.id === el.dataset.id)),
   'save-task': (el) => {
     const title = $('#task-title').value.trim();
-    if (!title) { toast('Name the task first'); return; }
+    if (!title) { toast('Name the chore first'); return; }
     const data = {
       title,
       who: pickedWho() || USERS[0].id,
@@ -1987,6 +2065,7 @@ const actions = {
   'toggle-task': (el) => {
     const t = state.tasks.find((x) => x.id === el.dataset.id);
     awardStars(t, 'task', !isDone(t));
+    justTicked = t.id; setTimeout(() => { justTicked = null; }, 600);
     redrawDaySheet();
   },
 
@@ -2082,9 +2161,17 @@ const actions = {
   'use-fridge': (el) => {
     const it = state.fridge.find((x) => x.id === el.dataset.id);
     if (!it) return;
+    const before = { ...it }; const at = state.fridge.indexOf(it);
     it.qty -= 1;
-    if (it.qty <= 0) { state.fridge = state.fridge.filter((x) => x !== it); toast(`${it.name} is used up`); }
+    if (it.qty <= 0) state.fridge = state.fridge.filter((x) => x !== it);
+    // A slip of the finger is one tap to put back.
+    toast(it.qty <= 0 ? `${it.name} is used up` : `Used one ${it.name}`, ['Undo', () => {
+      const cur = state.fridge.find((x) => x.id === before.id);
+      if (cur) Object.assign(cur, before); else state.fridge.splice(at, 0, before);
+      save(); renderView();
+    }]);
   },
+  'fridge-cat': (el) => { fridgeCat = el.dataset.v; },
   'rc-tick': (el) => { el.classList.toggle('on'); el.closest('.rc-row').classList.toggle('off', !el.classList.contains('on')); },
   'save-receipt': () => {
     const today = isoDay(new Date()); const t = Date.now();
@@ -2133,17 +2220,17 @@ const actions = {
   },
   'piggy-today': () => { piggyMonth = monthKey(new Date()); },
   'piggy-goto': (el) => { piggyMonth = el.dataset.m; window.scrollTo({ top: 0, behavior: 'smooth' }); },
-  'toggle-split': () => { state.settings.showSplit = !state.settings.showSplit; },
+  'toggle-split': () => { state.settings.showSplit = state.settings.showSplit === false; },
 
   reset: () => {
-    if (!confirm('Clear all events and tasks on this device?')) return;
+    if (!confirm('Clear all events and chores on this device?')) return;
     state = { ...defaultState(), settings: state.settings, expenses: state.expenses, fridge: state.fridge, health: state.health, events: [], tasks: [] };
     save();
   },
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['pick-who', 'pick-seg', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
+const NO_RERENDER = new Set(['open-more', 'add-menu', 'pick-who', 'pick-seg', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -2153,11 +2240,15 @@ document.addEventListener('click', (e) => {
   if (!fn) return;
   fn(el, e);
   save();
-  if (!NO_RERENDER.has(name)) renderView(['cal-move', 'cal-today', 'cal-view'].includes(name) ? 'cal' : undefined);
+  if (!NO_RERENDER.has(name)) renderView(['cal-move', 'cal-today', 'cal-view', 'cal-chores'].includes(name) ? 'cal' : undefined);
 });
 
 $('#sheet-backdrop').addEventListener('click', closeSheet);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
+document.addEventListener('toggle', (e) => {
+  const c = e.target.closest?.('.conn');
+  if (c && e.target === c) openConn = c.open ? c.dataset.conn : (openConn === c.dataset.conn ? null : openConn);
+}, true);
 
 // Refresh the page behind a sheet when it closes, so a saved event or task shows up.
 const sheetObserver = new MutationObserver(() => { if ($('#sheet').hidden) renderView(); });
