@@ -1,5 +1,5 @@
 // Offline support: cache the app shell, always try the network first for weather.
-const CACHE = 'home-dashboard-v1';
+const CACHE = 'home-dashboard-v2';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'icons.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

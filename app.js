@@ -6,15 +6,8 @@ import { icon, hydrateIcons } from './icons.js';
 const STORE_KEY = 'home-dashboard.v1';
 const WEATHER_KEY = 'home-dashboard.weather.v1';
 
-const ROOMS = [
-  { id: 'living', name: 'Living Room', icon: 'sofa', art: 'art-living' },
-  { id: 'bedroom', name: 'Bedroom', icon: 'bed', art: 'art-bedroom' },
-  { id: 'kitchen', name: 'Kitchen', icon: 'utensils', art: 'art-kitchen' },
-  { id: 'office', name: 'Office', icon: 'monitor', art: 'art-office' },
-  { id: 'outdoor', name: 'Outdoor', icon: 'tree', art: 'art-outdoor' },
-];
-
 const minutesAgo = (m) => Date.now() - m * 60000;
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 function defaultState() {
   return {
@@ -26,50 +19,14 @@ function defaultState() {
       wakeLock: true,
       clock24: false,
     },
-    devices: [
-      { id: 'l1', room: 'living', name: 'Ceiling light', type: 'light', on: true },
-      { id: 'l2', room: 'living', name: 'Floor lamp', type: 'light', on: true },
-      { id: 'tv', room: 'living', name: 'TV', type: 'tv', on: false },
-      { id: 'l3', room: 'bedroom', name: 'Ceiling light', type: 'light', on: true },
-      { id: 'l4', room: 'bedroom', name: 'Bedside lamp', type: 'light', on: false },
-      { id: 'fan', room: 'bedroom', name: 'Ceiling fan', type: 'fan', on: false },
-      { id: 'l5', room: 'kitchen', name: 'Pendant lights', type: 'light', on: true },
-      { id: 'l6', room: 'kitchen', name: 'Under-cabinet lights', type: 'light', on: true },
-      { id: 'fridge', room: 'kitchen', name: 'Fridge', type: 'plug', on: true, locked: true },
-      { id: 'oven', room: 'kitchen', name: 'Oven', type: 'plug', on: false },
-      { id: 'l7', room: 'office', name: 'Desk lamp', type: 'light', on: true },
-      { id: 'pc', room: 'office', name: 'Computer', type: 'plug', on: true },
-      { id: 'l8', room: 'outdoor', name: 'Porch light', type: 'light', on: true },
-      { id: 'l9', room: 'outdoor', name: 'Garden lights', type: 'light', on: true },
-      { id: 'l10', room: 'outdoor', name: 'Driveway light', type: 'light', on: false },
-    ],
-    thermostat: { target: 72, mode: 'heat' },
-    security: { mode: 'away' },
-    locks: [
-      { id: 'front', name: 'Front door', locked: true },
-      { id: 'back', name: 'Back door', locked: true },
-      { id: 'side', name: 'Side gate', locked: false },
-    ],
-    garage: { open: false },
-    automations: [
-      { id: 'a1', name: 'Good morning', desc: 'Weekdays 6:30 AM · Kitchen lights on, 70°', icon: 'sun', on: true },
-      { id: 'a2', name: 'Away mode', desc: 'When everyone leaves · Lights off, arm security', icon: 'shieldCheck', on: true },
-      { id: 'a3', name: 'Bedtime', desc: 'Every day 11:00 PM · Lights off, lock doors', icon: 'moon', on: true },
-      { id: 'a4', name: 'Porch at sunset', desc: 'At sunset · Porch and garden lights on', icon: 'bulb', on: false },
-    ],
-    activity: [
-      { icon: 'bulb', color: 'amber', text: 'Living room light turned off', ts: minutesAgo(2) },
-      { icon: 'lock', color: 'blue', text: 'Front door locked', ts: minutesAgo(12) },
-      { icon: 'washer', color: 'blue', text: 'Washer finished', ts: minutesAgo(45) },
-      { icon: 'thermo', color: 'blue', text: 'Temperature changed to 72°', ts: minutesAgo(60) },
-      { icon: 'garage', color: 'purple', text: 'Garage door opened', ts: minutesAgo(120) },
-    ],
     notes: [
       { id: 'n1', text: 'Buy milk, eggs, and spinach 🥬', color: 'yellow', ts: minutesAgo(90) },
       { id: 'n2', text: 'Dentist on Thursday 4:30 PM', color: 'blue', ts: minutesAgo(300) },
     ],
-    events: [],
-    seenActivity: 0,
+    events: [
+      { id: 'e1', title: 'Soccer practice', date: isoDay(new Date()), time: '17:30' },
+      { id: 'e2', title: 'Dentist', date: isoDay(new Date(Date.now() + 3 * 864e5)), time: '16:30' },
+    ],
   };
 }
 
@@ -89,19 +46,11 @@ function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
 }
 
-function log(text, iconName, color = 'blue') {
-  state.activity.unshift({ icon: iconName, color, text, ts: Date.now() });
-  state.activity = state.activity.slice(0, 40);
-  save();
-  updateBadge();
-}
-
 /* =========================================================
    Helpers
    ========================================================= */
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const roomOf = (id) => ROOMS.find((r) => r.id === id);
 
 function ago(ts) {
   const s = Math.max(0, (Date.now() - ts) / 1000);
@@ -136,9 +85,6 @@ function partOfDay(h) {
   if (h >= 17 && h < 21) return 'evening';
   return 'night';
 }
-
-const lightsOn = () => state.devices.filter((d) => d.type === 'light' && d.on).length;
-const lightsTotal = () => state.devices.filter((d) => d.type === 'light').length;
 
 /* =========================================================
    Theme, clock and hero
@@ -231,7 +177,6 @@ async function fetchWeather() {
   } catch (err) {
     console.warn('Weather fetch failed', err);
   }
-  renderSideWeather();
   if (currentRoute() === 'home') renderView();
 }
 
@@ -240,26 +185,14 @@ function weatherValid() {
   return weather && weather.unit === state.settings.unit && weather.placeKey === `${lat},${lon}`;
 }
 
-function renderSideWeather() {
-  const el = $('#side-weather');
-  if (!weatherValid()) { el.innerHTML = ''; return; }
-  const w = wmo(weather.code, weather.isDay);
-  el.innerHTML = `${icon(w.icon)}<div><b>${Math.round(weather.temp)}°${state.settings.unit}</b><small>${w.label} · ${esc(state.settings.place.name)}</small></div>`;
-  el.querySelector('.ico').style.color = 'var(--amber-fg)';
-}
-
 /* =========================================================
    Navigation
    ========================================================= */
 const PAGES = [
-  { id: 'home', label: 'Home', tab: 'Overview', icon: 'home' },
-  { id: 'devices', label: 'Devices', icon: 'monitor' },
-  { id: 'automations', label: 'Automations', icon: 'automation' },
-  { id: 'energy', label: 'Energy', icon: 'zap' },
-  { id: 'security', label: 'Security', icon: 'shield' },
+  { id: 'home', label: 'Home', icon: 'home' },
   { id: 'calendar', label: 'Calendar', icon: 'calendar' },
   { id: 'notes', label: 'Notes', icon: 'notes' },
-  { id: 'settings', label: 'Settings', icon: 'settings', sideOnly: true },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
 const currentRoute = () => {
@@ -269,37 +202,14 @@ const currentRoute = () => {
 
 function renderNav() {
   const r = currentRoute();
-  $('#side-nav').innerHTML = PAGES.map((p) => `
-    <a class="side-link ${p.id === r ? 'active' : ''}" href="#/${p.id}">${icon(p.icon)}<span>${p.label}</span></a>`).join('');
-  $('#tabs').innerHTML = PAGES.filter((p) => !p.sideOnly).map((p) => `
-    <a class="tab ${p.id === r ? 'active' : ''}" href="#/${p.id}">${icon(p.icon)}<span>${p.tab || p.label}</span></a>`).join('');
+  $('#tabs').innerHTML = PAGES.map((p) => `
+    <a class="tab ${p.id === r ? 'active' : ''}" href="#/${p.id}">${icon(p.icon)}<span>${p.label}</span></a>`).join('');
 }
 
 /* =========================================================
    Views
    ========================================================= */
 const views = {};
-
-function tileHtml({ action, color, ic, title, sub }) {
-  return `<button class="tile c-${color}" data-action="${action}">
-    <span class="ibox">${icon(ic)}</span>
-    <span><b>${title}</b><small>${sub}</small></span>
-    ${icon('chevron', 'chev')}
-  </button>`;
-}
-
-function securityLabel() {
-  return { away: 'Armed (Away)', home: 'Armed (Home)', off: 'Disarmed' }[state.security.mode];
-}
-
-function activityRows(items) {
-  if (!items.length) return '<p class="muted">Nothing yet.</p>';
-  return items.map((a) => `
-    <div class="row c-${a.color}">
-      <span class="ibox">${icon(a.icon)}</span>
-      <span><b>${esc(a.text)}</b><small>${ago(a.ts)}</small></span>
-    </div>`).join('');
-}
 
 function weatherCard() {
   if (!weatherValid()) {
@@ -316,7 +226,7 @@ function weatherCard() {
   }).join('');
   return `<div class="card a-weather weather-card">
     <div class="card-head"><span style="color:var(--amber-fg);font-size:24px;display:inline-flex">${icon(w.icon)}</span><h2>Weather</h2>
-      <a class="link" href="#/weather" data-action="weather-week">${icon('chevron')}</a></div>
+</div>
     <div class="weather-now">
       <div class="big-ico ${weather.isDay ? '' : 'night'}">${icon(w.icon)}</div>
       <div><div class="temp">${Math.round(weather.temp)}°${u}</div><div class="cond">${w.label}</div></div>
@@ -326,203 +236,51 @@ function weatherCard() {
       <div class="hour now">${icon(w.icon)}<small>Now</small><b>${Math.round(weather.temp)}°</b></div>
       ${hours}
     </div>
+    ${weekStrip()}
   </div>`;
 }
 
-/* Demo energy curve: deterministic per day so it doesn't jump on refresh. */
-function energyHours(dayOffset = 0) {
-  const d = new Date();
-  d.setDate(d.getDate() - dayOffset);
-  let seed = d.getFullYear() * 400 + d.getMonth() * 31 + d.getDate();
-  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
-  return Array.from({ length: 24 }, (_, h) => {
-    const base = h < 6 ? 0.25 : h < 9 ? 0.55 : h < 17 ? 0.4 : h < 22 ? 0.95 : 0.45;
-    return +(base * (0.75 + rnd() * 0.5)).toFixed(2);
-  });
+function upcomingEvents(limit) {
+  const todayIso = isoDay(new Date());
+  return state.events
+    .filter((e) => e.date >= todayIso)
+    .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')))
+    .slice(0, limit);
 }
 
-function energyCard(extraClass = 'a-energy') {
-  const nowH = new Date().getHours();
-  const today = energyHours(0);
-  const used = today.slice(0, nowH + 1).reduce((a, b) => a + b, 0);
-  const yest = energyHours(1).slice(0, nowH + 1).reduce((a, b) => a + b, 0);
-  const pct = Math.round(((used - yest) / yest) * 100);
-  const max = Math.max(...today);
-  const bars = today.map((v, h) => `<i class="${h > nowH ? 'future' : ''}" style="height:${(v / max) * 100}%"></i>`).join('');
-  return `<div class="card ${extraClass}">
-    <div class="card-head">${icon('chart')}<h2>Energy Usage</h2><a class="link" href="#/energy">View details ${icon('arrowRight')}</a></div>
-    <div class="energy">
-      <div class="energy-total">
-        <div class="val">${used.toFixed(1)} <span>kWh</span></div>
-        <small>Today</small>
-        <span class="trend"><b class="${pct > 0 ? 'up' : ''}">${icon(pct > 0 ? 'arrowUp' : 'arrowDown')}${Math.abs(pct)}%</b> vs. yesterday</span>
-      </div>
-      <div class="bars">
-        <div class="bars-plot">${bars}</div>
-        <div class="bars-axis"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>12 AM</span></div>
-      </div>
-    </div>
-  </div>`;
+function dayLabel(iso) {
+  if (iso === isoDay(new Date())) return 'Today';
+  if (iso === isoDay(new Date(Date.now() + 864e5))) return 'Tomorrow';
+  return new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function roomCard(r) {
-  const devs = state.devices.filter((d) => d.room === r.id);
-  const types = [...new Set(devs.map((d) => ({ light: 'Lights', tv: 'TV', fan: 'Fan' }[d.type] || d.name)))];
-  const on = devs.filter((d) => d.type === 'light' && d.on).length;
-  return `<a class="room" href="#/devices?room=${r.id}">
-    <div class="room-head"><span class="ibox">${icon(r.icon)}</span>
-      <span style="min-width:0"><b>${r.name}</b><small>${types.slice(0, 3).join(' · ')}</small></span>${icon('chevron', 'chev')}</div>
-    <div class="room-art ${r.art}">${icon(r.icon)}</div>
-    <div class="room-foot"><span class="dot"></span>${on ? `${on} light${on > 1 ? 's' : ''} on` : 'All good'}</div>
-  </a>`;
+function weekStrip() {
+  return `<div class="week">${weather.days.map((d, i) => {
+    const w = wmo(d.code, 1);
+    const label = i === 0 ? 'Today' : new Date(`${d.date}T12:00`).toLocaleDateString([], { weekday: 'short' });
+    return `<div class="wday"><small>${label}</small>${icon(w.icon, w.icon === 'sun' ? 'sun' : '')}<b>${Math.round(d.hi)}°</b><span class="muted">${Math.round(d.lo)}°</span></div>`;
+  }).join('')}</div>`;
 }
 
 views.home = () => `
-  <div class="grid-overview">
-    <div class="card a-status">
-      <div class="card-head">${icon('home')}<div><h2>Home Status</h2><div class="sub"><span class="dot"></span>All systems running</div></div></div>
-      <div class="tiles">
-        ${tileHtml({ action: 'go-lights', color: 'amber', ic: 'bulb', title: 'Lights', sub: `${lightsOn()} / ${lightsTotal()} on` })}
-        ${tileHtml({ action: 'thermostat', color: 'blue', ic: 'thermo', title: 'Thermostat', sub: `${state.thermostat.target}°` })}
-        ${tileHtml({ action: 'go-security', color: 'green', ic: state.security.mode === 'off' ? 'shieldOff' : 'shieldCheck', title: 'Security', sub: securityLabel() })}
-        ${tileHtml({ action: 'garage', color: 'purple', ic: 'garage', title: 'Garage', sub: state.garage.open ? 'Open' : 'Closed' })}
-      </div>
-    </div>
+  <div class="grid-home">
     ${weatherCard()}
-    <div class="card a-activity">
-      <div class="card-head">${icon('clock')}<h2>Recent Activity</h2><a class="link" href="#/activity" data-action="all-activity">View all ${icon('arrowRight')}</a></div>
-      <div class="list">${activityRows(state.activity.slice(0, 5))}</div>
+    <div class="card a-agenda">
+      <div class="card-head">${icon('calendar')}<h2>Coming up</h2><a class="link" href="#/calendar">Calendar ${icon('arrowRight')}</a></div>
+      <div class="list">${upcomingEvents(5).map((e) => eventRow(e, true)).join('') || '<p class="muted">Nothing on the calendar yet.</p>'}</div>
+      <button class="btn ghost add-btn" data-action="add-event" data-d="${isoDay(new Date())}">${icon('plus')} Add event</button>
     </div>
-    <div class="card a-actions">
-      <div class="card-head">${icon('zap')}<h2>Quick Actions</h2></div>
-      <div class="actions">
-        <button class="action c-amber" data-action="all-lights"><span class="ibox">${icon('bulb')}</span>${lightsOn() ? 'Turn off all lights' : 'Turn on all lights'}</button>
-        <button class="action c-blue" data-action="thermostat"><span class="ibox">${icon('thermo')}</span>Set temperature</button>
-        <button class="action c-green" data-action="toggle-arm"><span class="ibox">${icon('shieldCheck')}</span>${state.security.mode === 'off' ? 'Arm security' : 'Disarm security'}</button>
-        <button class="action c-purple" data-action="garage"><span class="ibox">${icon('garage')}</span>${state.garage.open ? 'Close garage' : 'Open garage'}</button>
+    <div class="card a-notes">
+      <div class="card-head">${icon('notes')}<h2>Notes</h2><a class="link" href="#/notes">All notes ${icon('arrowRight')}</a></div>
+      <div class="notes notes-mini">
+        <button class="note note-new" data-action="add-note">${icon('plus')}New note</button>
+        ${state.notes.slice(0, 3).map(noteHtml).join('')}
       </div>
     </div>
-    ${energyCard()}
-    <div class="card a-rooms">
-      <div class="card-head">${icon('home')}<h2>My Home</h2><a class="link" href="#/devices">View all devices ${icon('arrowRight')}</a></div>
-      <div class="rooms">${ROOMS.slice(0, 4).map(roomCard).join('')}</div>
-    </div>
-  </div>
-  <p class="demo-note">Smart home panels are showing demo data until a hub is connected. Weather is live.</p>`;
-
-function deviceIcon(d) {
-  return { light: 'bulb', tv: 'tv', fan: 'fan', plug: 'plug' }[d.type] || 'plug';
-}
-
-views.devices = () => {
-  const q = new URLSearchParams(location.hash.split('?')[1] || '');
-  const only = q.get('room');
-  const rooms = only ? ROOMS.filter((r) => r.id === only) : ROOMS;
-  return `
-    <div class="section-title">${only ? `<a class="btn ghost" href="#/devices">${icon('chevronLeft')} All rooms</a>` : ''}
-      Devices<span class="spacer"></span>
-      <button class="btn ghost" data-action="all-lights">${icon('power')} ${lightsOn() ? 'All lights off' : 'All lights on'}</button></div>
-    <div class="page-grid">
-      ${rooms.map((r) => `
-        <div class="card">
-          <div class="card-head">${icon(r.icon)}<h2>${r.name}</h2></div>
-          ${state.devices.filter((d) => d.room === r.id).map((d) => `
-            <div class="device ${d.on ? 'on' : ''}">
-              <span class="ibox">${icon(deviceIcon(d))}</span>
-              <span><b>${esc(d.name)}</b><small>${d.on ? 'On' : 'Off'}</small></span>
-              <span class="ctl">${d.locked ? '<small class="muted">Always on</small>'
-                : `<button class="switch" role="switch" aria-checked="${d.on}" aria-label="${esc(d.name)}" data-action="toggle-device" data-id="${d.id}"></button>`}</span>
-            </div>`).join('')}
-        </div>`).join('')}
-      ${!only || only === 'living' ? `
-        <div class="card">
-          <div class="card-head">${icon('thermo')}<h2>Thermostat</h2></div>
-          ${thermoHtml()}
-        </div>` : ''}
-    </div>`;
-};
-
-function thermoHtml() {
-  const t = state.thermostat;
-  return `<div class="thermo">
-      <button class="btn-round" data-action="temp" data-d="-1" aria-label="Lower">${icon('minus')}</button>
-      <div class="t">${t.target}°</div>
-      <button class="btn-round" data-action="temp" data-d="1" aria-label="Raise">${icon('plus')}</button>
-    </div>
-    <div style="text-align:center"><div class="seg">
-      ${['heat', 'cool', 'auto', 'off'].map((m) => `<button class="${t.mode === m ? 'on' : ''}" data-action="thermo-mode" data-m="${m}">${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}
-    </div></div>`;
-}
-
-views.automations = () => `
-  <div class="section-title">Automations</div>
-  <div class="card" style="max-width:820px">
-    ${state.automations.map((a) => `
-      <div class="device ${a.on ? 'on' : ''}">
-        <span class="ibox">${icon(a.icon)}</span>
-        <span><b>${esc(a.name)}</b><small>${esc(a.desc)}</small></span>
-        <span class="ctl"><button class="switch" role="switch" aria-checked="${a.on}" data-action="toggle-auto" data-id="${a.id}" aria-label="${esc(a.name)}"></button></span>
-      </div>`).join('')}
-    <p class="hint" style="margin-top:14px">These are examples. Once a hub like Home Assistant is connected, your real automations will show up here.</p>
   </div>`;
-
-views.energy = () => {
-  const days = Array.from({ length: 7 }, (_, i) => 6 - i).map((off) => {
-    const d = new Date(); d.setDate(d.getDate() - off);
-    const hrs = energyHours(off);
-    const total = off === 0 ? hrs.slice(0, new Date().getHours() + 1).reduce((a, b) => a + b, 0) : hrs.reduce((a, b) => a + b, 0);
-    return { label: d.toLocaleDateString([], { weekday: 'short' }), total };
-  });
-  const max = Math.max(...days.map((d) => d.total));
-  const week = days.reduce((a, d) => a + d.total, 0);
-  return `
-    <div class="section-title">Energy</div>
-    <div class="page-grid" style="grid-template-columns:1fr">
-      ${energyCard('')}
-      <div class="card">
-        <div class="card-head">${icon('calendar')}<h2>Last 7 days</h2><span class="link">${week.toFixed(1)} kWh total</span></div>
-        <div class="bars" style="border:0;padding:0">
-          <div class="bars-plot" style="min-height:180px;gap:18px">${days.map((d) => `<i style="height:${(d.total / max) * 100}%"></i>`).join('')}</div>
-          <div class="bars-axis" style="justify-content:space-around">${days.map((d) => `<span>${d.label}<br><b style="color:var(--text)">${d.total.toFixed(1)}</b></span>`).join('')}</div>
-        </div>
-      </div>
-    </div>
-    <p class="demo-note">Demo data. Connect a smart meter or hub to see real usage.</p>`;
-};
-
-views.security = () => `
-  <div class="section-title">Security</div>
-  <div class="page-grid">
-    <div class="card" style="grid-column:1/-1">
-      <div class="card-head">${icon('shield')}<h2>Alarm</h2><span class="link">${securityLabel()}</span></div>
-      <div class="big-mode">
-        ${[['off', 'Disarmed', 'shieldOff'], ['home', 'Home', 'home'], ['away', 'Away', 'shieldCheck']].map(([m, l, ic]) => `
-          <button class="mode ${state.security.mode === m ? 'on' : ''}" data-action="sec-mode" data-m="${m}">${icon(ic)}${l}</button>`).join('')}
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-head">${icon('lock')}<h2>Locks</h2></div>
-      ${state.locks.map((l) => `
-        <div class="device ${l.locked ? '' : 'on'}">
-          <span class="ibox">${icon(l.locked ? 'lock' : 'unlock')}</span>
-          <span><b>${esc(l.name)}</b><small>${l.locked ? 'Locked' : 'Unlocked'}</small></span>
-          <span class="ctl"><button class="btn ${l.locked ? 'ghost' : ''}" data-action="toggle-lock" data-id="${l.id}">${l.locked ? 'Unlock' : 'Lock'}</button></span>
-        </div>`).join('')}
-    </div>
-    <div class="card">
-      <div class="card-head">${icon('garage')}<h2>Garage</h2></div>
-      <div class="device ${state.garage.open ? 'on' : ''}">
-        <span class="ibox">${icon('garage')}</span>
-        <span><b>Garage door</b><small>${state.garage.open ? 'Open' : 'Closed'}</small></span>
-        <span class="ctl"><button class="btn" data-action="garage">${state.garage.open ? 'Close' : 'Open'}</button></span>
-      </div>
-    </div>
-  </div>
-  <p class="demo-note">Demo data. Real locks and alarm need a connected hub.</p>`;
 
 let calCursor = new Date();
 let calSelected = null;
-const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 views.calendar = () => {
   const y = calCursor.getFullYear();
@@ -568,7 +326,7 @@ views.calendar = () => {
 
 function eventRow(e, withDate = false) {
   const d = new Date(`${e.date}T${e.time || '12:00'}`);
-  const when = [withDate ? d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) : '', e.time ? fmtTime(d) : 'All day'].filter(Boolean).join(' · ');
+  const when = [withDate ? dayLabel(e.date) : '', e.time ? fmtTime(d) : 'All day'].filter(Boolean).join(' · ');
   return `<div class="row c-purple"><span class="ibox">${icon('calendar')}</span>
     <span><b>${esc(e.title)}</b><small>${when}</small></span>
     <button class="btn-round" style="margin-left:auto" data-action="del-event" data-id="${e.id}" aria-label="Delete">${icon('trash')}</button></div>`;
@@ -578,12 +336,15 @@ views.notes = () => `
   <div class="section-title">Notes</div>
   <div class="notes">
     <button class="note note-new" data-action="add-note">${icon('plus')}New note</button>
-    ${state.notes.map((n) => `
-      <div class="note n-${n.color}">
-        <p>${esc(n.text)}</p>
-        <footer>${ago(n.ts)}<button data-action="del-note" data-id="${n.id}" aria-label="Delete note">${icon('trash')}</button></footer>
-      </div>`).join('')}
+    ${state.notes.map(noteHtml).join('')}
   </div>`;
+
+function noteHtml(n) {
+  return `<div class="note n-${n.color}">
+    <p>${esc(n.text)}</p>
+    <footer>${ago(n.ts)}<button data-action="del-note" data-id="${n.id}" aria-label="Delete note">${icon('trash')}</button></footer>
+  </div>`;
+}
 
 views.settings = () => {
   const s = state.settings;
@@ -612,8 +373,8 @@ views.settings = () => {
     </div>
     <div class="card">
       <div class="card-head">${icon('sparkles')}<h2>About</h2></div>
-      <p class="hint">Everything you change here (notes, events, settings) is saved on this device only. Smart-home controls are demo data until a hub such as Home Assistant is connected.</p>
-      <button class="btn danger" data-action="reset">${icon('trash')} Reset demo data</button>
+      <p class="hint">Notes, events and settings are saved on this device only. Weather comes from Open-Meteo.</p>
+      <button class="btn danger" data-action="reset">${icon('trash')} Clear notes and events</button>
     </div>
   </div>`;
 };
@@ -647,29 +408,6 @@ function closeSheet() {
 }
 const sheetHead = (title, ic) => `<h3>${icon(ic)}${title}<button class="btn-round close" data-action="close-sheet" aria-label="Close">${icon('x')}</button></h3>`;
 
-function openThermostat() {
-  openSheet(`${sheetHead('Thermostat', 'thermo')}<div id="thermo-body">${thermoHtml()}</div>`);
-}
-
-function openWeek() {
-  if (!weatherValid()) return;
-  openSheet(`${sheetHead(`7-day forecast · ${esc(state.settings.place.name)}`, 'sun')}
-    <div class="list">${weather.days.map((d) => {
-      const w = wmo(d.code, 1);
-      const label = new Date(`${d.date}T12:00`).toLocaleDateString([], { weekday: 'long' });
-      return `<div class="row"><span class="ibox" style="background:var(--amber-bg);color:var(--amber-fg)">${icon(w.icon)}</span>
-        <span><b>${label}</b><small>${w.label}</small></span>
-        <span style="margin-left:auto;font-weight:600">${Math.round(d.hi)}° <span class="muted">${Math.round(d.lo)}°</span></span></div>`;
-    }).join('')}</div>`);
-}
-
-function openAllActivity() {
-  state.seenActivity = Date.now();
-  save();
-  updateBadge();
-  openSheet(`${sheetHead('All activity', 'clock')}<div class="list">${activityRows(state.activity)}</div>`);
-}
-
 function openAddNote() {
   const colors = ['yellow', 'pink', 'blue', 'green', 'purple'];
   openSheet(`${sheetHead('New note', 'notes')}
@@ -693,63 +431,7 @@ function openAddEvent(date) {
    Actions
    ========================================================= */
 const actions = {
-  'go-lights': () => { location.hash = '#/devices'; },
-  'go-security': () => { location.hash = '#/security'; },
-  thermostat: openThermostat,
-  'weather-week': (el, e) => { e.preventDefault(); openWeek(); },
-  'all-activity': (el, e) => { e.preventDefault(); openAllActivity(); },
   'close-sheet': closeSheet,
-
-  'all-lights': () => {
-    const turnOn = lightsOn() === 0;
-    state.devices.forEach((d) => { if (d.type === 'light') d.on = turnOn; });
-    log(turnOn ? 'All lights turned on' : 'All lights turned off', 'bulb', 'amber');
-    toast(turnOn ? 'All lights on' : 'All lights off');
-  },
-  'toggle-device': (el) => {
-    const d = state.devices.find((x) => x.id === el.dataset.id);
-    d.on = !d.on;
-    log(`${roomOf(d.room).name} ${d.name.toLowerCase()} turned ${d.on ? 'on' : 'off'}`, deviceIcon(d), 'amber');
-  },
-  temp: (el) => {
-    const t = state.thermostat;
-    t.target = Math.min(85, Math.max(55, t.target + Number(el.dataset.d)));
-    clearTimeout(actions.temp.t);
-    actions.temp.t = setTimeout(() => log(`Temperature changed to ${t.target}°`, 'thermo', 'blue'), 1200);
-    save();
-    const body = $('#thermo-body');
-    if (body) body.innerHTML = thermoHtml();
-  },
-  'thermo-mode': (el) => {
-    state.thermostat.mode = el.dataset.m;
-    log(`Thermostat set to ${el.dataset.m}`, 'thermo', 'blue');
-    const body = $('#thermo-body');
-    if (body) body.innerHTML = thermoHtml();
-  },
-  'toggle-arm': () => {
-    state.security.mode = state.security.mode === 'off' ? 'away' : 'off';
-    log(state.security.mode === 'off' ? 'Security disarmed' : 'Security armed (Away)', 'shieldCheck', 'green');
-    toast(securityLabel());
-  },
-  'sec-mode': (el) => {
-    state.security.mode = el.dataset.m;
-    log(`Security set to ${securityLabel().toLowerCase()}`, 'shieldCheck', 'green');
-  },
-  'toggle-lock': (el) => {
-    const l = state.locks.find((x) => x.id === el.dataset.id);
-    l.locked = !l.locked;
-    log(`${l.name} ${l.locked ? 'locked' : 'unlocked'}`, l.locked ? 'lock' : 'unlock', 'blue');
-  },
-  garage: () => {
-    state.garage.open = !state.garage.open;
-    log(`Garage door ${state.garage.open ? 'opened' : 'closed'}`, 'garage', 'purple');
-    toast(`Garage ${state.garage.open ? 'opening' : 'closing'}`);
-  },
-  'toggle-auto': (el) => {
-    const a = state.automations.find((x) => x.id === el.dataset.id);
-    a.on = !a.on;
-    save();
-  },
 
   'add-note': openAddNote,
   'note-color': (el) => {
@@ -761,7 +443,6 @@ const actions = {
     const text = $('#note-text').value.trim();
     if (!text) return;
     state.notes.unshift({ id: `n${Date.now()}`, text, color: el.dataset.c, ts: Date.now() });
-    log('New note added', 'notes', 'amber');
     closeSheet();
   },
   'del-note': (el) => {
@@ -778,7 +459,6 @@ const actions = {
     if (!title || !date) return;
     state.events.push({ id: `e${Date.now()}`, title, date, time: $('#ev-time').value || '' });
     calSelected = date;
-    log(`Event added: ${title}`, 'calendar', 'purple');
     closeSheet();
   },
   'del-event': (el) => {
@@ -798,8 +478,8 @@ const actions = {
     fetchWeather();
   },
   reset: () => {
-    if (!confirm('Reset all notes, events and demo devices on this device?')) return;
-    state = defaultState();
+    if (!confirm('Clear all notes and events on this device?')) return;
+    state = { ...defaultState(), settings: state.settings, notes: [], events: [] };
     save();
     applyTheme();
     fetchWeather();
@@ -807,7 +487,7 @@ const actions = {
 };
 
 // Actions that only touch a sheet or navigate don't need a full re-render.
-const NO_RERENDER = new Set(['go-lights', 'go-security', 'thermostat', 'weather-week', 'all-activity', 'add-note', 'note-color', 'add-event', 'place-search', 'temp', 'thermo-mode']);
+const NO_RERENDER = new Set(['add-note', 'note-color', 'add-event', 'place-search']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -818,15 +498,12 @@ document.addEventListener('click', (e) => {
   fn(el, e);
   save();
   if (!NO_RERENDER.has(name)) renderView();
-  else if (name === 'temp' || name === 'thermo-mode') {
-    if (currentRoute() !== 'home' || $('#sheet').hidden) renderView();
-  }
 });
 
 $('#sheet-backdrop').addEventListener('click', closeSheet);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
 
-// The thermostat sheet edits state live; refresh the page behind it when it closes.
+// Refresh the page behind a sheet when it closes, so a saved note or event shows up.
 const sheetObserver = new MutationObserver(() => { if ($('#sheet').hidden) renderView(); });
 sheetObserver.observe($('#sheet'), { attributes: true, attributeFilter: ['hidden'] });
 
@@ -860,7 +537,7 @@ async function searchPlace() {
 }
 
 /* =========================================================
-   Search & notifications
+   Search
    ========================================================= */
 const searchInput = $('#search');
 const searchOut = $('#search-results');
@@ -870,13 +547,8 @@ function runSearch() {
   if (!q) { searchOut.hidden = true; return; }
   const hits = [];
   PAGES.forEach((p) => { if (p.label.toLowerCase().includes(q)) hits.push({ ic: p.icon, label: p.label, meta: 'Page', href: `#/${p.id}` }); });
-  ROOMS.forEach((r) => { if (r.name.toLowerCase().includes(q)) hits.push({ ic: r.icon, label: r.name, meta: 'Room', href: `#/devices?room=${r.id}` }); });
-  state.devices.forEach((d) => {
-    const room = roomOf(d.room).name;
-    if (`${room} ${d.name} ${d.type}`.toLowerCase().includes(q)) hits.push({ ic: deviceIcon(d), label: `${d.name}`, meta: `${room} · ${d.on ? 'On' : 'Off'}`, href: `#/devices?room=${d.room}` });
-  });
   state.notes.forEach((n) => { if (n.text.toLowerCase().includes(q)) hits.push({ ic: 'notes', label: n.text.slice(0, 60), meta: 'Note', href: '#/notes' }); });
-  state.events.forEach((ev) => { if (ev.title.toLowerCase().includes(q)) hits.push({ ic: 'calendar', label: ev.title, meta: ev.date, href: '#/calendar' }); });
+  state.events.forEach((ev) => { if (ev.title.toLowerCase().includes(q)) hits.push({ ic: 'calendar', label: ev.title, meta: dayLabel(ev.date), href: '#/calendar' }); });
   searchOut.innerHTML = hits.length
     ? hits.slice(0, 12).map((h) => `<button data-href="${h.href}">${icon(h.ic)}<span>${esc(h.label)}</span><small>${esc(h.meta)}</small></button>`).join('')
     : '<div class="empty">No results</div>';
@@ -894,21 +566,6 @@ searchOut.addEventListener('click', (e) => {
 });
 document.addEventListener('pointerdown', (e) => {
   if (!e.target.closest('.search')) searchOut.hidden = true;
-  if (!e.target.closest('#bell, #bell-pop')) $('#bell-pop').hidden = true;
-});
-
-function updateBadge() {
-  const unseen = state.activity.some((a) => a.ts > (state.seenActivity || 0));
-  $('#bell-badge').hidden = !unseen;
-}
-$('#bell').addEventListener('click', () => {
-  const pop = $('#bell-pop');
-  if (!pop.hidden) { pop.hidden = true; return; }
-  pop.innerHTML = `<h4>Notifications</h4><div class="list">${activityRows(state.activity.slice(0, 6))}</div>`;
-  pop.hidden = false;
-  state.seenActivity = Date.now();
-  save();
-  updateBadge();
 });
 
 /* =========================================================
@@ -937,8 +594,6 @@ hydrateIcons();
 applyTheme();
 tickClock();
 render();
-renderSideWeather();
-updateBadge();
 fetchWeather();
 syncWakeLock();
 

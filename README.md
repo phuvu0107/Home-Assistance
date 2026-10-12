@@ -4,14 +4,14 @@ A touch-friendly home dashboard built for a Surface Pro mounted on the fridge. I
 
 **Live site:** https://phuvu0107.github.io/Home-Assistance/
 
-## What's real and what's demo
+## Pages
 
-| Panel | Data |
-| --- | --- |
-| Clock, date, greeting | Real |
-| Weather (current, next hours, 7-day) | Real, from [Open-Meteo](https://open-meteo.com) (free, no API key) |
-| Notes, calendar events, settings | Real, saved in the browser on that device |
-| Lights, thermostat, security, locks, garage, energy, automations | Demo data until a smart-home hub (for example Home Assistant) is connected |
+- **Home**: greeting and clock, live weather (now, next hours, 7 days), upcoming events and the latest notes, all on one screen.
+- **Calendar**: month view; tap a day to see or add events.
+- **Notes**: sticky notes for the family (shopping lists, reminders).
+- **Settings**: greeting name, weather city, °F/°C, theme, 24-hour clock, keep screen on.
+
+Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). Notes, events and settings are saved in the browser on the device.
 
 ## Set up on the Surface Pro
 

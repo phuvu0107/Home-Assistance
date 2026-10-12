@@ -16,28 +16,18 @@
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar">
-      <a class="brand" href="#/home">
-        <span class="brand-icon" data-icon="home"></span>
-        <span class="brand-name">Home Assistant</span>
-      </a>
-      <nav class="side-nav" id="side-nav"></nav>
-      <div class="side-weather" id="side-weather"></div>
-    </aside>
-
     <main class="main">
       <header class="topbar">
+        <a class="brand" href="#/home">
+          <span class="brand-icon" data-icon="home"></span>
+          <span class="brand-name">Home Assistant</span>
+        </a>
         <div class="search">
           <span data-icon="search"></span>
-          <input id="search" type="search" placeholder="Search anything... (e.g. lights, devices, notes)" autocomplete="off">
+          <input id="search" type="search" placeholder="Search notes and events" autocomplete="off">
           <div class="search-results" id="search-results" hidden></div>
         </div>
         <div class="topbar-actions">
-          <button class="icon-btn" id="bell" aria-label="Notifications">
-            <span data-icon="bell"></span>
-            <span class="badge" id="bell-badge" hidden></span>
-          </button>
-          <div class="popover" id="bell-pop" hidden></div>
           <a class="avatar" id="avatar" href="#/settings" aria-label="Settings">T</a>
         </div>
       </header>
