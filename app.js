@@ -692,7 +692,7 @@ function swipeNeighbor(dir) {
 }
 const view = $('#view');
 view.addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'mouse' || swipe.id !== null || !$('#sheet').hidden) return;
+  if (e.pointerType === 'mouse' || swipe.id !== null || swipe.busy || !$('#sheet').hidden) return;
   if (e.target.closest('input, textarea, select, .switch') || scrollsSideways(e.target)) return;
   Object.assign(swipe, { id: e.pointerId, x: e.clientX, y: e.clientY, dx: 0, on: false, done: false, samples: [[e.timeStamp, e.clientX]] });
 });
@@ -703,7 +703,9 @@ view.addEventListener('pointermove', (e) => {
     if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { swipe.id = null; return; }
     if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
     swipe.on = true; swipe.x = e.clientX; // start from here so the page doesn't jump
-    swipe.rects = measureTabs(); swipe.w = view.clientWidth;
+    swipe.rects = measureTabs(); swipe.w = view.clientWidth; swipe.peekId = null;
+    // The neighbor page sits beside this one at the top of the screen, so it slides in under the finger.
+    swipe.top = Math.max(0, window.scrollY - view.offsetTop);
     view.setPointerCapture(e.pointerId);
     view.classList.add('dragging'); $('#tabs').classList.add('dragging');
     return;
@@ -718,13 +720,33 @@ view.addEventListener('pointermove', (e) => {
     swipe.frame = 0;
     if (!swipe.on) return;
     const w = swipe.w; const dx = swipe.dx;
-    view.style.transform = `translate3d(${dx}px,0,0)`;
-    view.style.opacity = String(1 - Math.min(Math.abs(dx) / w, 1) * 0.35);
     const nb = swipeNeighbor(dx < 0 ? 1 : -1);
+    showPeek(nb, dx < 0 ? 1 : -1);
+    view.style.transform = `translate3d(${dx}px,0,0)`;
+    if (peek) peek.style.transform = `translate3d(${dx + (dx < 0 ? 1 : -1) * (w + PEEK_GAP)}px,0,0)`;
     const cur = swipe.rects[currentRoute()];
     if (cur) inkBetween(cur, nb ? swipe.rects[nb.id] : cur, Math.min(Math.abs(dx) / (w * 0.6), 1));
   });
 });
+// A copy of the next (or previous) page, drawn beside the current one during a swipe.
+const PEEK_GAP = 24;
+let peek = null;
+function showPeek(page, dir) {
+  if (!page) { dropPeek(); return; }
+  if (swipe.peekId === page.id) return;
+  swipe.peekId = page.id;
+  peek ||= Object.assign(document.createElement('div'), { className: 'view view-peek' });
+  peek.setAttribute('aria-hidden', 'true');
+  peek.innerHTML = views[page.id]();
+  const wk = peek.querySelector('.wk-scroll');
+  if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
+  peek.style.top = `${view.offsetTop + swipe.top}px`;
+  peek.style.left = `${view.offsetLeft}px`;
+  peek.style.width = `${swipe.w}px`;
+  peek.dataset.dir = dir;
+  if (!peek.isConnected) view.after(peek);
+}
+function dropPeek() { peek?.remove(); swipe.peekId = null; }
 function endSwipe(e, cancelled) {
   if (e.pointerId !== swipe.id) return;
   swipe.id = null;
@@ -738,15 +760,33 @@ function endSwipe(e, cancelled) {
   const go = !cancelled && next && (Math.abs(swipe.dx) > view.clientWidth * 0.22 || (Math.abs(v) > 0.45 && Math.sign(v) === -dir));
   $('#tabs').classList.remove('dragging');
   view.classList.remove('dragging');
+  const w = swipe.w;
+  swipe.busy = true;
+  // A quick flick finishes faster; the rest of the slide takes at most a quarter second.
+  const ms = (left) => Math.round(Math.min(260, Math.max(140, left / Math.max(Math.abs(v), 1.2))));
   if (go) {
-    // Switch straight away: the new page slides in from the side the finger was heading.
-    swipeNav = true;
-    location.hash = `#/${next.id}`;
+    showPeek(next, dir);
+    const t = ms(w - Math.abs(swipe.dx));
+    for (const el of [view, peek]) el.style.transition = `transform ${t}ms cubic-bezier(.2, .8, .3, 1)`;
+    view.style.transform = `translate3d(${-dir * (w + PEEK_GAP)}px,0,0)`;
+    peek.style.transform = 'translate3d(0,0,0)';
+    inkBetween(swipe.rects[currentRoute()], swipe.rects[next.id], 1);
+    setTimeout(() => {
+      // The page under the finger becomes the page: same content, no second animation.
+      swipeNav = true;
+      history.replaceState(null, '', `#/${next.id}`);
+      render();
+      // The new page was shown from its top; scroll so it stays exactly where it was.
+      if (swipe.top) window.scrollTo(0, view.offsetTop);
+      swipe.busy = false;
+    }, t);
   } else {
-    view.classList.add('settling');
-    view.style.transform = ''; view.style.opacity = '';
+    const t = ms(Math.abs(swipe.dx));
+    for (const el of [view, peek].filter(Boolean)) el.style.transition = `transform ${t}ms cubic-bezier(.2, .8, .3, 1)`;
+    view.style.transform = 'translate3d(0,0,0)';
+    if (peek) peek.style.transform = `translate3d(${dir * (w + PEEK_GAP)}px,0,0)`;
     moveInk();
-    setTimeout(() => view.classList.remove('settling'), 320);
+    setTimeout(() => { view.style.transition = ''; view.style.transform = ''; dropPeek(); swipe.busy = false; }, t);
   }
 }
 view.addEventListener('pointerup', (e) => endSwipe(e, false));
@@ -879,6 +919,26 @@ function awardStars(item, kind, on) {
   const cutoff = isoDay(addDays(new Date(), -100));
   state.log = state.log.filter((l) => l.date >= cutoff);
   if (on && n) toast(`+${n} stars for ${people.map((w) => userOf(w).name).join(' & ')}`);
+}
+// Every ticked task and event should have its Leaderboard entry. Entries can go missing when a
+// screen running an older version of the app syncs (it either didn't log stars yet or dropped the
+// log), so rebuild any that are missing from the tick itself. Star totals are left alone.
+function repairLog() {
+  const cutoff = isoDay(addDays(new Date(), -100));
+  const have = new Set((state.log ||= []).map((l) => l.id));
+  let added = 0;
+  const check = (item, kind, n) => {
+    if (!item.doneOn || item.doneOn < cutoff) return;
+    for (const who of earners(item.who)) {
+      const id = `${item.id}@${item.doneOn}@${who}`;
+      if (have.has(id)) continue;
+      have.add(id); added++;
+      state.log.push({ id, who, stars: n, date: item.doneOn, kind, title: item.title });
+    }
+  };
+  (state.tasks || []).forEach((t) => check(t, 'task', t.stars || 0));
+  (state.events || []).forEach((e) => check(e, 'event', eventStars(e)));
+  return added > 0;
 }
 // Tasks have no date of their own, so the calendar shows them on today: the open ones,
 // plus any ticked off today (struck through), each person's together.
@@ -1196,7 +1256,9 @@ const house = createSync({
   getState: () => state,
   onRemote: (apply) => {
     apply(state);
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
+    // Rebuilt Leaderboard entries are sent back to the household; otherwise just keep a copy here.
+    if (repairLog()) save();
+    else try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
     if (calmToRender()) renderView(); // an open sheet re-renders the page when it closes
   },
   onStatus: (st) => {
@@ -1709,6 +1771,7 @@ function animate(el, cls) {
   el.animTimer = setTimeout(() => el.classList.remove(cls), 700);
 }
 function renderView(anim) {
+  if ((swipe.on || swipe.busy) && !swipeNav) return; // not mid-swipe; the swipe renders when it lands
   const r = currentRoute();
   const view = $('#view');
   const y = window.scrollY;
@@ -1718,7 +1781,11 @@ function renderView(anim) {
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
   window.scrollTo(0, y);
-  if (swipeNav) { swipeNav = false; view.style.transform = ''; view.style.opacity = ''; animate(view, 'swiped'); }
+  if (swipeNav) {
+    // Arrived by swipe: the page already slid in, so just swap it in place.
+    swipeNav = false; anim = null;
+    view.style.transition = ''; view.style.transform = ''; dropPeek();
+  }
   if (anim === 'fwd' || anim === 'back') animate(view, `enter-${anim}`);
   else if (anim === 'cal') animate($('.cal-body'), 'fade-in');
 }
@@ -2161,6 +2228,7 @@ hydrateIcons();
 applyTheme();
 tickClock();
 setTimeout(() => { skyReady = true; tickClock(); }, 400);
+if (repairLog()) save();
 render();
 fetchWeather();
 syncEnergy();
@@ -2199,3 +2267,26 @@ window.addEventListener('online', () => { fetchWeather(); syncEnergy(); });
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+
+// Always-on screens (the fridge tablet) can run for days without a reload, and an old version
+// syncing with newer ones causes trouble. Each deploy writes version.txt; when it changes, reload
+// as soon as nobody is in the middle of something.
+let appVersion = null; let updateReady = false;
+async function checkVersion() {
+  try {
+    const res = await fetch(`version.txt?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return; // not deployed this way (running locally)
+    const v = (await res.text()).trim();
+    if (!v) return;
+    appVersion ??= v;
+    if (v !== appVersion) updateReady = true;
+  } catch { return; } // offline: try again later
+  reloadIfReady();
+}
+function reloadIfReady() {
+  if (updateReady && calmToRender() && !swipe.on && !swipe.busy) location.reload();
+}
+checkVersion();
+setInterval(checkVersion, 10 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkVersion(); });
+setInterval(reloadIfReady, 30 * 1000);

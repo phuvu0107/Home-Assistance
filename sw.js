@@ -1,5 +1,5 @@
 // Offline support: cache the app shell, always try the network first for weather.
-const CACHE = 'home-dashboard-v27';
+const CACHE = 'home-dashboard-v28';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'icons.js', 'sync.js', 'receipt.js', 'sync-config.js', 'health.js', 'health-config.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'avatars/phu.svg', 'avatars/nhi.svg'];
 
 self.addEventListener('install', (e) => {
@@ -15,7 +15,8 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   // Live data (weather, the sync database) always goes straight to the network.
-  if (e.request.method !== 'GET' || url.hostname.endsWith('open-meteo.com') || url.hostname === 'firestore.googleapis.com'
+  // version.txt is how open screens notice a new deploy, so it never comes from the cache.
+  if (e.request.method !== 'GET' || url.pathname.endsWith('/version.txt') || url.hostname.endsWith('open-meteo.com') || url.hostname === 'firestore.googleapis.com'
     || url.hostname === 'health.googleapis.com' || url.hostname === 'accounts.google.com') return;
   // Network first so updates show up right away; fall back to cache when offline.
   // Same-site files are checked with the server every time (a quick "not modified" when

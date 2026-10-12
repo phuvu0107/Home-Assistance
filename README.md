@@ -141,7 +141,7 @@ One-time setup:
 3. Register a web app in Project settings. Copy its `firebaseConfig` block into a GitHub Actions secret named `FIREBASE_CONFIG` (repo **Settings › Secrets and variables › Actions**), then run **Deploy to GitHub Pages**. The deploy writes it into the published `sync-config.js`, so it never lives in the repo. In Google Cloud's **APIs & Services › Credentials**, restrict that browser key to your site's address and the Cloud Firestore API.
 4. Whenever the app opens on a device that isn't in a household yet, a **Join your household** panel pops up (tap **Not now** to skip until next time; the same box is in **Settings › Sync across devices**). On the first device, type a passphrase and tap **Start a new household**. On every other device, type the same passphrase. Joining replaces that device's events, tasks and expenses with the shared ones.
 
-Changes show up on the other screens within a second or two. Edits made offline are kept and sync when the connection comes back, and two people editing at once both keep their changes.
+Changes show up on the other screens within a second or two. Edits made offline are kept and sync when the connection comes back, and two people editing at once both keep their changes. Open screens reload themselves within about ten minutes of a new deploy (each deploy writes `version.txt`), and a screen still on an older version passes along any data it doesn't understand instead of deleting it. If a Leaderboard entry for a ticked task or event ever goes missing, the app rebuilds it from the tick.
 
 ## Summary email setup
 
