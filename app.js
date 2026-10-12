@@ -297,41 +297,142 @@ const sumDays = (list) => list.map(dayTotal).reduce((a, d) => ({ kwh: a.kwh + d.
 const fmtMoney = (n) => `$${n.toFixed(n >= 100 ? 0 : 2)}`;
 const fmtShort = (iso) => new Date(`${iso}T12:00`).toLocaleDateString([], { month: 'short', day: 'numeric' });
 
+// Auto sync: the Pages workflow publishes data/energy.enc.json every morning
+// (see sync/pge_sync.py). The passphrase typed in Settings unlocks it here.
+const PASS_KEY = 'home-dashboard.energy-pass.v1';
+let energyPass = '';
+try { energyPass = localStorage.getItem(PASS_KEY) || ''; } catch { energyPass = ''; }
+let energySync = { state: energyPass ? 'checking' : 'off' };
+
+const fromB64 = (v) => Uint8Array.from(atob(v), (c) => c.charCodeAt(0));
+async function decryptEnergy(box, pass) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: fromB64(box.salt), iterations: box.iter },
+    base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(box.iv) }, key, fromB64(box.data));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+async function syncEnergy() {
+  if (!energyPass) { energySync = { state: 'off' }; return; }
+  let box;
+  try {
+    const res = await fetch('data/energy.enc.json', { cache: 'no-store' });
+    if (res.status === 404) { energySync = { state: 'nofile' }; refreshEnergyViews(); return; }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    box = await res.json();
+  } catch {
+    energySync = { state: 'unreachable', at: energy?.syncedAt };
+    refreshEnergyViews();
+    return;
+  }
+  try {
+    const data = await decryptEnergy(box, energyPass);
+    energy = energy || { electric: {}, gas: {} };
+    for (const k of ['electric', 'gas']) energy[k] = { ...(energy[k] || {}), ...(data[k] || {}) };
+    energy.syncedAt = data.syncedAt;
+    saveEnergy();
+    energySync = { state: Date.now() - data.syncedAt > 36 * 36e5 ? 'stale' : 'ok', at: data.syncedAt };
+  } catch {
+    energySync = { state: 'badpass' };
+  }
+  refreshEnergyViews();
+}
+function refreshEnergyViews() {
+  if (['home', 'energy', 'settings'].includes(currentRoute()) && $('#sheet').hidden && !document.activeElement?.matches('input, textarea')) renderView();
+}
+
+// One sentence on whether PG&E data is flowing, and what to do if it isn't.
+function syncMessage() {
+  const at = energySync.at ? ago(energySync.at) : '';
+  switch (energySync.state) {
+    case 'ok': return { ok: true, text: `Syncing from PG&E every morning. Last update ${at}.` };
+    case 'checking': return { ok: true, text: 'Checking for new PG&E data…' };
+    case 'stale': return { ok: false, text: `Not syncing. The last PG&E update was ${at}, so the PG&E sign-in may need renewing in Settings.` };
+    case 'nofile': return { ok: false, text: "Not syncing. The daily PG&E job hasn't published any data yet. Finish signing in to PG&E in Settings." };
+    case 'badpass': return { ok: false, text: "Not syncing. The passphrase on this device doesn't match. Re-enter it in Settings." };
+    case 'unreachable': return { ok: false, text: `Can't reach the PG&E data right now${at ? `. Last update ${at}` : ''}. It will try again.` };
+    default: return { ok: false, text: 'Not syncing. Sign in to PG&E in Settings to get daily updates.' };
+  }
+}
+// `always` also shows the all-good line; `link` sends a not-syncing banner to Settings.
+function syncBanner(always = false, link = true) {
+  const m = syncMessage();
+  if (m.ok && !always) return '';
+  if (m.ok) return `<p class="sync-line">${icon('check')}${m.text}</p>`;
+  return link
+    ? `<a class="sync-banner" href="#/settings">${icon('zap')}<span>${m.text}</span><b>Settings ${icon('arrowRight')}</b></a>`
+    : `<div class="sync-banner">${icon('zap')}<span>${m.text}</span></div>`;
+}
+
+// Daily or monthly rows for a range, newest last. Each row: { key, label, kwh, therms, eCost, gCost, cost }
+function energyRows(range) {
+  const all = energyDays();
+  if (!all.length) return [];
+  const last = new Date(`${all[all.length - 1]}T12:00`);
+  if (range === '12m') {
+    return Array.from({ length: 12 }, (_, i) => {
+      const m = new Date(last.getFullYear(), last.getMonth() - 11 + i, 1);
+      const key = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`;
+      const days = all.filter((d) => d.startsWith(key)).map(dayTotal);
+      const t = days.reduce((a, d) => ({ kwh: a.kwh + d.kwh, therms: a.therms + d.therms, eCost: a.eCost + d.eCost, gCost: a.gCost + d.gCost }), { kwh: 0, therms: 0, eCost: 0, gCost: 0 });
+      return { key, label: m.toLocaleDateString([], { month: 'short' }), days: days.length, ...t, cost: t.eCost + t.gCost };
+    });
+  }
+  const n = Number(range) || 30;
+  return Array.from({ length: n }, (_, i) => {
+    const key = isoDay(addDays(last, i - n + 1));
+    return { key, label: fmtShort(key), days: all.includes(key) ? 1 : 0, ...dayTotal(key) };
+  });
+}
+
+function energyChart(rows, height = 130) {
+  const hasCost = rows.some((r) => r.cost > 0);
+  const val = (r) => (hasCost ? r.cost : r.kwh);
+  const max = Math.max(...rows.map(val), 0.01);
+  const w = 300 / rows.length;
+  const bw = Math.max(1, w * 0.72);
+  const bars = rows.map((r, i) => {
+    const x = (i * w + (w - bw) / 2).toFixed(2);
+    const hE = ((hasCost ? r.eCost : r.kwh) / max) * 100;
+    const hG = hasCost ? (r.gCost / max) * 100 : 0;
+    return `<rect class="bar-e" x="${x}" y="${100 - hE}" width="${bw.toFixed(2)}" height="${hE}"><title>${r.label}: ${hasCost ? fmtMoney(r.eCost) : `${r.kwh.toFixed(1)} kWh`}</title></rect>${hG ? `<rect class="bar-g" x="${x}" y="${100 - hE - hG}" width="${bw.toFixed(2)}" height="${hG}"><title>${r.label} gas: ${fmtMoney(r.gCost)}</title></rect>` : ''}`;
+  }).join('');
+  const gas = rows.some((r) => r.gCost > 0);
+  return `<div class="energy-chart">
+    <div class="chart-top"><span>${hasCost ? 'Cost' : 'kWh'} per ${rows.length === 12 ? 'month' : 'day'}</span><span>${hasCost && gas ? '<i class="key-e"></i>Electric <i class="key-g"></i>Gas · ' : ''}top ${hasCost ? fmtMoney(max) : `${max.toFixed(1)} kWh`}</span></div>
+    <svg viewBox="0 0 300 100" preserveAspectRatio="none" style="height:${height}px" role="img" aria-label="${hasCost ? 'Cost' : 'Usage'} chart">${bars}</svg>
+    <div class="chart-axis"><span>${rows[0].label}</span><span>${rows[rows.length - 1].label}</span></div>
+  </div>`;
+}
+
+function energyTotals(rows) {
+  const t = rows.reduce((a, r) => ({ kwh: a.kwh + r.kwh, therms: a.therms + r.therms, eCost: a.eCost + r.eCost, gCost: a.gCost + r.gCost, days: a.days + r.days }), { kwh: 0, therms: 0, eCost: 0, gCost: 0, days: 0 });
+  return { ...t, cost: t.eCost + t.gCost };
+}
+
 function energyCard() {
   const all = energyDays();
-  if (!all.length) return '';
+  const head = `<div class="card-head">${icon('zap')}<h2>Energy</h2>${all.length ? `<a class="link" href="#/energy">Details ${icon('arrowRight')}</a>` : ''}</div>`;
+  if (!all.length) return `<div class="card a-energy">${head}${syncBanner()}</div>`;
   const last = all[all.length - 1];
-  const span = (from, n) => Array.from({ length: n }, (_, i) => isoDay(addDays(new Date(`${from}T12:00`), i)));
-  const recent = span(isoDay(addDays(new Date(`${last}T12:00`), -29)), 30);
-  const before = span(isoDay(addDays(new Date(`${last}T12:00`), -59)), 30).filter((d) => all.includes(d));
-  const now = sumDays(recent.filter((d) => all.includes(d)));
-  const prev = sumDays(before);
+  const rows = energyRows('30');
+  const now = energyTotals(rows);
+  const prev = sumDays(energyRows('60').slice(0, 30).filter((r) => r.days).map((r) => r.key));
   const month = sumDays(all.filter((d) => d.slice(0, 7) === last.slice(0, 7)));
   const hasCost = now.cost > 0;
-  const val = (d) => (hasCost ? d.cost : d.kwh);
-  const totals = recent.map((d) => dayTotal(d));
-  const max = Math.max(...totals.map(val), 0.01);
-  const bars = totals.map((d, i) => {
-    const hE = ((hasCost ? d.eCost : d.kwh) / max) * 100;
-    const hG = hasCost ? (d.gCost / max) * 100 : 0;
-    return `<rect class="bar-e" x="${i * 10 + 1.5}" y="${100 - hE}" width="7" height="${hE}" rx="1.5"></rect>${hG ? `<rect class="bar-g" x="${i * 10 + 1.5}" y="${100 - hE - hG}" width="7" height="${hG}" rx="1.5"></rect>` : ''}`;
-  }).join('');
-  const change = prev.cost > 0 && before.length >= 25 ? Math.round(((now.cost - prev.cost) / prev.cost) * 100) : null;
-  return `<div class="card a-energy">
-    <div class="card-head">${icon('zap')}<h2>Energy</h2><span class="hint">PG&amp;E data through ${fmtShort(last)}</span></div>
+  const change = prev.cost > 0 && energyRows('60').slice(0, 30).filter((r) => r.days).length >= 25 ? Math.round(((now.cost - prev.cost) / prev.cost) * 100) : null;
+  return `<div class="card a-energy">${head}
     <div class="energy">
       <div class="energy-stats">
         <div><small>${new Date(`${last}T12:00`).toLocaleDateString([], { month: 'long' })} so far</small><b>${hasCost ? fmtMoney(month.cost) : `${Math.round(month.kwh)} kWh`}</b></div>
         <div><small>Last 30 days</small><b>${hasCost ? fmtMoney(now.cost) : `${Math.round(now.kwh)} kWh`}</b>
           ${change === null ? '' : change === 0 ? '<span class="trend">Same as the 30 days before</span>' : `<span class="trend ${change > 0 ? 'up' : 'down'}">${icon(change > 0 ? 'arrowUp' : 'arrowDown')}${Math.abs(change)}% vs the 30 days before</span>`}</div>
-        <div><small>Used</small><b class="sm">${Math.round(now.kwh)} kWh${now.therms ? ` · ${Math.round(now.therms)} therms` : ''}</b></div>
       </div>
-      <div class="energy-chart">
-        <div class="chart-top"><span>${hasCost ? 'Cost' : 'kWh'} per day</span><span>${hasCost ? `${now.therms ? '<i class="key-e"></i>Electric <i class="key-g"></i>Gas · ' : ''}max ${fmtMoney(max)}` : `max ${max.toFixed(1)} kWh`}</span></div>
-        <svg viewBox="0 0 300 100" preserveAspectRatio="none" role="img" aria-label="Daily ${hasCost ? 'cost' : 'usage'}, last 30 days">${bars}</svg>
-        <div class="chart-axis"><span>${fmtShort(recent[0])}</span><span>${fmtShort(last)}</span></div>
-      </div>
+      ${energyChart(rows)}
     </div>
+    <p class="hint energy-foot">PG&amp;E data through ${fmtShort(last)}</p>
+    ${syncBanner()}
   </div>`;
 }
 
@@ -347,6 +448,7 @@ const PAGES = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'calendar', label: 'Calendar', icon: 'calendar' },
   { id: 'tasks', label: 'Tasks', icon: 'checkSquare' },
+  { id: 'energy', label: 'Energy', icon: 'zap' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
@@ -370,10 +472,13 @@ function moveInk() {
   const t = $('#tabs .tab.active');
   const ink = $('#tabs .tab-ink');
   if (!t || !ink) return;
-  ink.style.width = `${t.offsetWidth}px`;
-  ink.style.transform = `translateX(${t.offsetLeft - 6}px)`;
+  const r = t.getBoundingClientRect();
+  const bar = t.parentElement.getBoundingClientRect();
+  ink.style.width = `${r.width}px`;
+  ink.style.transform = `translateX(${r.left - bar.left + t.parentElement.scrollLeft - 6}px)`;
 }
-window.addEventListener('resize', moveInk);
+// The bar can change width without a window resize (a page scrollbar appearing, fonts loading).
+new ResizeObserver(moveInk).observe($('#tabs'));
 document.fonts?.ready.then(() => { moveInk(); requestAnimationFrame(() => $('#tabs').classList.add('ink-ready')); });
 
 /* =========================================================
@@ -638,6 +743,42 @@ views.tasks = () => `
       </div>`).join('')}
   </div>`;
 
+/* ---------- Energy ---------- */
+const ENERGY_RANGES = { 30: '30 days', 90: '90 days', '12m': '12 months' };
+views.energy = () => {
+  const range = state.settings.energyRange || '30';
+  const all = energyDays();
+  if (!all.length) {
+    return `<div class="section-title">Energy</div>
+    <div class="card energy-empty">${syncBanner()}
+      <p class="hint">Once PG&amp;E data comes in, this page shows your daily and monthly use and cost, split into electric and gas.</p></div>`;
+  }
+  const rows = energyRows(range);
+  const t = energyTotals(rows);
+  const months = energyRows('12m').filter((r) => r.days).reverse();
+  const perDay = t.days ? t.cost / t.days : 0;
+  return `<div class="section-title">Energy<span class="spacer"></span>
+    <div class="seg">${Object.entries(ENERGY_RANGES).map(([k, l]) => `<button class="${range === k ? 'on' : ''}" data-action="energy-range" data-v="${k}">${l}</button>`).join('')}</div></div>
+  ${syncBanner(true)}
+  <div class="energy-tiles">
+    <div class="card tile"><small>Total cost</small><b>${fmtMoney(t.cost)}</b><span>${t.days} day${t.days === 1 ? '' : 's'} of data</span></div>
+    <div class="card tile"><small><i class="key-e"></i>Electric</small><b>${fmtMoney(t.eCost)}</b><span>${Math.round(t.kwh).toLocaleString()} kWh</span></div>
+    <div class="card tile"><small><i class="key-g"></i>Gas</small><b>${fmtMoney(t.gCost)}</b><span>${Math.round(t.therms).toLocaleString()} therms</span></div>
+    <div class="card tile"><small>Average per day</small><b>${fmtMoney(perDay)}</b><span>${t.days ? (t.kwh / t.days).toFixed(1) : 0} kWh a day</span></div>
+  </div>
+  <div class="card energy-main">${energyChart(rows, 220)}</div>
+  <div class="card">
+    <div class="card-head">${icon('calendar')}<h2>By month</h2><span class="hint">PG&amp;E data through ${fmtShort(all[all.length - 1])}</span></div>
+    <div class="table-wrap"><table class="energy-table">
+      <thead><tr><th>Month</th><th>Electric</th><th>Gas</th><th>Total</th></tr></thead>
+      <tbody>${months.map((m) => `<tr><td>${new Date(`${m.key}-15T12:00`).toLocaleDateString([], { month: 'long', year: 'numeric' })}${m.days < 28 ? ` <span class="muted">(${m.days} days)</span>` : ''}</td>
+        <td>${fmtMoney(m.eCost)} <span class="muted">${Math.round(m.kwh)} kWh</span></td>
+        <td>${fmtMoney(m.gCost)} <span class="muted">${Math.round(m.therms)} therms</span></td>
+        <td><b>${fmtMoney(m.cost)}</b></td></tr>`).join('')}</tbody>
+    </table></div>
+  </div>`;
+};
+
 views.settings = () => {
   const s = state.settings;
   return `
@@ -663,12 +804,24 @@ views.settings = () => {
         <button class="switch" role="switch" aria-checked="${s.wakeLock}" data-action="set-wake"></button></div>
     </div>
     <div class="card">
-      <div class="card-head">${icon('zap')}<h2>Energy</h2></div>
-      <p class="hint">On PG&amp;E's Energy Usage page, choose <b>Download My Data</b>, pick CSV and a date range, then load the file here. Electric and gas files both work, and newer files update older days.</p>
-      ${energyDays().length ? `<p class="hint">Loaded ${energyDays().length} days, ${fmtShort(energyDays()[0])} to ${fmtShort(energyDays().at(-1))}.</p>` : ''}
+      <div class="card-head">${icon('zap')}<h2>PG&amp;E energy</h2></div>
+      ${syncBanner(true, false)}
+      <div class="field"><label for="energy-pass">Sync passphrase</label>
+        <div style="display:flex;gap:8px"><input class="input" id="energy-pass" type="password" autocomplete="off" placeholder="${energyPass ? 'Saved on this device' : 'The ENERGY_PASSPHRASE you chose'}">
+        <button class="btn" data-action="energy-connect">${energyPass ? 'Update' : 'Connect'}</button></div></div>
+      <details class="setup"${energyPass ? '' : ' open'}><summary>How to sign in to PG&amp;E (one time)</summary>
+        <p class="hint">The fridge never signs in itself. A GitHub job signs in to PG&amp;E every morning and saves your usage, locked with your passphrase.</p>
+        <ol class="hint">
+          <li>In the Home-Assistance repo on GitHub, open <b>Settings › Secrets and variables › Actions</b> and add <code>PGE_USERNAME</code>, <code>PGE_PASSWORD</code> and <code>ENERGY_PASSPHRASE</code> (a phrase you make up).</li>
+          <li>PG&amp;E sends a code the first time a new device signs in. On your computer run <code>python3 sync/pge_pair.py</code>, enter the code, and save the line it prints as <code>PGE_LOGIN_DATA</code>.</li>
+          <li>In the repo's <b>Actions</b> tab, run <b>Deploy to GitHub Pages</b>. It then runs every morning by itself.</li>
+          <li>Type the same passphrase above and tap Connect.</li>
+        </ol></details>
+      <p class="hint">Or load a PG&amp;E <b>Download My Data</b> CSV by hand.${energyDays().length ? ` ${energyDays().length} days stored, ${fmtShort(energyDays()[0])} to ${fmtShort(energyDays().at(-1))}.` : ''}</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <label class="btn">${icon('plug')} Load PG&amp;E file<input type="file" id="energy-file" accept=".csv,text/csv" multiple hidden></label>
-        ${energyDays().length ? `<button class="btn ghost" data-action="clear-energy">${icon('trash')} Remove</button>` : ''}
+        <label class="btn ghost">${icon('plug')} Load PG&amp;E file<input type="file" id="energy-file" accept=".csv,text/csv" multiple hidden></label>
+        ${energyPass ? `<button class="btn ghost" data-action="energy-disconnect">Stop syncing</button>` : ''}
+        ${energyDays().length ? `<button class="btn ghost" data-action="clear-energy">${icon('trash')} Remove data</button>` : ''}
       </div>
     </div>
     <div class="card">
@@ -712,6 +865,7 @@ function render() {
   lastRoute = r;
   renderNav();
   renderView(anim);
+  moveInk();
 }
 
 /* =========================================================
@@ -876,6 +1030,21 @@ const actions = {
     toast(`Weather location set to ${el.dataset.name}`);
     fetchWeather();
   },
+  'energy-range': (el) => { state.settings.energyRange = el.dataset.v; save(); },
+  'energy-connect': () => {
+    const v = $('#energy-pass').value;
+    if (!v) { toast('Type the passphrase first'); return; }
+    energyPass = v;
+    try { localStorage.setItem(PASS_KEY, v); } catch { /* ignore */ }
+    energySync = { state: 'checking' };
+    $('#energy-pass').blur();
+    syncEnergy();
+  },
+  'energy-disconnect': () => {
+    energyPass = '';
+    try { localStorage.removeItem(PASS_KEY); } catch { /* ignore */ }
+    energySync = { state: 'off' };
+  },
   'clear-energy': () => { energy = null; try { localStorage.removeItem(ENERGY_KEY); } catch { /* ignore */ } toast('Energy data removed'); },
   reset: () => {
     if (!confirm('Clear all events and tasks on this device?')) return;
@@ -994,6 +1163,7 @@ tickClock();
 setTimeout(() => { skyReady = true; tickClock(); }, 400);
 render();
 fetchWeather();
+syncEnergy();
 syncWakeLock();
 
 window.addEventListener('hashchange', () => {
@@ -1014,7 +1184,8 @@ setInterval(() => {
   }
 }, 1000);
 setInterval(fetchWeather, 15 * 60 * 1000);
-window.addEventListener('online', fetchWeather);
+setInterval(syncEnergy, 60 * 60 * 1000);
+window.addEventListener('online', () => { fetchWeather(); syncEnergy(); });
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

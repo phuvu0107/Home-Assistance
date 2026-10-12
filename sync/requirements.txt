@@ -1,0 +1,2 @@
+opower==0.22.2
+cryptography==50.0.2

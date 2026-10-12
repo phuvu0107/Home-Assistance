@@ -230,6 +230,33 @@ a { color: inherit; text-decoration: none; }
 .key-e, .key-g { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin: 0 4px 0 6px; vertical-align: -1px; }
 .key-e { background: var(--amber-fg); } .key-g { background: var(--blue-fg); }
 label.btn { cursor: pointer; }
+.energy-foot { margin: 12px 0 0; }
+.sync-banner {
+  display: flex; align-items: center; gap: 12px; margin: 14px 0 0; padding: 12px 16px; border-radius: 14px;
+  background: var(--amber-bg); border: 1px solid color-mix(in srgb, var(--amber-fg) 30%, transparent); color: var(--text); font-size: 14px; line-height: 1.4;
+}
+.sync-banner > .ico { color: var(--amber-fg); font-size: 20px; flex: none; }
+.sync-banner span { flex: 1; min-width: 0; }
+.sync-banner b { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); white-space: nowrap; }
+.card-head + .sync-banner, .section-title + .sync-banner { margin-top: 0; margin-bottom: 16px; }
+.sync-line { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-3); margin: 0 0 16px; }
+.sync-line .ico { color: var(--green-fg); }
+.energy-empty .sync-banner { margin-bottom: 12px; }
+.energy-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+.tile small { display: flex; align-items: center; font-size: 13px; color: var(--text-3); }
+.tile small .key-e, .tile small .key-g { margin-left: 0; }
+.tile b { display: block; font-size: 30px; font-weight: 700; margin: 6px 0 2px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.tile span { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.energy-main { margin-bottom: 16px; }
+.table-wrap { overflow-x: auto; }
+.energy-table { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+.energy-table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; padding: 0 12px 10px 0; }
+.energy-table td { padding: 12px 12px 12px 0; border-top: 1px solid var(--card-border); white-space: nowrap; }
+.energy-table th:last-child, .energy-table td:last-child { text-align: right; padding-right: 0; }
+.setup { margin: 4px 0 14px; }
+.setup summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--accent); padding: 6px 0; }
+.setup ol { padding-left: 20px; margin: 6px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.setup code { font-size: 12px; background: var(--muted-surface); padding: 1px 5px; border-radius: 5px; word-break: break-all; }
 
 /* Weather */
 .weather-card { position: relative; overflow: hidden; }
@@ -476,6 +503,7 @@ label.btn { cursor: pointer; }
 @media (max-width: 1000px) {
   .grid-home { grid-template-columns: 1fr; grid-template-areas: "weather" "agenda" "tasks"; }
   .energy { grid-template-columns: 1fr; }
+  .energy-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .board { grid-template-columns: 1fr; }
   .page-grid { grid-template-columns: 1fr !important; }
 }
@@ -498,3 +526,5 @@ label.btn { cursor: pointer; }
   .cal .day { min-height: 72px; padding: 4px; }
   .ev-chip span { display: none; }
 }
+.energy-empty .sync-banner { margin-top: 0; }
+.profiles { margin-bottom: 16px; }
