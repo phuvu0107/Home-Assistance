@@ -6,12 +6,14 @@ A touch-friendly home dashboard built for a Surface Pro mounted on the fridge. I
 
 ## Pages
 
-- **Home**: greeting and clock, live weather (now, next hours, 7 days), upcoming events and the latest notes, all on one screen.
-- **Calendar**: month view; tap a day to see or add events.
-- **Notes**: sticky notes for the family (shopping lists, reminders).
-- **Settings**: greeting name, weather city, °F/°C, theme, 24-hour clock, keep screen on.
+- **Home**: "Good morning/afternoon/evening, Phu and Nhi", live weather (now, next hours, 7 days), upcoming events and each person's open tasks, all on one screen.
+- **Calendar**: Week view (events by day and time) and Month view, switched with the toggle. Each event shows who it's for, its start time and its title. The + button adds an event; tap an event to edit or delete it, or tap an empty slot in Week view to add one at that hour.
+- **Tasks**: a column each for Phu and Nhi with done counts and stars. Tasks repeat daily, weekly or once, and daily and weekly tasks reset on their own.
+- **Settings**: weather city, °F/°C, theme, 24-hour clock, keep screen on.
 
-Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). Notes, events and settings are saved in the browser on the device.
+Phu's and Nhi's avatars live in `avatars/` as SVG files.
+
+Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). Events, tasks and settings are saved in the browser on the device.
 
 ## Set up on the Surface Pro
 
@@ -40,4 +42,5 @@ python3 -m http.server 8000
 - `styles.css` – design tokens, light and dark themes, layout
 - `app.js` – state, weather, views and actions
 - `icons.js` – inline SVG icon set
+- `avatars/` – Phu's and Nhi's avatars
 - `sw.js`, `manifest.webmanifest`, `icons/` – installable PWA and offline cache

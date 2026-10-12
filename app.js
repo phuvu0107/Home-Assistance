@@ -3,30 +3,45 @@ import { icon, hydrateIcons } from './icons.js';
 /* =========================================================
    State (saved in this browser's localStorage)
    ========================================================= */
-const STORE_KEY = 'home-dashboard.v1';
+const STORE_KEY = 'home-dashboard.v2';
 const WEATHER_KEY = 'home-dashboard.weather.v1';
 
-const minutesAgo = (m) => Date.now() - m * 60000;
+// The two people in the household. `color` picks one of the existing c-* color families.
+const USERS = [
+  { id: 'phu', name: 'Phu', color: 'blue', avatar: 'avatars/phu.svg' },
+  { id: 'nhi', name: 'Nhi', color: 'rose', avatar: 'avatars/nhi.svg' },
+];
+const userOf = (id) => USERS.find((u) => u.id === id);
+
 const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
 function defaultState() {
+  const today = new Date();
   return {
     settings: {
-      name: 'Truong',
       place: { name: 'Palo Alto', lat: 37.4419, lon: -122.143 },
       unit: 'F',
       theme: 'auto',
       wakeLock: true,
       clock24: false,
+      calView: 'week',
     },
-    notes: [
-      { id: 'n1', text: 'Buy milk, eggs, and spinach 🥬', color: 'yellow', ts: minutesAgo(90) },
-      { id: 'n2', text: 'Dentist on Thursday 4:30 PM', color: 'blue', ts: minutesAgo(300) },
-    ],
     events: [
-      { id: 'e1', title: 'Soccer practice', date: isoDay(new Date()), time: '17:30' },
-      { id: 'e2', title: 'Dentist', date: isoDay(new Date(Date.now() + 3 * 864e5)), time: '16:30' },
+      { id: 'e1', title: 'Soccer practice', date: isoDay(today), time: '17:30', end: '19:00', who: 'phu' },
+      { id: 'e2', title: 'Grocery run', date: isoDay(addDays(today, 1)), time: '10:00', end: '11:00', who: 'both' },
+      { id: 'e3', title: 'Dentist', date: isoDay(addDays(today, 3)), time: '16:30', end: '17:30', who: 'nhi' },
+      { id: 'e4', title: 'Date night', date: isoDay(addDays(today, 4)), time: '19:00', end: '21:00', who: 'both' },
     ],
+    tasks: [
+      { id: 't1', title: 'Take out trash', who: 'phu', repeat: 'daily', stars: 5, doneOn: '' },
+      { id: 't2', title: 'Load dishwasher', who: 'phu', repeat: 'daily', stars: 5, doneOn: '' },
+      { id: 't3', title: 'Mow the lawn', who: 'phu', repeat: 'weekly', stars: 10, doneOn: '' },
+      { id: 't4', title: 'Water plants', who: 'nhi', repeat: 'daily', stars: 5, doneOn: '' },
+      { id: 't5', title: 'Laundry', who: 'nhi', repeat: 'weekly', stars: 10, doneOn: '' },
+      { id: 't6', title: 'Book dentist follow-up', who: 'nhi', repeat: 'once', stars: 3, doneOn: '' },
+    ],
+    stars: { phu: 0, nhi: 0 },
   };
 }
 
@@ -103,8 +118,7 @@ function tickClock() {
   const pod = partOfDay(h);
   const heroPod = document.documentElement.dataset.theme === 'dark' ? 'night' : pod;
   const greet = { morning: 'Good morning', day: 'Good afternoon', evening: 'Good evening', night: 'Good evening' }[pod];
-  const name = state.settings.name.trim();
-  $('#greeting').textContent = name ? `${greet}, ${name}` : greet;
+  $('#greeting').textContent = `${greet}, ${USERS.map((u) => u.name).join(' and ')}`;
   $('#date').textContent = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   $('#clock').textContent = fmtTime(now);
   const hero = $('#hero');
@@ -118,7 +132,6 @@ function tickClock() {
     $('#tod-icon').innerHTML = todHtml;
     $('#tod-icon').dataset.v = String(isNight);
   }
-  $('#avatar').textContent = (name[0] || 'H').toUpperCase();
 }
 
 /* =========================================================
@@ -191,7 +204,7 @@ function weatherValid() {
 const PAGES = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'calendar', label: 'Calendar', icon: 'calendar' },
-  { id: 'notes', label: 'Notes', icon: 'notes' },
+  { id: 'tasks', label: 'Tasks', icon: 'checkSquare' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
@@ -240,18 +253,44 @@ function weatherCard() {
   </div>`;
 }
 
+/* ---------- People ---------- */
+// One avatar for a person, or an overlapping pair for 'both'. Unassigned returns ''.
+function avatar(who, size = 'md') {
+  if (who === 'both') return `<span class="av-pair">${USERS.map((u) => avatarImg(u, size)).join('')}</span>`;
+  const u = userOf(who);
+  return u ? avatarImg(u, size) : '';
+}
+const avatarImg = (u, size) => `<img class="av av-${size} av-${u.color}" src="${u.avatar}" alt="${u.name}" title="${u.name}">`;
+const whoName = (who) => (who === 'both' ? `${USERS[0].name} & ${USERS[1].name}` : userOf(who)?.name || 'Everyone');
+
+/* ---------- Events ---------- */
+const byStart = (a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''));
+const eventsOn = (iso) => state.events.filter((e) => e.date === iso).sort(byStart);
+
 function upcomingEvents(limit) {
   const todayIso = isoDay(new Date());
-  return state.events
-    .filter((e) => e.date >= todayIso)
-    .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')))
-    .slice(0, limit);
+  return state.events.filter((e) => e.date >= todayIso).sort(byStart).slice(0, limit);
 }
 
 function dayLabel(iso) {
   if (iso === isoDay(new Date())) return 'Today';
-  if (iso === isoDay(new Date(Date.now() + 864e5))) return 'Tomorrow';
+  if (iso === isoDay(addDays(new Date(), 1))) return 'Tomorrow';
   return new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+const timeLabel = (e) => (e.time ? fmtTime(new Date(`${e.date}T${e.time}`)) : 'All day');
+
+// Compact event used in the calendar grids: avatar, start time, title.
+function eventChip(e) {
+  return `<button class="ev-chip" data-action="edit-event" data-id="${e.id}">
+    ${avatar(e.who, 'xs')}<b>${e.time ? timeLabel(e) : ''}</b><span>${esc(e.title)}</span></button>`;
+}
+
+function eventRow(e, withDate = false) {
+  const when = [withDate ? dayLabel(e.date) : '', timeLabel(e)].filter(Boolean).join(' · ');
+  return `<button class="row" data-action="edit-event" data-id="${e.id}">
+    ${avatar(e.who, 'md') || `<span class="ibox c-purple-ico">${icon('calendar')}</span>`}
+    <span><b>${esc(e.title)}</b><small>${when}</small></span>${icon('chevron', 'chev')}</button>`;
 }
 
 function weekStrip() {
@@ -262,89 +301,184 @@ function weekStrip() {
   }).join('')}</div>`;
 }
 
+/* ---------- Tasks ---------- */
+const REPEAT_LABEL = { daily: 'Daily', weekly: 'Weekly', once: 'Once' };
+const weekStartIso = () => { const d = new Date(); return isoDay(addDays(d, -d.getDay())); };
+
+// Daily tasks reset each day and weekly tasks each Sunday; one-off tasks stay done.
+function isDone(t) {
+  if (!t.doneOn) return false;
+  if (t.repeat === 'daily') return t.doneOn === isoDay(new Date());
+  if (t.repeat === 'weekly') return t.doneOn >= weekStartIso();
+  return true;
+}
+const tasksFor = (id) => state.tasks.filter((t) => t.who === id);
+
+function taskCard(t, u) {
+  const done = isDone(t);
+  return `<div class="task ${done ? `done c-${u.color}` : ''}">
+    <button class="task-body" data-action="edit-task" data-id="${t.id}">
+      <b>${esc(t.title)}</b>
+      <small>${REPEAT_LABEL[t.repeat]} <span class="stars">${icon('star')}${t.stars}</span></small>
+    </button>
+    <button class="check ${done ? 'on' : ''}" data-action="toggle-task" data-id="${t.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}" aria-pressed="${done}">${icon('check')}</button>
+  </div>`;
+}
+
+function personHead(u, size = 'lg') {
+  const list = tasksFor(u.id);
+  const done = list.filter(isDone).length;
+  return `<div class="person-head">
+    ${avatar(u.id, size)}
+    <div><h2>${u.name}</h2>
+      <div class="pills"><span class="pill">${icon('check')}${done}/${list.length}</span><span class="pill">${icon('star')}${state.stars[u.id] || 0}</span></div>
+    </div>
+  </div>`;
+}
+
+/* ---------- Home ---------- */
 views.home = () => `
   <div class="grid-home">
     ${weatherCard()}
     <div class="card a-agenda">
       <div class="card-head">${icon('calendar')}<h2>Coming up</h2><a class="link" href="#/calendar">Calendar ${icon('arrowRight')}</a></div>
-      <div class="list">${upcomingEvents(5).map((e) => eventRow(e, true)).join('') || '<p class="muted">Nothing on the calendar yet.</p>'}</div>
-      <button class="btn ghost add-btn" data-action="add-event" data-d="${isoDay(new Date())}">${icon('plus')} Add event</button>
+      <div class="list">${upcomingEvents(4).map((e) => eventRow(e, true)).join('') || '<p class="muted">Nothing on the calendar yet.</p>'}</div>
     </div>
-    <div class="card a-notes">
-      <div class="card-head">${icon('notes')}<h2>Notes</h2><a class="link" href="#/notes">All notes ${icon('arrowRight')}</a></div>
-      <div class="notes notes-mini">
-        <button class="note note-new" data-action="add-note">${icon('plus')}New note</button>
-        ${state.notes.slice(0, 3).map(noteHtml).join('')}
+    <div class="card a-tasks">
+      <div class="card-head">${icon('checkSquare')}<h2>Today's tasks</h2><a class="link" href="#/tasks">All tasks ${icon('arrowRight')}</a></div>
+      <div class="home-tasks">
+        ${USERS.map((u) => {
+          const open = tasksFor(u.id).filter((t) => !isDone(t));
+          return `<div class="home-person">${personHead(u, 'md')}
+            <div class="task-list">${open.slice(0, 2).map((t) => taskCard(t, u)).join('') || '<p class="muted">All done for now.</p>'}</div>
+            ${open.length > 2 ? `<a class="more-link" href="#/tasks">+${open.length - 2} more</a>` : ''}</div>`;
+        }).join('')}
       </div>
     </div>
   </div>`;
 
+/* ---------- Calendar ---------- */
 let calCursor = new Date();
-let calSelected = null;
+const HOUR_PX = 52;
+const DAY_START = 6; // 6 AM
+const DAY_END = 23; // 11 PM
 
-views.calendar = () => {
+const minutesOf = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+
+// Lay out one day's timed events in side-by-side lanes when they overlap.
+function laneLayout(events) {
+  const items = events.map((e) => {
+    const start = minutesOf(e.time);
+    const end = Math.max(start + 30, e.end ? minutesOf(e.end) : start + 60);
+    return { e, start, end, lane: 0, lanes: 1 };
+  });
+  let group = [];
+  let groupEnd = -1;
+  const flush = () => { const n = Math.max(...group.map((g) => g.lane)) + 1; group.forEach((g) => { g.lanes = n; }); group = []; };
+  items.forEach((it) => {
+    if (group.length && it.start >= groupEnd) flush();
+    const used = new Set(group.filter((g) => g.end > it.start).map((g) => g.lane));
+    while (used.has(it.lane)) it.lane++;
+    group.push(it);
+    groupEnd = Math.max(groupEnd, it.end);
+  });
+  if (group.length) flush();
+  return items;
+}
+
+function weekView() {
+  const start = addDays(calCursor, -calCursor.getDay());
+  const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  const todayIso = isoDay(new Date());
+  const hours = Array.from({ length: DAY_END - DAY_START }, (_, i) => DAY_START + i);
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const head = days.map((d) => `<div class="wk-day ${isoDay(d) === todayIso ? 'today' : ''}">
+      <small>${d.toLocaleDateString([], { weekday: 'short' })}</small><b>${d.getDate()}</b></div>`).join('');
+  const allDay = days.map((d) => `<div class="wk-allday">${eventsOn(isoDay(d)).filter((e) => !e.time).map(eventChip).join('')}</div>`).join('');
+  const cols = days.map((d) => {
+    const iso = isoDay(d);
+    const timed = laneLayout(eventsOn(iso).filter((e) => e.time));
+    const nowLine = iso === todayIso && nowMin >= DAY_START * 60 && nowMin < DAY_END * 60
+      ? `<div class="now-line" style="top:${((nowMin - DAY_START * 60) / 60) * HOUR_PX}px"></div>` : '';
+    return `<div class="wk-col" data-action="add-event-at" data-d="${iso}">
+      ${timed.map(({ e, start, end, lane, lanes }) => {
+        const top = Math.max(0, ((start - DAY_START * 60) / 60) * HOUR_PX);
+        const height = Math.max(26, ((end - start) / 60) * HOUR_PX - 3);
+        return `<button class="wk-ev ${e.who ? `c-${e.who === 'both' ? 'purple' : userOf(e.who).color}` : 'c-purple'}" data-action="edit-event" data-id="${e.id}"
+          style="top:${top}px;height:${height}px;left:calc(${(lane / lanes) * 100}% + 2px);width:calc(${100 / lanes}% - 4px)">
+          <span class="wk-ev-top">${avatar(e.who, 'xs')}<b>${timeLabel(e)}</b></span><span class="wk-ev-title">${esc(e.title)}</span></button>`;
+      }).join('')}${nowLine}</div>`;
+  }).join('');
+  return `<div class="wk">
+    <div class="wk-head"><div></div>${head}</div>
+    <div class="wk-allrow"><div class="wk-gutter-label">All day</div>${allDay}</div>
+    <div class="wk-scroll" id="wk-scroll">
+      <div class="wk-grid" style="height:${hours.length * HOUR_PX}px">
+        <div class="wk-hours">${hours.map((h) => `<span style="top:${(h - DAY_START) * HOUR_PX}px">${fmtTime(new Date(2000, 0, 1, h), false)}</span>`).join('')}</div>
+        ${cols}
+      </div>
+    </div>
+  </div>`;
+}
+
+function monthView() {
   const y = calCursor.getFullYear();
   const m = calCursor.getMonth();
   const first = new Date(y, m, 1);
   const start = new Date(y, m, 1 - first.getDay());
+  const weeks = Math.ceil((first.getDay() + new Date(y, m + 1, 0).getDate()) / 7);
   const todayIso = isoDay(new Date());
-  const sel = calSelected || todayIso;
-  const cells = Array.from({ length: 42 }, (_, i) => {
-    const d = new Date(start); d.setDate(start.getDate() + i);
+  const cells = Array.from({ length: weeks * 7 }, (_, i) => {
+    const d = addDays(start, i);
     const iso = isoDay(d);
-    const n = state.events.filter((e) => e.date === iso).length;
-    return `<button class="day ${d.getMonth() !== m ? 'other' : ''} ${iso === todayIso ? 'today' : ''} ${iso === sel ? 'sel' : ''}" data-action="cal-pick" data-d="${iso}">
-      ${d.getDate()}<span class="pips">${'<i></i>'.repeat(Math.min(n, 4))}</span></button>`;
-  }).join('');
-  const dayEvents = state.events.filter((e) => e.date === sel).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-  const upcoming = state.events.filter((e) => e.date >= todayIso).sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''))).slice(0, 6);
-  const selDate = new Date(`${sel}T12:00:00`);
-  return `
-    <div class="section-title">Calendar</div>
-    <div class="page-grid" style="grid-template-columns:2fr 1fr">
-      <div class="card">
-        <div class="card-head">
-          <button class="btn-round" data-action="cal-move" data-d="-1" aria-label="Previous month">${icon('chevronLeft')}</button>
-          <h2 style="flex:1;text-align:center">${first.toLocaleDateString([], { month: 'long', year: 'numeric' })}</h2>
-          <button class="btn-round" data-action="cal-move" data-d="1" aria-label="Next month">${icon('chevron')}</button>
-        </div>
-        <div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="dow">${d}</div>`).join('')}${cells}</div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:16px">
-        <div class="card">
-          <div class="card-head">${icon('calendar')}<h2>${selDate.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}</h2></div>
-          <div class="list">${dayEvents.map(eventRow).join('') || '<p class="muted">No events.</p>'}</div>
-          <button class="btn" style="margin-top:14px" data-action="add-event" data-d="${sel}">${icon('plus')} Add event</button>
-        </div>
-        <div class="card">
-          <div class="card-head">${icon('clock')}<h2>Upcoming</h2></div>
-          <div class="list">${upcoming.map((e) => eventRow(e, true)).join('') || '<p class="muted">Nothing coming up.</p>'}</div>
-        </div>
-      </div>
+    const evs = eventsOn(iso);
+    return `<div class="day ${d.getMonth() !== m ? 'other' : ''} ${iso === todayIso ? 'today' : ''}" data-action="open-day" data-d="${iso}">
+      <span class="day-num">${d.getDate()}</span>
+      <div class="day-evs">${evs.slice(0, 3).map(eventChip).join('')}${evs.length > 3 ? `<span class="more">+${evs.length - 3} more</span>` : ''}</div>
     </div>`;
+  }).join('');
+  return `<div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="dow">${d}</div>`).join('')}${cells}</div>`;
+}
+
+function calTitle() {
+  if (state.settings.calView === 'month') return calCursor.toLocaleDateString([], { month: 'long', year: 'numeric' });
+  const s = addDays(calCursor, -calCursor.getDay());
+  const e = addDays(s, 6);
+  const mon = (d) => d.toLocaleDateString([], { month: 'short' });
+  const endPart = s.getMonth() === e.getMonth() ? e.getDate() : `${mon(e)} ${e.getDate()}`;
+  return `${mon(s)} ${s.getDate()} – ${endPart}, ${e.getFullYear()}`;
+}
+
+views.calendar = () => {
+  const v = state.settings.calView;
+  return `
+  <div class="card cal-card">
+    <div class="cal-bar">
+      <button class="btn-round" data-action="cal-move" data-d="-1" aria-label="Previous">${icon('chevronLeft')}</button>
+      <button class="btn-round" data-action="cal-move" data-d="1" aria-label="Next">${icon('chevron')}</button>
+      <h2>${calTitle()}</h2>
+      <button class="btn ghost sm" data-action="cal-today">Today</button>
+      <span class="spacer"></span>
+      <div class="seg">${['week', 'month'].map((x) => `<button class="${v === x ? 'on' : ''}" data-action="cal-view" data-v="${x}">${x === 'week' ? 'Week' : 'Month'}</button>`).join('')}</div>
+      <button class="btn-round accent" data-action="add-event" data-d="${isoDay(new Date())}" aria-label="Add event">${icon('plus')}</button>
+    </div>
+    ${v === 'month' ? monthView() : weekView()}
+  </div>`;
 };
 
-function eventRow(e, withDate = false) {
-  const d = new Date(`${e.date}T${e.time || '12:00'}`);
-  const when = [withDate ? dayLabel(e.date) : '', e.time ? fmtTime(d) : 'All day'].filter(Boolean).join(' · ');
-  return `<div class="row c-purple"><span class="ibox">${icon('calendar')}</span>
-    <span><b>${esc(e.title)}</b><small>${when}</small></span>
-    <button class="btn-round" style="margin-left:auto" data-action="del-event" data-id="${e.id}" aria-label="Delete">${icon('trash')}</button></div>`;
-}
-
-views.notes = () => `
-  <div class="section-title">Notes</div>
-  <div class="notes">
-    <button class="note note-new" data-action="add-note">${icon('plus')}New note</button>
-    ${state.notes.map(noteHtml).join('')}
+/* ---------- Tasks ---------- */
+views.tasks = () => `
+  <div class="section-title">Tasks<span class="spacer"></span>
+    <button class="btn-round accent" data-action="add-task" aria-label="Add task">${icon('plus')}</button></div>
+  <div class="board">
+    ${USERS.map((u) => `
+      <div class="card board-col">
+        ${personHead(u)}
+        <div class="task-list">${tasksFor(u.id).map((t) => taskCard(t, u)).join('') || '<p class="muted">No tasks yet.</p>'}</div>
+        <button class="add-task" data-action="add-task" data-who="${u.id}">${icon('plus')} Add a task for ${u.name}</button>
+      </div>`).join('')}
   </div>`;
-
-function noteHtml(n) {
-  return `<div class="note n-${n.color}">
-    <p>${esc(n.text)}</p>
-    <footer>${ago(n.ts)}<button data-action="del-note" data-id="${n.id}" aria-label="Delete note">${icon('trash')}</button></footer>
-  </div>`;
-}
 
 views.settings = () => {
   const s = state.settings;
@@ -353,8 +487,7 @@ views.settings = () => {
   <div class="page-grid" style="grid-template-columns:repeat(auto-fill,minmax(380px,1fr))">
     <div class="card">
       <div class="card-head">${icon('home')}<h2>Household</h2></div>
-      <div class="field"><label for="set-name">Name in the greeting</label>
-        <input class="input" id="set-name" value="${esc(s.name)}" placeholder="e.g. Truong, or The Vu family"></div>
+      <div class="profiles">${USERS.map((u) => `<div class="profile">${avatar(u.id, 'lg')}<b>${u.name}</b></div>`).join('')}</div>
       <div class="field"><label for="set-place">Weather location</label>
         <div style="display:flex;gap:8px"><input class="input" id="set-place" placeholder="Search a city" value="${esc(s.place.name)}">
         <button class="btn" data-action="place-search">${icon('search')}</button></div>
@@ -373,17 +506,22 @@ views.settings = () => {
     </div>
     <div class="card">
       <div class="card-head">${icon('sparkles')}<h2>About</h2></div>
-      <p class="hint">Notes, events and settings are saved on this device only. Weather comes from Open-Meteo.</p>
-      <button class="btn danger" data-action="reset">${icon('trash')} Clear notes and events</button>
+      <p class="hint">Events, tasks and settings are saved on this device only. Weather comes from Open-Meteo.</p>
+      <button class="btn danger" data-action="reset">${icon('trash')} Clear events and tasks</button>
     </div>
   </div>`;
 };
 
+let wkScroll = null;
 function renderView() {
   const r = currentRoute();
   const view = $('#view');
   const y = window.scrollY;
+  const prev = $('#wk-scroll');
+  if (prev) wkScroll = prev.scrollTop;
   view.innerHTML = views[r]();
+  const wk = $('#wk-scroll');
+  if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
   window.scrollTo(0, y);
 }
 
@@ -408,23 +546,53 @@ function closeSheet() {
 }
 const sheetHead = (title, ic) => `<h3>${icon(ic)}${title}<button class="btn-round close" data-action="close-sheet" aria-label="Close">${icon('x')}</button></h3>`;
 
-function openAddNote() {
-  const colors = ['yellow', 'pink', 'blue', 'green', 'purple'];
-  openSheet(`${sheetHead('New note', 'notes')}
-    <div class="field"><textarea class="input" id="note-text" rows="5" placeholder="Shopping list, reminder, message for the family…"></textarea></div>
-    <div class="field"><label>Color</label><div class="chips">${colors.map((c, i) => `
-      <button class="chip n-${c}" data-action="note-color" data-c="${c}" style="width:44px;height:44px;border-radius:50%;${i === 0 ? 'outline:2px solid var(--accent)' : ''}" aria-label="${c}"></button>`).join('')}</div></div>
-    <div class="sheet-actions"><button class="btn ghost" data-action="close-sheet">Cancel</button><button class="btn" data-action="save-note" data-c="yellow">Save note</button></div>`);
+// Person picker shared by the event and task sheets. `allowBoth` adds "Both" and "Anyone".
+function whoPicker(selected, allowBoth) {
+  const opts = [...USERS.map((u) => ({ id: u.id, label: u.name })), ...(allowBoth ? [{ id: 'both', label: 'Both' }, { id: '', label: 'Anyone' }] : [])];
+  return `<div class="who-pick" id="who-pick">${opts.map((o) => `
+    <button class="who-opt ${o.id === selected ? 'on' : ''}" data-action="pick-who" data-who="${o.id}">${avatar(o.id, 'sm') || `<span class="av-none">${icon('calendar')}</span>`}${o.label}</button>`).join('')}</div>`;
+}
+const pickedWho = () => $('#who-pick .who-opt.on')?.dataset.who ?? '';
+
+function openEventSheet(ev, date, time = '') {
+  const e = ev || { id: '', title: '', date, time, end: '', who: '' };
+  openSheet(`${sheetHead(ev ? 'Edit event' : 'New event', 'calendar')}
+    <div class="field"><label for="ev-title">Title</label><input class="input" id="ev-title" value="${esc(e.title)}" placeholder="e.g. Soccer practice"></div>
+    <div class="field"><label>Who</label>${whoPicker(e.who, true)}</div>
+    <div class="field-row">
+      <div class="field"><label for="ev-date">Date</label><input class="input" type="date" id="ev-date" value="${e.date}"></div>
+      <div class="field"><label for="ev-time">Starts</label><input class="input" type="time" id="ev-time" value="${e.time}"></div>
+      <div class="field"><label for="ev-end">Ends</label><input class="input" type="time" id="ev-end" value="${e.end || ''}"></div>
+    </div>
+    <p class="hint">Leave Starts empty for an all-day event.</p>
+    <div class="sheet-actions">
+      ${ev ? `<button class="btn danger" data-action="del-event" data-id="${e.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
+      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="save-event" data-id="${e.id}">${ev ? 'Save' : 'Add event'}</button>
+    </div>`);
 }
 
-function openAddEvent(date) {
-  openSheet(`${sheetHead('New event', 'calendar')}
-    <div class="field"><label for="ev-title">Title</label><input class="input" id="ev-title" placeholder="e.g. Soccer practice"></div>
-    <div style="display:flex;gap:12px">
-      <div class="field" style="flex:1"><label for="ev-date">Date</label><input class="input" type="date" id="ev-date" value="${date}"></div>
-      <div class="field" style="flex:1"><label for="ev-time">Time (optional)</label><input class="input" type="time" id="ev-time"></div>
+function openDaySheet(iso) {
+  const evs = eventsOn(iso);
+  openSheet(`${sheetHead(new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }), 'calendar')}
+    <div class="list">${evs.map((e) => eventRow(e)).join('') || '<p class="muted">No events.</p>'}</div>
+    <div class="sheet-actions"><button class="btn" data-action="add-event" data-d="${iso}">${icon('plus')} Add event</button></div>`);
+}
+
+function openTaskSheet(task, who = USERS[0].id) {
+  const t = task || { id: '', title: '', who, repeat: 'daily', stars: 5 };
+  openSheet(`${sheetHead(task ? 'Edit task' : 'New task', 'checkSquare')}
+    <div class="field"><label for="task-title">Task</label><input class="input" id="task-title" value="${esc(t.title)}" placeholder="e.g. Take out trash"></div>
+    <div class="field"><label>Assigned to</label>${whoPicker(t.who, false)}</div>
+    <div class="field-row">
+      <div class="field"><label>Repeats</label><div class="seg" id="task-repeat">${Object.entries(REPEAT_LABEL).map(([k, l]) => `<button class="${t.repeat === k ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${l}</button>`).join('')}</div></div>
+      <div class="field"><label>Stars</label><div class="seg" id="task-stars">${[1, 3, 5, 10].map((n) => `<button class="${t.stars === n ? 'on' : ''}" data-action="pick-seg" data-v="${n}">${n}</button>`).join('')}</div></div>
     </div>
-    <div class="sheet-actions"><button class="btn ghost" data-action="close-sheet">Cancel</button><button class="btn" data-action="save-event">Add event</button></div>`);
+    <div class="sheet-actions">
+      ${task ? `<button class="btn danger" data-action="del-task" data-id="${t.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
+      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="save-task" data-id="${t.id}">${task ? 'Save' : 'Add task'}</button>
+    </div>`);
 }
 
 /* =========================================================
@@ -432,38 +600,71 @@ function openAddEvent(date) {
    ========================================================= */
 const actions = {
   'close-sheet': closeSheet,
-
-  'add-note': openAddNote,
-  'note-color': (el) => {
-    $('#sheet').querySelectorAll('[data-action="note-color"]').forEach((b) => { b.style.outline = ''; });
-    el.style.outline = '2px solid var(--accent)';
-    $('#sheet [data-action="save-note"]').dataset.c = el.dataset.c;
+  'pick-who': (el) => {
+    el.parentElement.querySelectorAll('.who-opt').forEach((b) => b.classList.toggle('on', b === el));
   },
-  'save-note': (el) => {
-    const text = $('#note-text').value.trim();
-    if (!text) return;
-    state.notes.unshift({ id: `n${Date.now()}`, text, color: el.dataset.c, ts: Date.now() });
-    closeSheet();
-  },
-  'del-note': (el) => {
-    state.notes = state.notes.filter((n) => n.id !== el.dataset.id);
-    save();
+  'pick-seg': (el) => {
+    el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
   },
 
-  'cal-move': (el) => { calCursor = new Date(calCursor.getFullYear(), calCursor.getMonth() + Number(el.dataset.d), 1); },
-  'cal-pick': (el) => { calSelected = el.dataset.d; },
-  'add-event': (el) => openAddEvent(el.dataset.d),
-  'save-event': () => {
+  'cal-move': (el) => {
+    const d = Number(el.dataset.d);
+    calCursor = state.settings.calView === 'month'
+      ? new Date(calCursor.getFullYear(), calCursor.getMonth() + d, 1)
+      : addDays(calCursor, d * 7);
+  },
+  'cal-today': () => { calCursor = new Date(); },
+  'cal-view': (el) => { state.settings.calView = el.dataset.v; save(); },
+  'open-day': (el) => openDaySheet(el.dataset.d),
+  'add-event': (el) => openEventSheet(null, el.dataset.d),
+  'add-event-at': (el, e) => {
+    const y = e.clientY - el.getBoundingClientRect().top;
+    const h = Math.min(DAY_END - 1, DAY_START + Math.floor(y / HOUR_PX));
+    openEventSheet(null, el.dataset.d, `${String(h).padStart(2, '0')}:00`);
+  },
+  'edit-event': (el) => openEventSheet(state.events.find((x) => x.id === el.dataset.id)),
+  'save-event': (el) => {
     const title = $('#ev-title').value.trim();
     const date = $('#ev-date').value;
-    if (!title || !date) return;
-    state.events.push({ id: `e${Date.now()}`, title, date, time: $('#ev-time').value || '' });
-    calSelected = date;
+    if (!title || !date) { toast('Add a title and a date'); return; }
+    const data = { title, date, time: $('#ev-time').value || '', end: $('#ev-end').value || '', who: pickedWho() };
+    const existing = state.events.find((x) => x.id === el.dataset.id);
+    if (existing) Object.assign(existing, data);
+    else state.events.push({ id: `e${Date.now()}`, ...data });
+    calCursor = new Date(`${date}T12:00`);
     closeSheet();
   },
   'del-event': (el) => {
     state.events = state.events.filter((e) => e.id !== el.dataset.id);
-    save();
+    closeSheet();
+  },
+
+  'add-task': (el) => openTaskSheet(null, el.dataset.who),
+  'edit-task': (el) => openTaskSheet(state.tasks.find((x) => x.id === el.dataset.id)),
+  'save-task': (el) => {
+    const title = $('#task-title').value.trim();
+    if (!title) { toast('Name the task first'); return; }
+    const data = {
+      title,
+      who: pickedWho() || USERS[0].id,
+      repeat: $('#task-repeat .on')?.dataset.v || 'daily',
+      stars: Number($('#task-stars .on')?.dataset.v || 5),
+    };
+    const existing = state.tasks.find((x) => x.id === el.dataset.id);
+    if (existing) Object.assign(existing, data);
+    else state.tasks.push({ id: `t${Date.now()}`, doneOn: '', ...data });
+    closeSheet();
+  },
+  'del-task': (el) => {
+    state.tasks = state.tasks.filter((t) => t.id !== el.dataset.id);
+    closeSheet();
+  },
+  'toggle-task': (el) => {
+    const t = state.tasks.find((x) => x.id === el.dataset.id);
+    const done = isDone(t);
+    t.doneOn = done ? '' : isoDay(new Date());
+    state.stars[t.who] = Math.max(0, (state.stars[t.who] || 0) + (done ? -t.stars : t.stars));
+    if (!done) toast(`+${t.stars} stars for ${userOf(t.who).name}`);
   },
 
   'set-unit': (el) => { state.settings.unit = el.dataset.v; save(); fetchWeather(); },
@@ -478,16 +679,14 @@ const actions = {
     fetchWeather();
   },
   reset: () => {
-    if (!confirm('Clear all notes and events on this device?')) return;
-    state = { ...defaultState(), settings: state.settings, notes: [], events: [] };
+    if (!confirm('Clear all events and tasks on this device?')) return;
+    state = { ...defaultState(), settings: state.settings, events: [], tasks: [] };
     save();
-    applyTheme();
-    fetchWeather();
   },
 };
 
-// Actions that only touch a sheet or navigate don't need a full re-render.
-const NO_RERENDER = new Set(['add-note', 'note-color', 'add-event', 'place-search']);
+// Actions that only open or edit a sheet don't need the page behind it re-rendered.
+const NO_RERENDER = new Set(['pick-who', 'pick-seg', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -503,18 +702,10 @@ document.addEventListener('click', (e) => {
 $('#sheet-backdrop').addEventListener('click', closeSheet);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
 
-// Refresh the page behind a sheet when it closes, so a saved note or event shows up.
+// Refresh the page behind a sheet when it closes, so a saved event or task shows up.
 const sheetObserver = new MutationObserver(() => { if ($('#sheet').hidden) renderView(); });
 sheetObserver.observe($('#sheet'), { attributes: true, attributeFilter: ['hidden'] });
 
-// Settings: name field saves as you type.
-document.addEventListener('input', (e) => {
-  if (e.target.id === 'set-name') {
-    state.settings.name = e.target.value;
-    save();
-    tickClock();
-  }
-});
 document.addEventListener('keydown', (e) => {
   if (e.target.id === 'set-place' && e.key === 'Enter') searchPlace();
 });
@@ -547,8 +738,8 @@ function runSearch() {
   if (!q) { searchOut.hidden = true; return; }
   const hits = [];
   PAGES.forEach((p) => { if (p.label.toLowerCase().includes(q)) hits.push({ ic: p.icon, label: p.label, meta: 'Page', href: `#/${p.id}` }); });
-  state.notes.forEach((n) => { if (n.text.toLowerCase().includes(q)) hits.push({ ic: 'notes', label: n.text.slice(0, 60), meta: 'Note', href: '#/notes' }); });
-  state.events.forEach((ev) => { if (ev.title.toLowerCase().includes(q)) hits.push({ ic: 'calendar', label: ev.title, meta: dayLabel(ev.date), href: '#/calendar' }); });
+  state.tasks.forEach((t) => { if (t.title.toLowerCase().includes(q)) hits.push({ ic: 'checkSquare', label: t.title, meta: `Task · ${whoName(t.who)}`, href: '#/tasks' }); });
+  state.events.forEach((ev) => { if (ev.title.toLowerCase().includes(q)) hits.push({ ic: 'calendar', label: ev.title, meta: `${dayLabel(ev.date)} · ${whoName(ev.who)}`, href: '#/calendar' }); });
   searchOut.innerHTML = hits.length
     ? hits.slice(0, 12).map((h) => `<button data-href="${h.href}">${icon(h.ic)}<span>${esc(h.label)}</span><small>${esc(h.meta)}</small></button>`).join('')
     : '<div class="empty">No results</div>';
