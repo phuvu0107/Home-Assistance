@@ -115,23 +115,66 @@ function applyTheme() {
 function tickClock() {
   const now = new Date();
   const h = now.getHours();
-  const pod = partOfDay(h);
-  const heroPod = document.documentElement.dataset.theme === 'dark' ? 'night' : pod;
-  const greet = { morning: 'Good morning', day: 'Good afternoon', evening: 'Good evening', night: 'Good evening' }[pod];
+  const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   $('#greeting').textContent = `${greet}, ${USERS.map((u) => u.name).join(' and ')}`;
   $('#date').textContent = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   $('#clock').textContent = fmtTime(now);
+  updateSky(now.getTime());
+}
+
+/* ---------- Sun and moon in the greeting panel ---------- */
+// Today's sunrise and sunset (epoch ms) for the weather city, with a 6:30/18:30 local guess until weather loads.
+function sunToday() {
+  if (weather?.sun?.length && weatherValid()) {
+    const today = weather.sun.find((d) => d.date === isoDay(new Date())) || weather.sun[0];
+    const next = weather.sun[weather.sun.indexOf(today) + 1];
+    return { rise: today.rise, set: today.set, nextRise: next ? next.rise : today.rise + 864e5 };
+  }
+  const d = new Date();
+  const at = (h, m) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m).getTime();
+  return { rise: at(6, 30), set: at(18, 30), nextRise: at(6, 30) + 864e5 };
+}
+
+// Where the sun (between sunrise and sunset) or moon (between sunset and the next sunrise) sits on its arc, 0 to 1.
+function skyState(now) {
+  const { rise, set, nextRise } = sunToday();
+  if (now >= rise && now < set) return { kind: 'sun', p: (now - rise) / (set - rise), rise, set };
+  const start = now >= set ? set : set - 864e5;
+  const end = now >= set ? nextRise : rise;
+  return { kind: 'moon', p: (now - start) / (end - start), rise, set };
+}
+
+let skyReady = false; // the first placement waits a moment so the sun or moon visibly rises into place
+function updateSky(now) {
+  const orb = $('#orb');
   const hero = $('#hero');
-  if (!hero.classList.contains(heroPod)) {
+  const sky = skyState(now);
+  const p = Math.min(1, Math.max(0, sky.p));
+  // Arc across the right part of the panel; it starts and ends just below the hills.
+  const x = 30 + p * 64;
+  const y = 92 - Math.sin(p * Math.PI) * 78;
+  if (skyReady) {
+    orb.style.left = `${x.toFixed(2)}%`;
+    orb.style.top = `${y.toFixed(2)}%`;
+  }
+  orb.dataset.kind = sky.kind;
+  // Sky color follows the real sun: an hour of dawn, daytime, ninety minutes of dusk, then night.
+  let pod = 'night';
+  if (sky.kind === 'sun') pod = now - sky.rise < 36e5 ? 'morning' : sky.set - now < 54e5 ? 'evening' : 'day';
+  if (document.documentElement.dataset.theme === 'dark') pod = 'night';
+  if (!hero.classList.contains(pod)) {
     hero.classList.remove('morning', 'day', 'evening', 'night');
-    hero.classList.add(heroPod);
+    hero.classList.add(pod);
   }
-  const isNight = h >= 19 || h < 6;
-  const todHtml = icon(isNight ? 'moon' : 'sun');
-  if ($('#tod-icon').dataset.v !== String(isNight)) {
-    $('#tod-icon').innerHTML = todHtml;
-    $('#tod-icon').dataset.v = String(isNight);
+  const tod = $('#tod-icon');
+  if (tod.dataset.v !== sky.kind) {
+    tod.innerHTML = icon(sky.kind);
+    tod.dataset.v = sky.kind;
   }
+  const label = sky.kind === 'sun'
+    ? `Sunset at ${fmtTime(new Date(sky.set))}`
+    : `Sunrise at ${fmtTime(new Date(now < sky.rise ? sky.rise : sunToday().nextRise))}`;
+  if ($('#sun-note').textContent !== label) $('#sun-note').textContent = label;
 }
 
 /* =========================================================
@@ -160,7 +203,7 @@ async function fetchWeather() {
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
     + '&current=temperature_2m,weather_code,is_day'
     + '&hourly=temperature_2m,weather_code,is_day'
-    + '&daily=temperature_2m_max,temperature_2m_min,weather_code'
+    + '&daily=temperature_2m_max,temperature_2m_min,weather_code,sunrise,sunset'
     + `&temperature_unit=${unit}&timezone=auto&forecast_days=7`;
   try {
     const res = await fetch(url);
@@ -185,11 +228,18 @@ async function fetchWeather() {
       lo: d.daily.temperature_2m_min[0],
       hours,
       days: d.daily.time.map((t, i) => ({ date: t, hi: d.daily.temperature_2m_max[i], lo: d.daily.temperature_2m_min[i], code: d.daily.weather_code[i] })),
+      // Open-Meteo gives local times for the city; convert with its UTC offset so the sun follows that city's clock.
+      sun: d.daily.time.map((t, i) => ({
+        date: t,
+        rise: Date.parse(`${d.daily.sunrise[i]}Z`) - d.utc_offset_seconds * 1000,
+        set: Date.parse(`${d.daily.sunset[i]}Z`) - d.utc_offset_seconds * 1000,
+      })),
     };
     try { localStorage.setItem(WEATHER_KEY, JSON.stringify(weather)); } catch { /* ignore */ }
   } catch (err) {
     console.warn('Weather fetch failed', err);
   }
+  tickClock();
   if (currentRoute() === 'home') renderView();
 }
 
@@ -784,6 +834,7 @@ document.addEventListener('pointerup', () => { if (state.settings.wakeLock && !w
 hydrateIcons();
 applyTheme();
 tickClock();
+setTimeout(() => { skyReady = true; tickClock(); }, 400);
 render();
 fetchWeather();
 syncWakeLock();
