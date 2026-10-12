@@ -858,8 +858,9 @@ function awardStars(item, kind, on) {
     if (on) state.log.push({ id, who, stars: n, date, kind, title: item.title });
   }
   item.doneOn = on ? date : '';
-  // Keep about a year of history.
-  const cutoff = isoDay(addDays(new Date(), -400));
+  // Keep 100 days: enough for the Leaderboard's 12-week chart, and the whole household shares one
+  // synced document (1 MB at most), so old entries would only crowd it.
+  const cutoff = isoDay(addDays(new Date(), -100));
   state.log = state.log.filter((l) => l.date >= cutoff);
   if (on && n) toast(`+${n} stars for ${people.map((w) => userOf(w).name).join(' & ')}`);
 }
