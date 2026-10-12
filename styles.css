@@ -88,6 +88,10 @@ a { color: inherit; text-decoration: none; }
 /* ---------- Layout ---------- */
 /* One column: top bar, greeting, tabs, then the page. Built for a landscape tablet. */
 .main { max-width: 1480px; margin: 0 auto; padding: 16px 24px 32px; min-width: 0; }
+/* viewport-fit=cover lets the page run under a phone's status bar: start below it,
+   and keep a strip of background behind it so scrolled content doesn't show through. */
+.main { padding-top: max(16px, env(safe-area-inset-top)); }
+body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top); background: var(--bg); z-index: 30; pointer-events: none; }
 .btn-round { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--card-border); background: var(--card); display: grid; place-items: center; font-size: 18px; }
 
 /* ---------- Hero ---------- */
@@ -382,7 +386,7 @@ label.btn { cursor: pointer; }
 
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
 .cal .dow { text-align: center; font-size: 12px; color: var(--text-3); padding: 2px 0 4px; font-weight: 600; }
-.cal .day { min-height: 100px; border-radius: 12px; border: 1px solid var(--card-border); padding: 6px; display: flex; flex-direction: column; gap: 4px; background: var(--card); min-width: 0; cursor: pointer; }
+.cal .day { min-height: 100px; border-radius: 12px; border: 1px solid var(--card-border); padding: 6px; display: flex; flex-direction: column; gap: 4px; background: var(--card); min-width: 0; overflow: hidden; cursor: pointer; }
 .cal .day.other { opacity: .4; }
 .day-num { font-size: 14px; font-weight: 600; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; }
 .cal .day.today .day-num { background: var(--accent); color: #fff; }
@@ -448,8 +452,12 @@ label.btn { cursor: pointer; }
 .who-opt { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; border: 1px solid var(--card-border); background: var(--card); font-weight: 500; }
 .who-opt.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .av-none { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--muted-surface); color: var(--text-3); }
-.field-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.field-row { display: flex; gap: 0 12px; flex-wrap: wrap; }
 .field-row .field { flex: 1; min-width: 120px; }
+/* Pickers fill their field and drop onto their own row when two won't fit side by side. */
+.field-row .field:has(.seg) { flex-basis: 200px; }
+.sheet .field > .seg { display: flex; max-width: 100%; }
+.sheet .field > .seg button { flex: 1; min-width: 0; padding-left: 4px; padding-right: 4px; white-space: nowrap; }
 .profiles { display: flex; gap: 24px; }
 .profile { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .profile .av-lg { width: 84px; height: 84px; }
@@ -604,10 +612,19 @@ label.btn { cursor: pointer; }
   .home-person .task-list { flex-direction: column; }
   .wk { --gutter: 40px; }
   .wk-ev-top .av, .ev-chip .av { display: none; }
+  .main { padding-top: max(12px, env(safe-area-inset-top)); }
   .cal .day { min-height: 72px; padding: 4px; }
-  .ev-chip span:not(.imp-tag) { display: none; }
-  .tc-title { display: none; }
-  .task-chip { padding: 2px; justify-content: center; }
+  /* Narrow day cells: each chip is one short line with the start of the title (clipped, since an
+     ellipsis would leave two letters). The red edge and tint mark Important, so the tag is left out. */
+  .ev-chip, .ev-chip.imp { flex-wrap: nowrap; gap: 0; padding: 2px 4px; font-size: 10px; border-radius: 6px; }
+  .ev-chip.imp, .task-chip.imp { box-shadow: none; border-left: 3px solid var(--imp); border-radius: 3px 6px 6px 3px; padding-left: 3px; }
+  .ev-chip span:not(.imp-tag), .tc-title { text-overflow: clip; }
+  .ev-chip .imp-tag, .ev-chip .ev-done { display: none; }
+  .cal .ev-chip b { display: none; }
+  .ev-chip span:not(.imp-tag), .ev-chip.imp span:not(.imp-tag) { flex: 1 1 auto; min-width: 0; padding-left: 0; }
+  .task-chip { gap: 0; padding: 0 4px; border-radius: 6px; }
+  .tc-check { display: none; }
+  .tc-title { padding: 2px 0; font-size: 10px; }
 }
 .energy-empty .sync-banner { margin-top: 0; }
 .profiles { margin-bottom: 16px; }
