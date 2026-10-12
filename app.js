@@ -263,11 +263,26 @@ const currentRoute = () => {
   return PAGES.some((p) => p.id === r) ? r : 'home';
 };
 
+// The tabs are drawn once; switching tabs slides the highlight to the new one.
 function renderNav() {
   const r = currentRoute();
-  $('#tabs').innerHTML = PAGES.map((p) => `
-    <a class="tab ${p.id === r ? 'active' : ''}" href="#/${p.id}">${icon(p.icon)}<span>${p.label}</span></a>`).join('');
+  const tabs = $('#tabs');
+  if (!tabs.children.length) {
+    tabs.innerHTML = `<span class="tab-ink" aria-hidden="true"></span>${PAGES.map((p) => `
+      <a class="tab" href="#/${p.id}" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span></a>`).join('')}`;
+  }
+  tabs.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === r));
+  moveInk();
 }
+function moveInk() {
+  const t = $('#tabs .tab.active');
+  const ink = $('#tabs .tab-ink');
+  if (!t || !ink) return;
+  ink.style.width = `${t.offsetWidth}px`;
+  ink.style.transform = `translateX(${t.offsetLeft - 6}px)`;
+}
+window.addEventListener('resize', moveInk);
+document.fonts?.ready.then(() => { moveInk(); requestAnimationFrame(() => $('#tabs').classList.add('ink-ready')); });
 
 /* =========================================================
    Views
@@ -513,7 +528,7 @@ views.calendar = () => {
       <div class="seg">${['week', 'month'].map((x) => `<button class="${v === x ? 'on' : ''}" data-action="cal-view" data-v="${x}">${x === 'week' ? 'Week' : 'Month'}</button>`).join('')}</div>
       <button class="btn-round accent" data-action="add-event" data-d="${isoDay(new Date())}" aria-label="Add event">${icon('plus')}</button>
     </div>
-    ${v === 'month' ? monthView() : weekView()}
+    <div class="cal-body">${v === 'month' ? monthView() : weekView()}</div>
   </div>`;
 };
 
@@ -563,7 +578,17 @@ views.settings = () => {
 };
 
 let wkScroll = null;
-function renderView() {
+// Replays a CSS entrance animation on an element.
+function animate(el, cls) {
+  if (!el) return;
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+  // Drop the class once it has played, so later re-renders don't replay it.
+  clearTimeout(el.animTimer);
+  el.animTimer = setTimeout(() => el.classList.remove(cls), 700);
+}
+function renderView(anim) {
   const r = currentRoute();
   const view = $('#view');
   const y = window.scrollY;
@@ -573,26 +598,47 @@ function renderView() {
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
   window.scrollTo(0, y);
+  if (anim === 'fwd' || anim === 'back') animate(view, `enter-${anim}`);
+  else if (anim === 'cal') animate($('.cal-body'), 'fade-in');
 }
 
+let lastRoute = null;
 function render() {
+  const r = currentRoute();
+  const order = (id) => PAGES.findIndex((p) => p.id === id);
+  const anim = lastRoute && lastRoute !== r ? (order(r) > order(lastRoute) ? 'fwd' : 'back') : null;
+  lastRoute = r;
   renderNav();
-  renderView();
+  renderView(anim);
 }
 
 /* =========================================================
    Sheets (modal dialogs)
    ========================================================= */
+let sheetTimer = null;
 function openSheet(html) {
+  clearTimeout(sheetTimer);
+  $('#sheet').classList.remove('closing');
+  $('#sheet-backdrop').classList.remove('closing');
   $('#sheet').innerHTML = html;
   $('#sheet').hidden = false;
   $('#sheet-backdrop').hidden = false;
   const first = $('#sheet').querySelector('input, textarea');
   if (first) setTimeout(() => first.focus(), 50);
 }
+// Plays the closing animation, then hides the sheet.
 function closeSheet() {
-  $('#sheet').hidden = true;
-  $('#sheet-backdrop').hidden = true;
+  if ($('#sheet').hidden) return;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  $('#sheet').classList.add('closing');
+  $('#sheet-backdrop').classList.add('closing');
+  clearTimeout(sheetTimer);
+  sheetTimer = setTimeout(() => {
+    $('#sheet').hidden = true;
+    $('#sheet-backdrop').hidden = true;
+    $('#sheet').classList.remove('closing');
+    $('#sheet-backdrop').classList.remove('closing');
+  }, reduced ? 0 : 160);
 }
 const sheetHead = (title, ic) => `<h3>${icon(ic)}${title}<button class="btn-round close" data-action="close-sheet" aria-label="Close">${icon('x')}</button></h3>`;
 
@@ -746,7 +792,7 @@ document.addEventListener('click', (e) => {
   if (!fn) return;
   fn(el, e);
   save();
-  if (!NO_RERENDER.has(name)) renderView();
+  if (!NO_RERENDER.has(name)) renderView(['cal-move', 'cal-today', 'cal-view'].includes(name) ? 'cal' : undefined);
 });
 
 $('#sheet-backdrop').addEventListener('click', closeSheet);

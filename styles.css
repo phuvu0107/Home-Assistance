@@ -172,8 +172,15 @@ a { color: inherit; text-decoration: none; }
   display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-radius: 999px;
   color: var(--text-2); font-weight: 500; white-space: nowrap; flex: 1; justify-content: center;
 }
+.tabs { position: relative; }
+.tab { position: relative; z-index: 1; transition: color .25s, transform .15s; }
 .tab .ico { font-size: 19px; }
-.tab.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tab.active { color: var(--accent); font-weight: 600; }
+.tab-ink {
+  position: absolute; top: 6px; bottom: 6px; left: 6px; width: 0; border-radius: 999px;
+  background: var(--accent-soft); pointer-events: none;
+}
+.tabs.ink-ready .tab-ink { transition: transform .42s cubic-bezier(.3, 1.3, .5, 1), width .42s cubic-bezier(.3, 1.3, .5, 1); }
 
 /* ---------- Cards ---------- */
 .c-amber  { background: var(--amber-bg);  border-color: color-mix(in srgb, var(--amber-fg) 14%, transparent); }
@@ -392,6 +399,45 @@ a { color: inherit; text-decoration: none; }
 .setting-row b { display: block; font-weight: 500; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .chip { border: 1px solid var(--card-border); background: var(--card); border-radius: 999px; padding: 8px 14px; font-size: 14px; }
+
+/* ---------- Motion ---------- */
+/* Pages slide in from the side of the tab you came from; cards follow a beat behind. */
+@keyframes page-fwd { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes page-back { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes pop-in { from { opacity: 0; transform: translate(-50%, -46%) scale(.94); } to { opacity: 1; transform: translate(-50%, -50%); } }
+@keyframes pop-out { to { opacity: 0; transform: translate(-50%, -48%) scale(.96); } }
+@keyframes backdrop-in { from { opacity: 0; } }
+@keyframes backdrop-out { to { opacity: 0; } }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 16px); } }
+.toast:not([hidden]) { animation: toast-in .3s cubic-bezier(.2, .9, .3, 1.2); }
+.view.enter-fwd { animation: page-fwd .38s cubic-bezier(.22, .8, .3, 1); }
+.view.enter-back { animation: page-back .38s cubic-bezier(.22, .8, .3, 1); }
+.view.enter-fwd .card, .view.enter-back .card, .view.enter-fwd .board > *, .view.enter-back .board > * { animation: rise .45s cubic-bezier(.22, .8, .3, 1) both; }
+.view .card:nth-child(2), .view .board > :nth-child(2) { animation-delay: .05s; }
+.view .card:nth-child(3) { animation-delay: .1s; }
+.view .card:nth-child(4) { animation-delay: .15s; }
+.cal-body.fade-in { animation: fade-in .3s ease-out; }
+.sheet:not([hidden]) { animation: pop-in .26s cubic-bezier(.2, .9, .3, 1.15); }
+.sheet.closing { animation: pop-out .16s ease-in forwards; }
+.sheet-backdrop:not([hidden]) { animation: backdrop-in .22s ease-out; }
+.sheet-backdrop.closing { animation: backdrop-out .16s ease-in forwards; }
+
+/* Everything tappable gives a little squish under the finger. */
+.btn, .btn-round, .tab, .row, .task, .ev-chip, .wk-ev, .cal .day, .who-opt, .seg button, .check, .add-task, .switch, .av-pair {
+  transition: transform .15s ease, background-color .2s, color .2s, box-shadow .2s;
+}
+.btn:active, .btn-round:active, .tab:active, .row:active, .ev-chip:active, .wk-ev:active, .who-opt:active, .seg button:active, .add-task:active, .av-pair:active { transform: scale(.96); }
+.task:active, .cal .day:active { transform: scale(.985); }
+.check:active { transform: scale(.88); }
+.seg button.on { transition: background-color .25s, box-shadow .25s, color .2s, transform .15s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .view.enter-fwd, .view.enter-back, .view .card, .view .board > *, .cal-body.fade-in,
+  .sheet:not([hidden]), .sheet.closing, .sheet-backdrop:not([hidden]), .sheet-backdrop.closing, .toast:not([hidden]) { animation: none !important; }
+  .tabs.ink-ready .tab-ink { transition: none; }
+}
 
 /* Sheet & toast */
 .sheet-backdrop { position: fixed; inset: 0; background: rgba(15, 18, 28, .35); z-index: 40; }
