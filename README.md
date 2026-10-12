@@ -18,14 +18,14 @@ A greeting for Phu and Nhi by time of day, live weather (now, the next hours and
 | ![Home by day](docs/screenshots/home.png) | ![Home at night](docs/screenshots/home-night.png) |
 
 ### Calendar
-Week view (a time grid) and Month view, switched with a toggle. Each event shows who it's for, its start time and its title. The + button adds an event, tapping an event edits or deletes it, and tapping an empty slot in Week view adds one at that hour.
+Week view (a time grid) and Month view, switched with a toggle. Each event shows who it's for, its start time and its title. The + button adds an event, tapping an event edits or deletes it, and tapping an empty slot in Week view adds one at that hour. Turn on **Important** in an event's sheet to give it a red Important tag everywhere it shows up.
 
 | Week | Month |
 | --- | --- |
 | ![Calendar week view](docs/screenshots/calendar-week.png) | ![Calendar month view](docs/screenshots/calendar-month.png) |
 
 ### Tasks
-A column each for Phu and Nhi with done counts and stars. Tasks repeat daily, weekly or once, and daily and weekly tasks reset on their own. Tap a task to edit who it's for, how often it repeats and how many stars it's worth.
+A column each for Phu and Nhi with done counts and stars. Tasks repeat daily, weekly or once, and daily and weekly tasks reset on their own. Tap a task to edit who it's for, how often it repeats and how many stars it's worth. Tasks can be marked **Important** too, which turns them red with the same tag.
 
 | Board | Editing a task |
 | --- | --- |

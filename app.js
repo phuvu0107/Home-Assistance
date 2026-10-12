@@ -543,16 +543,22 @@ function dayLabel(iso) {
 const timeLabel = (e) => (e.time ? fmtTime(new Date(`${e.date}T${e.time}`)) : 'All day');
 
 // Compact event used in the calendar grids: avatar, start time, title.
+// Items marked important get a red "Important" tag and red styling everywhere they show.
+const impTag = (item) => (item.important ? '<span class="imp-tag">Important</span>' : '');
+const impRow = (on) => `<div class="setting-row imp-row"><div><b>Important</b><div class="hint">Shows an Important tag and turns it red.</div></div>
+  <button class="switch imp-switch" id="imp-switch" role="switch" aria-checked="${!!on}" data-action="toggle-important"></button></div>`;
+const pickedImportant = () => $('#imp-switch')?.getAttribute('aria-checked') === 'true';
+
 function eventChip(e) {
-  return `<button class="ev-chip" data-action="edit-event" data-id="${e.id}">
-    ${avatar(e.who, 'xs')}<b>${e.time ? timeLabel(e) : ''}</b><span>${esc(e.title)}</span></button>`;
+  return `<button class="ev-chip${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}">
+    ${avatar(e.who, 'xs')}<b>${e.time ? timeLabel(e) : ''}</b>${impTag(e)}<span>${esc(e.title)}</span></button>`;
 }
 
 function eventRow(e, withDate = false) {
   const when = [withDate ? dayLabel(e.date) : '', timeLabel(e)].filter(Boolean).join(' · ');
-  return `<button class="row" data-action="edit-event" data-id="${e.id}">
+  return `<button class="row${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}">
     ${avatar(e.who, 'md') || `<span class="ibox c-purple-ico">${icon('calendar')}</span>`}
-    <span><b>${esc(e.title)}</b><small>${when}</small></span>${icon('chevron', 'chev')}</button>`;
+    <span><b>${esc(e.title)}${impTag(e)}</b><small>${when}</small></span>${icon('chevron', 'chev')}</button>`;
 }
 
 function weekStrip() {
@@ -578,9 +584,9 @@ const tasksFor = (id) => state.tasks.filter((t) => t.who === id);
 
 function taskCard(t, u) {
   const done = isDone(t);
-  return `<div class="task ${done ? `done c-${u.color}` : ''}">
+  return `<div class="task ${done ? `done c-${u.color}` : ''}${t.important ? ' imp' : ''}">
     <button class="task-body" data-action="edit-task" data-id="${t.id}">
-      <b>${esc(t.title)}</b>
+      <b>${esc(t.title)}${impTag(t)}</b>
       <small>${REPEAT_LABEL[t.repeat]} <span class="stars">${icon('star')}${t.stars}</span></small>
     </button>
     <button class="check ${done ? 'on' : ''}" data-action="toggle-task" data-id="${t.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}" aria-pressed="${done}">${icon('check')}</button>
@@ -671,9 +677,9 @@ function weekView() {
         const to = Math.min(Math.max(end, DAY_START * 60), DAY_END * 60);
         const top = Math.min(((from - DAY_START * 60) / 60) * HOUR_PX, (DAY_END - DAY_START) * HOUR_PX - 26);
         const height = Math.max(26, ((to - from) / 60) * HOUR_PX - 3);
-        return `<button class="wk-ev ${e.who ? `c-${e.who === 'both' ? 'purple' : userOf(e.who).color}` : 'c-purple'}" data-action="edit-event" data-id="${e.id}"
+        return `<button class="wk-ev ${e.who ? `c-${e.who === 'both' ? 'purple' : userOf(e.who).color}` : 'c-purple'}${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}"
           style="top:${top}px;height:${height}px;left:calc(${(lane / lanes) * 100}% + 2px);width:calc(${100 / lanes}% - 4px)">
-          <span class="wk-ev-top">${avatar(e.who, 'xs')}<b>${timeLabel(e)}</b></span><span class="wk-ev-title">${esc(e.title)}</span></button>`;
+          <span class="wk-ev-top">${avatar(e.who, 'xs')}<b>${timeLabel(e)}</b>${impTag(e)}</span><span class="wk-ev-title">${esc(e.title)}</span></button>`;
       }).join('')}${nowLine}</div>`;
   }).join('');
   return `<div class="wk">
@@ -920,6 +926,7 @@ function openEventSheet(ev, date, time = '') {
       <div class="field"><label for="ev-end">Ends</label><input class="input" type="time" id="ev-end" value="${e.end || ''}"></div>
     </div>
     <p class="hint">Leave Starts empty for an all-day event.</p>
+    ${impRow(e.important)}
     <div class="sheet-actions">
       ${ev ? `<button class="btn danger" data-action="del-event" data-id="${e.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
@@ -939,6 +946,7 @@ function openTaskSheet(task, who = USERS[0].id) {
   openSheet(`${sheetHead(task ? 'Edit task' : 'New task', 'checkSquare')}
     <div class="field"><label for="task-title">Task</label><input class="input" id="task-title" value="${esc(t.title)}" placeholder="e.g. Take out trash"></div>
     <div class="field"><label>Assigned to</label>${whoPicker(t.who, false)}</div>
+    ${impRow(t.important)}
     <div class="field-row">
       <div class="field"><label>Repeats</label><div class="seg" id="task-repeat">${Object.entries(REPEAT_LABEL).map(([k, l]) => `<button class="${t.repeat === k ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${l}</button>`).join('')}</div></div>
       <div class="field"><label>Stars</label><div class="seg" id="task-stars">${[1, 3, 5, 10].map((n) => `<button class="${t.stars === n ? 'on' : ''}" data-action="pick-seg" data-v="${n}">${n}</button>`).join('')}</div></div>
@@ -958,6 +966,7 @@ const actions = {
   'pick-who': (el) => {
     el.parentElement.querySelectorAll('.who-opt').forEach((b) => b.classList.toggle('on', b === el));
   },
+  'toggle-important': (el) => el.setAttribute('aria-checked', String(el.getAttribute('aria-checked') !== 'true')),
   'pick-seg': (el) => {
     el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
   },
@@ -982,7 +991,7 @@ const actions = {
     const title = $('#ev-title').value.trim();
     const date = $('#ev-date').value;
     if (!title || !date) { toast('Add a title and a date'); return; }
-    const data = { title, date, time: $('#ev-time').value || '', end: $('#ev-end').value || '', who: pickedWho() };
+    const data = { title, date, time: $('#ev-time').value || '', end: $('#ev-end').value || '', who: pickedWho(), important: pickedImportant() };
     const existing = state.events.find((x) => x.id === el.dataset.id);
     if (existing) Object.assign(existing, data);
     else state.events.push({ id: `e${Date.now()}`, ...data });
@@ -1004,6 +1013,7 @@ const actions = {
       who: pickedWho() || USERS[0].id,
       repeat: $('#task-repeat .on')?.dataset.v || 'daily',
       stars: Number($('#task-stars .on')?.dataset.v || 5),
+      important: pickedImportant(),
     };
     const existing = state.tasks.find((x) => x.id === el.dataset.id);
     if (existing) Object.assign(existing, data);
@@ -1057,7 +1067,7 @@ const actions = {
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['pick-who', 'pick-seg', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search']);
+const NO_RERENDER = new Set(['pick-who', 'pick-seg', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
