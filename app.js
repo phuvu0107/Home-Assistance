@@ -127,11 +127,24 @@ function applyTheme() {
   $('meta[name="theme-color"]').content = dark ? '#12151c' : '#f6f3ee';
 }
 
+// A new greeting each day, the same on every screen.
+const GREETINGS = {
+  night: ['Still up', 'Hello, night owls', 'Sweet dreams soon', 'Bedtime yet', 'Midnight snack', 'Psst, go to sleep'],
+  morning: ['Good morning', 'Rise and shine', 'Coffee first', 'Up and at it', 'Morning, sleepyheads', 'Hello, sunshine', 'Wakey wakey', 'Top of the morning', 'Fresh day, who dis'],
+  afternoon: ['Good afternoon', 'Snack o\'clock', 'Halfway there', 'Keep it rolling', 'Nap time', 'Hey there, legends', 'Hang in there', 'Hello, busy bees'],
+  evening: ['Good evening', 'Dinner time', 'Couch time', 'You made it', 'Evening, chefs', 'Feet up', 'What\'s for dinner', 'Day done, well done'],
+};
+function greeting(now) {
+  const h = now.getHours();
+  const list = GREETINGS[h < 5 || h >= 22 ? 'night' : h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening'];
+  const day = Math.floor((now - new Date(now.getFullYear(), 0, 1)) / 864e5);
+  return list[day % list.length];
+}
+
 function tickClock() {
   const now = new Date();
   const h = now.getHours();
-  const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-  $('#greeting').textContent = `${greet}, ${USERS.map((u) => u.name).join(' and ')}`;
+  $('#greeting').textContent = `${greeting(now)}, ${USERS.map((u) => u.name).join(' and ')}`;
   $('#date').textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   $('#clock').textContent = fmtTime(now);
   updateSky(now.getTime());
