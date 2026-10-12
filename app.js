@@ -144,7 +144,12 @@ function greeting(now) {
 function tickClock() {
   const now = new Date();
   const h = now.getHours();
-  $('#greeting').textContent = `${greeting(now)}, ${USERS.map((u) => u.name).join(' and ')}`;
+  const line = greeting(now), names = USERS.map((u) => u.name).join(' and ');
+  const g = $('#greeting');
+  if (g.dataset.line !== line) {
+    g.dataset.line = line;
+    g.innerHTML = `<span class="punch">${line}</span><span class="names">${names}</span>`;
+  }
   $('#date').textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   $('#clock').textContent = fmtTime(now);
   updateSky(now.getTime());

@@ -144,7 +144,14 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
 .hero.night .hero-people { background: rgba(255, 255, 255, .14); }
 .hero-people .av { border-color: rgba(255, 255, 255, .9); }
 .hero-text { position: relative; }
-.hero-greet { font-size: 15px; font-weight: 500; opacity: .7; margin-bottom: 2px; }
+.hero-greet { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 10px; margin-bottom: 6px; }
+.hero-greet .punch { font-size: 30px; line-height: 1.15; font-weight: 800; letter-spacing: -.02em; background: linear-gradient(90deg, #e8590c, #d6336c); -webkit-background-clip: text; background-clip: text; color: transparent; animation: punch-in .6s cubic-bezier(.2, 1.4, .4, 1) both; }
+.hero-greet .names { font-size: 15px; font-weight: 600; opacity: .7; }
+.hero-greet .names::before { content: '— '; }
+[data-theme="dark"] .hero-greet .punch { background-image: linear-gradient(90deg, #ffb347, #ff6f91); }
+@keyframes punch-in { from { opacity: 0; transform: translateY(6px) scale(.96); } }
+@media (prefers-reduced-motion: reduce) { .hero-greet .punch { animation: none; } }
+@media (max-width: 600px) { .hero-greet .punch { font-size: 24px; } }
 .hero-clock { display: flex; align-items: center; gap: 12px; font-size: 44px; line-height: 1.1; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .hero-tod { display: none; } /* the sun or moon in the sky already says it */
 .hero-date { font-size: 20px; font-weight: 600; margin-top: 2px; }
