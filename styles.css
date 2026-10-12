@@ -600,3 +600,12 @@ label.btn { cursor: pointer; }
 .task.imp { border-color: color-mix(in srgb, var(--imp) 45%, transparent); box-shadow: inset 4px 0 0 var(--imp); }
 .imp-switch[aria-checked="true"] { background: var(--imp); border-color: var(--imp); }
 .imp-row { margin: 4px 0 14px; padding: 0; border: 0; }
+
+/* ---------- Health ---------- */
+.bar-steps { fill: var(--green-fg); }
+.bar-deep { fill: var(--purple-fg); } .bar-rem { fill: var(--blue-fg); } .bar-light { fill: var(--blue-icon); }
+.key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin: 0 4px 0 6px; vertical-align: -1px; }
+.key.bar-deep { background: var(--purple-fg); } .key.bar-rem { background: var(--blue-fg); } .key.bar-light { background: var(--blue-icon); }
+.health-charts { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-bottom: 16px; }
+.tile small .ico { font-size: 15px; margin-right: 6px; }
+.card .sync-line + .sync-line { margin-top: -8px; }
