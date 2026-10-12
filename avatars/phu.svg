@@ -21,11 +21,13 @@
   <ellipse cx="155" cy="112" rx="5" ry="7" fill="#cf9168"/>
   <!-- big round head -->
   <path d="M46 102 C46 62 70 40 100 40 C130 40 154 62 154 102 C154 140 130 166 100 166 C70 166 46 140 46 102Z" fill="url(#ps)"/>
-  <!-- fluffy swept hair with a soft fringe -->
-  <path d="M42 108 C34 66 56 28 98 24 C140 20 164 50 158 96 C156 104 154 110 152 114 C150 96 146 84 140 76 C128 82 112 82 100 76 C92 86 76 92 62 90 C56 96 50 102 46 112Z" fill="url(#ph)"/>
-  <path d="M58 88 C66 60 94 46 124 52 C108 58 98 68 94 80 C84 76 70 80 58 88Z" fill="#33323c"/>
-  <path d="M100 34 C118 30 138 38 148 54" stroke="#5c5a68" stroke-width="3.5" fill="none" stroke-linecap="round" opacity=".7"/>
-  <path d="M70 48 C80 40 92 36 102 36" stroke="#5c5a68" stroke-width="3" fill="none" stroke-linecap="round" opacity=".55"/>
+  <!-- side-part hair: parted on his right, volume swept across to his left -->
+  <path d="M42 110 C36 70 52 36 84 28 C120 18 160 36 160 86 C160 98 157 108 153 116 C150 96 146 82 136 74 C118 66 94 68 78 72 C70 74 62 80 56 88 C52 94 48 102 46 112Z" fill="url(#ph)"/>
+  <path d="M46 108 C44 88 50 74 62 68 C60 78 58 88 56 96 C52 100 49 104 46 108Z" fill="#141319"/>
+  <path d="M64 72 C80 50 112 40 140 52 C152 58 158 70 158 84 C150 70 136 62 118 62 C100 62 82 66 64 72Z" fill="#33323c"/>
+  <path d="M66 70 C66 56 70 44 78 34" stroke="#0a090c" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M88 44 C108 36 134 40 150 58" stroke="#5c5a68" stroke-width="3.5" fill="none" stroke-linecap="round" opacity=".75"/>
+  <path d="M92 54 C110 48 130 50 144 62" stroke="#5c5a68" stroke-width="2.5" fill="none" stroke-linecap="round" opacity=".5"/>
   <!-- soft brows -->
   <path d="M64 94 C70 89 80 89 86 92" stroke="#1d1715" stroke-width="4.5" fill="none" stroke-linecap="round"/>
   <path d="M114 92 C120 89 130 89 136 94" stroke="#1d1715" stroke-width="4.5" fill="none" stroke-linecap="round"/>
