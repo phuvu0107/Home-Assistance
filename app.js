@@ -334,6 +334,8 @@ async function syncEnergy() {
     const data = await decryptEnergy(box, energyPass);
     energy = energy || { electric: {}, gas: {} };
     for (const k of ['electric', 'gas']) energy[k] = { ...(energy[k] || {}), ...(data[k] || {}) };
+    energy.bills = { ...(energy.bills || {}), ...(data.bills || {}) };
+    if (data.forecast) energy.forecast = data.forecast;
     energy.syncedAt = data.syncedAt;
     saveEnergy();
     energySync = { state: Date.now() - data.syncedAt > 36 * 36e5 ? 'stale' : 'ok', at: data.syncedAt };
@@ -370,10 +372,58 @@ function syncBanner(always = false, link = true) {
 }
 
 // Daily or monthly rows for a range, newest last. Each row: { key, label, kwh, therms, eCost, gCost, cost }
+/* PG&E bills every 29 or 30 days, so "this bill" follows the billing cycle, not the calendar month.
+   Cycle start dates come from past bills and the current bill's forecast in the synced file. */
+const dayAt = (iso) => new Date(`${iso}T12:00`);
+const daysIncl = (a, b) => Math.round((dayAt(b) - dayAt(a)) / 864e5) + 1;
+function cycleStarts() {
+  const s = new Set(Object.keys(energy?.bills || {}));
+  if (energy?.forecast?.start) s.add(energy.forecast.start);
+  return [...s].sort();
+}
+// The billing cycle that contains `iso` (today by default), or null before any cycle dates have synced.
+function cycleFor(iso = isoDay(new Date())) {
+  const starts = cycleStarts();
+  const i = starts.filter((d) => d <= iso).length - 1;
+  if (i < 0) return null;
+  let start = starts[i];
+  if (starts[i + 1]) return { start, end: isoDay(addDays(dayAt(starts[i + 1]), -1)), known: true };
+  const f = energy.forecast;
+  let end = f?.start === start && f.end ? f.end : isoDay(addDays(dayAt(start), 29));
+  if (daysIncl(start, end) > 31) end = isoDay(addDays(dayAt(end), -1));
+  let known = f?.start === start;
+  // The bill closed but the next one hasn't synced yet: assume a 30-day cycle follows.
+  while (end < iso) { start = isoDay(addDays(dayAt(end), 1)); end = isoDay(addDays(dayAt(start), 29)); known = false; }
+  return { start, end, known };
+}
+function previousCycle(c) {
+  const before = isoDay(addDays(dayAt(c.start), -1));
+  const p = cycleFor(before);
+  return p && p.start < c.start ? { ...p, end: before } : { start: isoDay(addDays(dayAt(before), -29)), end: before, known: false };
+}
+const cycleRange = (c) => `${fmtShort(c.start)} – ${fmtShort(c.end)}`;
+// PG&E's projection for the current bill, when the forecast matches this cycle.
+function billForecast(c) {
+  const f = energy?.forecast;
+  if (!f || !c || f.start !== c.start) return null;
+  const sum = (i) => (f.electric?.[i] || 0) + (f.gas?.[i] || 0);
+  return { toDate: sum(0), projected: sum(1), typical: sum(2) };
+}
+const billed = (start) => { const b = energy?.bills?.[start]; return b ? (b.electric?.[1] || 0) + (b.gas?.[1] || 0) : null; };
+
 function energyRows(range) {
   const all = energyDays();
   if (!all.length) return [];
   const last = new Date(`${all[all.length - 1]}T12:00`);
+  if (range === 'cycle' || range === 'last') {
+    let c = cycleFor();
+    if (!c) return energyRows('30');
+    if (range === 'last') c = previousCycle(c);
+    return Array.from({ length: daysIncl(c.start, c.end) }, (_, i) => {
+      const key = isoDay(addDays(dayAt(c.start), i));
+      return { key, label: fmtShort(key), days: all.includes(key) ? 1 : 0, ...dayTotal(key) };
+    });
+  }
   if (range === '12m') {
     return Array.from({ length: 12 }, (_, i) => {
       const m = new Date(last.getFullYear(), last.getMonth() - 11 + i, 1);
@@ -420,19 +470,29 @@ function energyCard() {
   const head = `<div class="card-head">${icon('zap')}<h2>Energy</h2>${all.length ? `<a class="link" href="#/energy">Details ${icon('arrowRight')}</a>` : ''}</div>`;
   if (!all.length) return `<div class="card a-energy">${head}${syncBanner()}</div>`;
   const last = all[all.length - 1];
-  const rows = energyRows('30');
-  const now = energyTotals(rows);
-  const prev = sumDays(energyRows('60').slice(0, 30).filter((r) => r.days).map((r) => r.key));
-  const month = sumDays(all.filter((d) => d.slice(0, 7) === last.slice(0, 7)));
-  const hasCost = now.cost > 0;
-  const change = prev.cost > 0 && energyRows('60').slice(0, 30).filter((r) => r.days).length >= 25 ? Math.round(((now.cost - prev.cost) / prev.cost) * 100) : null;
+  const c = cycleFor();
+  const fmt = (t) => (t.cost > 0 ? fmtMoney(t.cost) : `${Math.round(t.kwh)} kWh`);
+  let stats; let rows;
+  if (c) {
+    rows = energyRows('cycle');
+    const now = energyTotals(rows);
+    const fc = billForecast(c);
+    const prev = previousCycle(c);
+    const prevT = energyTotals(energyRows('last'));
+    const dayN = Math.min(daysIncl(c.start, isoDay(new Date())), daysIncl(c.start, c.end));
+    stats = `<div><small>This bill so far</small><b>${fmt(now)}</b><span class="stat-note">Day ${dayN} of ${daysIncl(c.start, c.end)} · since ${fmtShort(c.start)}</span></div>
+      ${fc && fc.projected ? `<div><small>Projected bill</small><b>${fmtMoney(fc.projected)}</b><span class="stat-note">PG&amp;E's estimate</span></div>`
+        : `<div><small>Last bill</small><b>${fmt(billed(prev.start) !== null ? { cost: billed(prev.start) } : prevT)}</b><span class="stat-note">${cycleRange(prev)}</span></div>`}`;
+  } else {
+    rows = energyRows('30');
+    const now = energyTotals(rows);
+    const month = sumDays(all.filter((d) => d.slice(0, 7) === last.slice(0, 7)));
+    stats = `<div><small>${new Date(`${last}T12:00`).toLocaleDateString([], { month: 'long' })} so far</small><b>${fmt(month)}</b></div>
+      <div><small>Last 30 days</small><b>${fmt(now)}</b></div>`;
+  }
   return `<div class="card a-energy">${head}
     <div class="energy">
-      <div class="energy-stats">
-        <div><small>${new Date(`${last}T12:00`).toLocaleDateString([], { month: 'long' })} so far</small><b>${hasCost ? fmtMoney(month.cost) : `${Math.round(month.kwh)} kWh`}</b></div>
-        <div><small>Last 30 days</small><b>${hasCost ? fmtMoney(now.cost) : `${Math.round(now.kwh)} kWh`}</b>
-          ${change === null ? '' : change === 0 ? '<span class="trend">Same as the 30 days before</span>' : `<span class="trend ${change > 0 ? 'up' : 'down'}">${icon(change > 0 ? 'arrowUp' : 'arrowDown')}${Math.abs(change)}% vs the 30 days before</span>`}</div>
-      </div>
+      <div class="energy-stats">${stats}</div>
       ${energyChart(rows)}
     </div>
     <p class="hint energy-foot">PG&amp;E data through ${fmtShort(last)}</p>
@@ -1009,39 +1069,91 @@ function openExpenseSheet(ex) {
 }
 
 /* ---------- Energy ---------- */
-const ENERGY_RANGES = { 30: '30 days', 90: '90 days', '12m': '12 months' };
+const ENERGY_RANGES = [['cycle', 'This bill'], ['last', 'Last bill'], ['90', '90 days'], ['12m', '12 months']];
 views.energy = () => {
-  const range = state.settings.energyRange || '30';
+  const range = ENERGY_RANGES.some(([k]) => k === state.settings.energyRange) ? state.settings.energyRange : 'cycle';
   const all = energyDays();
   if (!all.length) {
     return `<div class="section-title">Energy</div>
     <div class="card energy-empty">${syncBanner()}
-      <p class="hint">Once PG&amp;E data comes in, this page shows your daily and monthly use and cost, split into electric and gas.</p></div>`;
+      <p class="hint">Once PG&amp;E data comes in, this page shows your use and cost for the current bill, past bills and the last year, split into electric and gas.</p></div>`;
   }
+  const today = isoDay(new Date());
+  const cur = cycleFor();
+  const isBill = range === 'cycle' || range === 'last';
+  const c = isBill && cur ? (range === 'last' ? previousCycle(cur) : cur) : null;
   const rows = energyRows(range);
   const t = energyTotals(rows);
-  const months = energyRows('12m').filter((r) => r.days).reverse();
   const perDay = t.days ? t.cost / t.days : 0;
-  return `<div class="section-title">Energy<span class="spacer"></span>
-    <div class="seg">${Object.entries(ENERGY_RANGES).map(([k, l]) => `<button class="${range === k ? 'on' : ''}" data-action="energy-range" data-v="${k}">${l}</button>`).join('')}</div></div>
-  ${syncBanner(true)}
-  <div class="energy-tiles">
-    <div class="card tile"><small>Total cost</small><b>${fmtMoney(t.cost)}</b><span>${t.days} day${t.days === 1 ? '' : 's'} of data</span></div>
-    <div class="card tile"><small><i class="key-e"></i>Electric</small><b>${fmtMoney(t.eCost)}</b><span>${Math.round(t.kwh).toLocaleString()} kWh</span></div>
-    <div class="card tile"><small><i class="key-g"></i>Gas</small><b>${fmtMoney(t.gCost)}</b><span>${Math.round(t.therms).toLocaleString()} therms</span></div>
-    <div class="card tile"><small>Average per day</small><b>${fmtMoney(perDay)}</b><span>${t.days ? (t.kwh / t.days).toFixed(1) : 0} kWh a day</span></div>
-  </div>
-  <div class="card energy-main">${energyChart(rows, 220)}</div>
-  <div class="card">
-    <div class="card-head">${icon('calendar')}<h2>By month</h2><span class="hint">PG&amp;E data through ${fmtShort(all[all.length - 1])}</span></div>
+  const fc = range === 'cycle' ? billForecast(c) : null;
+  const bill = c && range === 'last' ? billed(c.start) : null;
+  let note = '';
+  if (isBill && !c) note = `<p class="hint cycle-note">Billing cycle dates come with the next morning's PG&amp;E sync. Until then this shows the last 30 days.</p>`;
+  else if (range === 'cycle') {
+    const dayN = Math.min(daysIncl(c.start, today), daysIncl(c.start, c.end));
+    const left = daysIncl(today, c.end) - 1;
+    note = `<div class="card cycle-bar"><div><small>Current bill</small><b>${cycleRange(c)}</b></div>
+      <div><small>Day</small><b>${dayN} of ${daysIncl(c.start, c.end)}</b></div>
+      <div><small>Days left</small><b>${Math.max(left, 0)}</b></div>
+      <div class="cycle-progress"><span style="width:${Math.round((dayN / daysIncl(c.start, c.end)) * 100)}%"></span></div>
+      <p class="hint">${c.known ? '' : 'Bill dates are estimated until PG&amp;E sends this cycle. '}PG&amp;E data through ${fmtShort(all[all.length - 1])}; the latest day or two can lag.</p></div>`;
+  } else if (range === 'last') {
+    note = `<p class="hint cycle-note">Last bill: ${cycleRange(c)} (${daysIncl(c.start, c.end)} days)${c.known ? '' : ', estimated dates'}.</p>`;
+  }
+  const lastTile = fc && fc.projected
+    ? `<div class="card tile"><small>Projected bill</small><b>${fmtMoney(fc.projected)}</b><span>PG&amp;E's estimate${fc.typical ? ` · usually ${fmtMoney(fc.typical)}` : ''}</span></div>`
+    : bill !== null
+      ? `<div class="card tile"><small>Billed</small><b>${fmtMoney(bill)}</b><span>${fmtMoney(perDay)} a day on average</span></div>`
+      : `<div class="card tile"><small>Average per day</small><b>${fmtMoney(perDay)}</b><span>${t.days ? (t.kwh / t.days).toFixed(1) : 0} kWh a day</span></div>`;
+
+  // Past bills when cycle dates are known, calendar months otherwise.
+  const starts = cycleStarts();
+  let table;
+  if (cur && starts.length >= 2) {
+    const cycles = [];
+    for (let x = cur, i = 0; x && i < 13; i++) {
+      cycles.push(x);
+      const p = previousCycle(x);
+      if (!p.known) break; // only bills PG&E has actually sent
+      x = p;
+    }
+    table = `<div class="card-head">${icon('calendar')}<h2>By bill</h2><span class="hint">Each PG&amp;E billing cycle, newest first</span></div>
+    <div class="table-wrap"><table class="energy-table">
+      <thead><tr><th>Bill</th><th>Electric</th><th>Gas</th><th>Total</th></tr></thead>
+      <tbody>${cycles.map((x) => {
+        const m = energyTotals(all.filter((d) => d >= x.start && d <= x.end).map((d) => ({ days: 1, ...dayTotal(d) })));
+        const b = billed(x.start);
+        const isCur = x.start === cur.start;
+        return `<tr><td>${cycleRange(x)} <span class="muted">(${daysIncl(x.start, x.end)} days${isCur ? ', so far' : ''})</span></td>
+          <td>${fmtMoney(m.eCost)} <span class="muted">${Math.round(m.kwh)} kWh</span></td>
+          <td>${fmtMoney(m.gCost)} <span class="muted">${Math.round(m.therms)} therms</span></td>
+          <td><b>${fmtMoney(m.cost)}</b>${b !== null && !isCur ? ` <span class="muted">billed ${fmtMoney(b)}</span>` : ''}</td></tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+  } else {
+    const months = energyRows('12m').filter((r) => r.days).reverse();
+    table = `<div class="card-head">${icon('calendar')}<h2>By month</h2><span class="hint">PG&amp;E data through ${fmtShort(all[all.length - 1])}</span></div>
     <div class="table-wrap"><table class="energy-table">
       <thead><tr><th>Month</th><th>Electric</th><th>Gas</th><th>Total</th></tr></thead>
       <tbody>${months.map((m) => `<tr><td>${new Date(`${m.key}-15T12:00`).toLocaleDateString([], { month: 'long', year: 'numeric' })}${m.days < 28 ? ` <span class="muted">(${m.days} days)</span>` : ''}</td>
         <td>${fmtMoney(m.eCost)} <span class="muted">${Math.round(m.kwh)} kWh</span></td>
         <td>${fmtMoney(m.gCost)} <span class="muted">${Math.round(m.therms)} therms</span></td>
         <td><b>${fmtMoney(m.cost)}</b></td></tr>`).join('')}</tbody>
-    </table></div>
-  </div>`;
+    </table></div>`;
+  }
+
+  return `<div class="section-title">Energy<span class="spacer"></span>
+    <div class="seg">${ENERGY_RANGES.map(([k, l]) => `<button class="${range === k ? 'on' : ''}" data-action="energy-range" data-v="${k}">${l}</button>`).join('')}</div></div>
+  ${syncBanner(true)}
+  ${note}
+  <div class="energy-tiles">
+    <div class="card tile"><small>${range === 'cycle' && c ? 'So far this bill' : 'Total cost'}</small><b>${fmtMoney(t.cost)}</b><span>${t.days} day${t.days === 1 ? '' : 's'} of data</span></div>
+    <div class="card tile"><small><i class="key-e"></i>Electric</small><b>${fmtMoney(t.eCost)}</b><span>${Math.round(t.kwh).toLocaleString()} kWh</span></div>
+    <div class="card tile"><small><i class="key-g"></i>Gas</small><b>${fmtMoney(t.gCost)}</b><span>${Math.round(t.therms).toLocaleString()} therms</span></div>
+    ${lastTile}
+  </div>
+  <div class="card energy-main">${energyChart(rows, 220)}</div>
+  <div class="card">${table}</div>`;
 };
 
 views.settings = () => {

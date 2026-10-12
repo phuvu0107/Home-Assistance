@@ -495,6 +495,23 @@ label.btn { cursor: pointer; }
 }
 .demo-note { font-size: 12px; color: var(--text-3); text-align: center; margin-top: 18px; }
 
+/* Current PG&E bill: dates, day count and a progress bar through the cycle */
+.cycle-bar { display: grid; grid-template-columns: auto auto auto 1fr; align-items: end; gap: 10px 32px; margin-bottom: 16px; }
+.cycle-bar small { display: block; font-size: 13px; color: var(--text-3); }
+.cycle-bar b { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cycle-progress { align-self: center; height: 10px; border-radius: 999px; background: var(--muted-surface); overflow: hidden; }
+.cycle-progress span { display: block; height: 100%; border-radius: inherit; background: var(--amber-fg); }
+.cycle-bar .hint { grid-column: 1 / -1; margin: 0; }
+.cycle-note { margin: 0 0 16px; }
+.energy-stats .stat-note { display: block; font-size: 13px; color: var(--text-2); margin-top: 2px; }
+@media (max-width: 600px) {
+  .cycle-bar { grid-template-columns: repeat(3, auto); gap: 10px 20px; }
+  .cycle-progress { grid-column: 1 / -1; }
+  .section-title { flex-wrap: wrap; }
+  .section-title .seg { order: 3; width: 100%; }
+  .section-title .seg button { flex: 1; padding: 8px 4px; white-space: nowrap; }
+}
+
 /* ---------- Piggy Bank ---------- */
 .piggy-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 18px; margin-bottom: 16px; }
 .piggy-month { display: flex; flex-direction: column; margin-left: 6px; }

@@ -37,7 +37,7 @@ Shared expenses, one month at a time (the 1st through the last day). Log the day
 ![Piggy Bank page](docs/screenshots/piggy.png)
 
 ### Energy
-PG&E use and cost over 30 days, 90 days or 12 months, split into electric and gas, with a month-by-month table. Data syncs every morning (see [PG&E energy sync](#pge-energy-sync)), and the page says plainly when it isn't syncing.
+PG&E use and cost for the current bill, from the day the billing cycle started through today, with the day count, days left and PG&E's projected bill. Cycles run 29 or 30 days, so the dates come from PG&E's own bills rather than the calendar month. You can also see the last bill, 90 days or 12 months, split into electric and gas, plus a table of past bills. Data syncs every morning (see [PG&E energy sync](#pge-energy-sync)), and the page says plainly when it isn't syncing.
 
 ![Energy page](docs/screenshots/energy.png)
 

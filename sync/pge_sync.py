@@ -41,9 +41,32 @@ def previous(passphrase: str) -> tuple[dict, bytes | None]:
         return {"electric": {}, "gas": {}}, None
 
 
+async def billing(api: Opower, account, kind: str, out: dict) -> None:
+    """Past bills (start date, usage, billed cost), so the dashboard can follow PG&E's billing cycles."""
+    try:
+        start = datetime.now() - timedelta(days=400)
+        for read in await api.async_get_cost_reads(account, AggregateType.BILL, start, datetime.now()):
+            day = read.start_time.strftime("%Y-%m-%d")
+            bill = out["bills"].setdefault(day, {})
+            bill[kind] = [round(read.consumption, 3), round(read.provided_cost, 2)]
+    except Exception as err:  # bills are a nice-to-have; daily data still syncs
+        print(f"No {kind} bills ({err})")
+
+
+async def forecast(api: Opower, out: dict) -> None:
+    """The current bill: when it started, when it ends, and PG&E's projected cost."""
+    try:
+        for f in await api.async_get_forecast():
+            kind = "gas" if f.account.meter_type == MeterType.GAS else "electric"
+            out["forecast"] = {**out.get("forecast", {}), "start": f.start_date.isoformat(), "end": f.end_date.isoformat(),
+                               kind: [round(f.cost_to_date, 2), round(f.forecasted_cost, 2), round(f.typical_cost, 2)]}
+    except Exception as err:
+        print(f"No bill forecast ({err})")
+
+
 async def fetch() -> dict:
     login_data = json.loads(os.environ.get("PGE_LOGIN_DATA") or "{}")
-    out = {"electric": {}, "gas": {}}
+    out = {"electric": {}, "gas": {}, "bills": {}}
     async with aiohttp.ClientSession(cookie_jar=create_cookie_jar()) as session:
         api = Opower(session, "pge", os.environ["PGE_USERNAME"], os.environ["PGE_PASSWORD"], None, login_data)
         try:
@@ -61,6 +84,8 @@ async def fetch() -> dict:
                 cur = out[kind].setdefault(day, [0, 0])
                 cur[0] = round(cur[0] + read.consumption, 3)
                 cur[1] = round(cur[1] + read.provided_cost, 2)
+            await billing(api, account, kind, out)
+        await forecast(api, out)
     return out
 
 
@@ -75,10 +100,16 @@ def main() -> None:
     fresh = asyncio.run(fetch())
     for kind in ("electric", "gas"):
         data.setdefault(kind, {}).update(fresh[kind])
+    for start, bill in fresh["bills"].items():
+        data.setdefault("bills", {}).setdefault(start, {}).update(bill)
+    if fresh.get("forecast"):
+        data["forecast"] = fresh["forecast"]
     data["syncedAt"] = int(datetime.now().timestamp() * 1000)
     with open(target, "w") as f:
         json.dump(encrypt(data, passphrase), f)
-    print(f"Fetched {len(fresh['electric'])} electric and {len(fresh['gas'])} gas days from PG&E")
+    print(f"Fetched {len(fresh['electric'])} electric and {len(fresh['gas'])} gas days and {len(fresh['bills'])} bills from PG&E")
+    if fresh.get("forecast"):
+        print(f"Current bill: {fresh['forecast']['start']} to {fresh['forecast']['end']}")
 
 
 if __name__ == "__main__":
