@@ -666,8 +666,11 @@ function weekView() {
       ? `<div class="now-line" style="top:${((nowMin - DAY_START * 60) / 60) * HOUR_PX}px"></div>` : '';
     return `<div class="wk-col" data-action="add-event-at" data-d="${iso}">
       ${timed.map(({ e, start, end, lane, lanes }) => {
-        const top = Math.max(0, ((start - DAY_START * 60) / 60) * HOUR_PX);
-        const height = Math.max(26, ((end - start) / 60) * HOUR_PX - 3);
+        // Clip to the visible hours, so an event starting before 6 AM doesn't run past its end.
+        const from = Math.min(Math.max(start, DAY_START * 60), DAY_END * 60);
+        const to = Math.min(Math.max(end, DAY_START * 60), DAY_END * 60);
+        const top = Math.min(((from - DAY_START * 60) / 60) * HOUR_PX, (DAY_END - DAY_START) * HOUR_PX - 26);
+        const height = Math.max(26, ((to - from) / 60) * HOUR_PX - 3);
         return `<button class="wk-ev ${e.who ? `c-${e.who === 'both' ? 'purple' : userOf(e.who).color}` : 'c-purple'}" data-action="edit-event" data-id="${e.id}"
           style="top:${top}px;height:${height}px;left:calc(${(lane / lanes) * 100}% + 2px);width:calc(${100 / lanes}% - 4px)">
           <span class="wk-ev-top">${avatar(e.who, 'xs')}<b>${timeLabel(e)}</b></span><span class="wk-ev-title">${esc(e.title)}</span></button>`;
