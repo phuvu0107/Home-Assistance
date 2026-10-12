@@ -881,9 +881,11 @@ function taskChip(t) {
     <button class="tc-title" data-action="edit-task" data-id="${t.id}">${esc(t.title)}</button></div>`;
 }
 
-function taskCard(t, u) {
+// `face` puts the person's avatar on the row, for lists that mix both people.
+function taskCard(t, u, face = false) {
   const done = isDone(t);
-  return `<div class="task ${done ? `done c-${u.color}` : ''}${t.important ? ' imp' : ''}">
+  return `<div class="task ${done ? `done c-${u.color}` : ''}${t.important ? ' imp' : ''}${face ? ' with-face' : ''}">
+    ${face ? avatar(u.id, 'sm') : ''}
     <button class="task-body" data-action="edit-task" data-id="${t.id}">
       <b>${esc(t.title)}${impTag(t)}</b>
       <small>${REPEAT_LABEL[t.repeat]} <span class="stars">${icon('star')}${t.stars}</span></small>
@@ -1669,12 +1671,9 @@ function daySheetHtml(iso) {
   const evs = eventsOn(iso);
   const tasks = iso === isoDay(new Date()) ? tasksToday() : [];
   return `${sheetHead(new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }), 'calendar')}
-    <div class="list">${evs.map((e) => eventRow(e)).join('') || '<p class="muted">No events.</p>'}</div>
-    ${USERS.map((u) => {
-      const mine = tasks.filter((t) => t.who === u.id);
-      return mine.length ? `<h3 class="sheet-sub">${avatar(u.id, 'xs')}${u.name}'s tasks</h3>
-        <div class="task-list">${mine.map((t) => taskCard(t, u)).join('')}</div>` : '';
-    }).join('')}
+    ${evs.length ? `<div class="list">${evs.map((e) => eventRow(e)).join('')}</div>` : ''}
+    ${tasks.length ? `<div class="task-list day-tasks">${tasks.map((t) => taskCard(t, userOf(t.who), true)).join('')}</div>` : ''}
+    ${evs.length || tasks.length ? '' : '<p class="muted">Nothing planned.</p>'}
     <div class="sheet-actions"><button class="btn" data-action="add-event" data-d="${iso}">${icon('plus')} Add event</button></div>`;
 }
 
