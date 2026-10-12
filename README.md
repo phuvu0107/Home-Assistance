@@ -11,35 +11,37 @@ A touch-friendly home dashboard for a shared screen at home: a tablet on the fri
 ## Features
 
 ### Home
-A simple top panel with the time, the date and today's weather. Its sky changes color through the day (a warm morning, bright midday, a sunset glow, then night) and the sun moves across it from the city's real sunrise to sunset. Below it: live weather (now, the next hours and 7 days), what's coming up on the calendar, each person's open tasks and a short energy summary. The moon and stars come out after dark.
+A simple top panel with the time, the date and the weather now. Its sky changes color through the day (a warm morning, bright midday, a sunset glow, then night) and the sun moves across it from the city's real sunrise to sunset; the moon and stars come out after dark. Below it, one glance per person shows how many of their chores are left, plus what in the kitchen to use soon. Then comes Today (today's events and everyone's chores, with a tick to mark each done), Coming up, the forecast for the next hours and 7 days, and a short energy summary. Money owed never shows on Home.
 
 | Day | Night (auto dark theme) |
 | --- | --- |
 | ![Home by day](docs/screenshots/home.png) | ![Home at night](docs/screenshots/home-night.png) |
 
 ### Calendar
-Week view (a time grid) and Month view, switched with a toggle. Each event shows who it's for, its start time and its title. The + button adds an event, tapping an event edits or deletes it, and tapping an empty slot in Week view adds one at that hour. Turn on **Important** in an event's sheet to give it a red Important tag everywhere it shows up. Today's tasks show in today's column with a tick box, and the day pop-up lists them by person.
+List, Week (a time grid) and Month views. Phones open on List and bigger screens on Week. Each event shows who it's for, its start time and its title. The + button adds an event, tapping an event edits or deletes it, and tapping an empty slot in Week view adds one at that hour. Turn on **Important** in an event's sheet to mark it with a red dot everywhere it shows up. The **Chores** toggle adds each day's chores to the calendar.
 
-Events earn stars like tasks (5 unless you pick another amount in the event's sheet). Tick an event off on Home or with **Mark done** in its sheet once it has happened. An event for both of you, or for anyone, gives each of you the stars.
+Events earn stars like chores (5 unless you pick another amount in the event's sheet). Tick an event off on Home or with **Mark done** in its sheet once it has happened. An event for both of you, or for anyone, gives each of you the stars.
 
 | Week | Month |
 | --- | --- |
 | ![Calendar week view](docs/screenshots/calendar-week.png) | ![Calendar month view](docs/screenshots/calendar-month.png) |
 
-### Tasks
-A column each for Phu and Nhi with done counts and stars. Tasks repeat daily, weekly or once, and daily and weekly tasks reset on their own. Tap a task to edit who it's for, how often it repeats and how many stars it's worth. Tasks can be marked **Important** too, which turns them red with the same tag.
+### Chores
+Who's earned the most stars this week, this month or all time sits at the top, then a card each for Phu and Nhi with their chores and how many are done. Chores repeat daily, weekly or once, and daily and weekly chores reset on their own. Tap a chore to edit who it's for, how often it repeats and how many stars it's worth, or mark it **Important** for a red dot. Below the cards, a chart shows stars by day once there are a few active days, and Recent lists what was ticked off. Unticking something takes its stars back.
 
-| Board | Editing a task |
+| Chores | Editing a chore |
 | --- | --- |
-| ![Tasks board](docs/screenshots/tasks.png) | ![Edit task sheet](docs/screenshots/task-sheet.png) |
+| ![Chores page](docs/screenshots/tasks.png) | ![Edit chore sheet](docs/screenshots/task-sheet.png) |
 
-### Piggy Bank
-Shared expenses, one month at a time (the 1st through the last day). Log the day, what it was, the amount and who paid. The page shows the month's total, what each person paid and a daily average, with a log grouped by day and a month-by-month table. Turn on **Show split** to see each person's half of the shared costs and who owes whom, and tap **Settle up** once it's paid back. Expenses can be marked as personal so they stay out of the split, or as paid by **Both** (each paid half) so nobody owes anything on them, which suits old expenses you already sorted out.
+### Kitchen
+What's in the fridge in one list, sorted so whatever to use soonest is on top, with chips to filter by fruit and veg, dairy and eggs, meat and fish, leftovers, drinks and other. Each item has a count and a suggested use-by date. The − button uses one up, with Undo in case of a mis-tap. **Scan a receipt** (under the + button) reads a photo of a grocery receipt on the device (with [Tesseract.js](https://tesseract.projectnaptha.com/)), lists the items it found with a guessed kind, and adds the ones you keep ticked.
 
-![Piggy Bank page](docs/screenshots/piggy.png)
+![Kitchen page](docs/screenshots/kitchen.png)
 
-### Fridge
-What's in the fridge, grouped into fruit and veg, dairy and eggs, meat and fish, leftovers, drinks and other. Each item has a count and a suggested use-by date, and anything to use within two days shows at the top. The − button uses one up. **Scan receipt** reads a photo of a grocery receipt on the device (with [Tesseract.js](https://tesseract.projectnaptha.com/)), lists the items it found with a guessed kind, and adds the ones you keep ticked.
+### Money
+Shared expenses, one month at a time (the 1st through the last day). It opens with who owes whom and a **Settle up** button, then the month's total, a bar showing what each person paid, and the log grouped by day. Past months are listed below. Log the day, what it was, the amount and who paid. Expenses can be marked as personal so they stay out of the split, or as paid by **Both** (each paid half) so nobody owes anything on them. Turn off **Show who owes whom** in Settings to hide the balance.
+
+![Money page](docs/screenshots/piggy.png)
 
 ### Energy
 PG&E use and cost for the current bill, from the day the billing cycle started through today, with the day count, days left and PG&E's projected bill. Cycles run 29 or 30 days, so the dates come from PG&E's own bills rather than the calendar month. You can also see the last bill, 90 days or 12 months, split into electric and gas, plus a table of past bills. Data syncs every morning (see [PG&E energy sync](#pge-energy-sync)), and the page says plainly when it isn't syncing.
@@ -51,25 +53,20 @@ Fitbit data for each of you: steps today, last night's sleep with deep and REM t
 
 ![Health page](docs/screenshots/health.png)
 
-### Leaderboard
-Who's earned the most stars this week, this month or all time, with each person's tasks and events done and their streak of days in a row. A chart shows stars by day (or by week for all time), and Recent lists what was ticked off. Unticking something takes its stars back off the board.
-
-![Leaderboard](docs/screenshots/leaderboard.png)
-
 ### Summary email
-A GitHub job emails the household at 7 AM, noon, 5 PM and 9 PM Pacific: the morning one has the day's events, weather, tasks, yesterday's stars, the Piggy Bank balance and yesterday's energy; noon and 5 PM cover what's left of the day; 9 PM recaps today's stars and shows tomorrow. See [Summary email](#summary-email-setup).
+A GitHub job emails the household at 7 AM, noon, 5 PM and 9 PM Pacific: the morning one has the day's events, weather, tasks, yesterday's stars, the Money balance and yesterday's energy; noon and 5 PM cover what's left of the day; 9 PM recaps today's stars and shows tomorrow. See [Summary email](#summary-email-setup).
 
 ### Settings
-Grouped into General, Connections and Data: sync across devices, weather city, °F/°C, light/dark/auto theme, 24-hour clock, keep screen on, and the PG&E sync passphrase with one-time sign-in steps.
+Grouped into Display (weather city, °F/°C, light/dark/auto theme, 24-hour clock, keep screen on, show who owes whom), Household (sync across devices) and Connections, where PG&E, Fitbit and the summary email each open into their own row with a status and setup steps. Energy, Health and Settings live under **More**.
 
 ![Settings page](docs/screenshots/settings.png)
 
 ### Works on any screen
-The layout adapts from a wide display down to a phone. On touch screens you can swipe left or right to move between tabs, with the page following your finger. Motion is turned off when the device asks for reduced motion.
+The layout adapts from a wide display down to a phone. Phones get a bar of five tabs (Home, Calendar, Chores, Kitchen, Money, plus More) at the bottom, and wide screens get the same tabs as a rail on the left. One + button adds whatever fits the page you're on. On touch screens you can swipe left or right to move between tabs, with the page following your finger. Motion is turned off when the device asks for reduced motion.
 
 <img src="docs/screenshots/phone.png" alt="Dashboard on a phone" width="320">
 
-Phu's and Nhi's avatars live in `avatars/` as SVG files. Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). Display settings are saved in the browser on each device; events, tasks and expenses are shared across devices once [sync](#sync-across-devices) is on.
+Phu's and Nhi's avatars live in `avatars/` as SVG files. Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). Display settings are saved in the browser on each device; events, chores, kitchen items and expenses are shared across devices once [sync](#sync-across-devices) is on.
 
 ## Set up on your device
 
@@ -141,7 +138,7 @@ One-time setup:
 3. Register a web app in Project settings. Copy its `firebaseConfig` block into a GitHub Actions secret named `FIREBASE_CONFIG` (repo **Settings › Secrets and variables › Actions**), then run **Deploy to GitHub Pages**. The deploy writes it into the published `sync-config.js`, so it never lives in the repo. In Google Cloud's **APIs & Services › Credentials**, restrict that browser key to your site's address and the Cloud Firestore API.
 4. Whenever the app opens on a device that isn't in a household yet, a **Join your household** panel pops up (tap **Not now** to skip until next time; the same box is in **Settings › Sync across devices**). On the first device, type a passphrase and tap **Start a new household**. On every other device, type the same passphrase. Joining replaces that device's events, tasks and expenses with the shared ones.
 
-Changes show up on the other screens within a second or two. Edits made offline are kept and sync when the connection comes back, and two people editing at once both keep their changes. Open screens reload themselves within about ten minutes of a new deploy (each deploy writes `version.txt`), and a screen still on an older version passes along any data it doesn't understand instead of deleting it. If a Leaderboard entry for a ticked task or event ever goes missing, the app rebuilds it from the tick.
+Changes show up on the other screens within a second or two. Edits made offline are kept and sync when the connection comes back, and two people editing at once both keep their changes. Open screens reload themselves within about ten minutes of a new deploy (each deploy writes `version.txt`), and a screen still on an older version passes along any data it doesn't understand instead of deleting it. If the stars for a ticked chore or event ever go missing, the app rebuilds them from the tick.
 
 ## Summary email setup
 
@@ -169,7 +166,7 @@ python3 -m http.server 8000
 
 ## Files
 
-- `index.html` – page shell (greeting, tabs)
+- `index.html` – page shell (top panel, tabs, + button)
 - `styles.css` – design tokens, light and dark themes, layout and motion
 - `app.js` – state, weather, views and actions
 - `icons.js` – inline SVG icon set
