@@ -11,7 +11,7 @@ A touch-friendly home dashboard for a shared screen at home: a tablet on the fri
 ## Features
 
 ### Home
-A greeting for Phu and Nhi by time of day, live weather (now, the next hours and 7 days), what's coming up on the calendar, each person's open tasks and a short energy summary. The sun moves across the greeting panel from the city's real sunrise to sunset, and the moon and stars come out after dark.
+A simple top panel with the time, the date and today's weather. Its sky changes color through the day (a warm morning, bright midday, a sunset glow, then night) and the sun moves across it from the city's real sunrise to sunset. Below it: live weather (now, the next hours and 7 days), what's coming up on the calendar, each person's open tasks and a short energy summary. The moon and stars come out after dark.
 
 | Day | Night (auto dark theme) |
 | --- | --- |
@@ -34,9 +34,12 @@ A column each for Phu and Nhi with done counts and stars. Tasks repeat daily, we
 | ![Tasks board](docs/screenshots/tasks.png) | ![Edit task sheet](docs/screenshots/task-sheet.png) |
 
 ### Piggy Bank
-Shared expenses, one month at a time (the 1st through the last day). Log the day, what it was, the amount and who paid. The page shows the month's total, what each person paid and a daily average, with a log grouped by day and a month-by-month table. Turn on **Show split** to see each person's half of the shared costs and who owes whom. Expenses can be marked as personal so they stay out of the split.
+Shared expenses, one month at a time (the 1st through the last day). Log the day, what it was, the amount and who paid. The page shows the month's total, what each person paid and a daily average, with a log grouped by day and a month-by-month table. Turn on **Show split** to see each person's half of the shared costs and who owes whom, and tap **Settle up** once it's paid back. Expenses can be marked as personal so they stay out of the split, or as paid by **Both** (each paid half) so nobody owes anything on them, which suits old expenses you already sorted out.
 
 ![Piggy Bank page](docs/screenshots/piggy.png)
+
+### Fridge
+What's in the fridge, grouped into fruit and veg, dairy and eggs, meat and fish, leftovers, drinks and other. Each item has a count and a suggested use-by date, and anything to use within two days shows at the top. The − button uses one up. **Scan receipt** reads a photo of a grocery receipt on the device (with [Tesseract.js](https://tesseract.projectnaptha.com/)), lists the items it found with a guessed kind, and adds the ones you keep ticked.
 
 ### Energy
 PG&E use and cost for the current bill, from the day the billing cycle started through today, with the day count, days left and PG&E's projected bill. Cycles run 29 or 30 days, so the dates come from PG&E's own bills rather than the calendar month. You can also see the last bill, 90 days or 12 months, split into electric and gas, plus a table of past bills. Data syncs every morning (see [PG&E energy sync](#pge-energy-sync)), and the page says plainly when it isn't syncing.
@@ -53,8 +56,11 @@ Who's earned the most stars this week, this month or all time, with each person'
 
 ![Leaderboard](docs/screenshots/leaderboard.png)
 
+### Summary email
+A GitHub job emails the household at 7 AM, noon, 5 PM and 9 PM Pacific: the morning one has the day's events, weather, tasks, yesterday's stars, the Piggy Bank balance and yesterday's energy; noon and 5 PM cover what's left of the day; 9 PM recaps today's stars and shows tomorrow. See [Summary email](#summary-email-setup).
+
 ### Settings
-Sync across devices, weather city, °F/°C, light/dark/auto theme, 24-hour clock, keep screen on, and the PG&E sync passphrase with one-time sign-in steps.
+Grouped into General, Connections and Data: sync across devices, weather city, °F/°C, light/dark/auto theme, 24-hour clock, keep screen on, and the PG&E sync passphrase with one-time sign-in steps.
 
 ![Settings page](docs/screenshots/settings.png)
 
@@ -137,6 +143,19 @@ One-time setup:
 
 Changes show up on the other screens within a second or two. Edits made offline are kept and sync when the connection comes back, and two people editing at once both keep their changes.
 
+## Summary email setup
+
+`.github/workflows/daily-email.yml` runs `sync/daily_email.py`, which reads the household's encrypted sync document, unlocks it with the household passphrase and sends the email over SMTP. It does nothing until these Actions secrets are added:
+
+| Secret | What it is |
+| --- | --- |
+| `HOUSEHOLD_PASSPHRASE` | The passphrase you type on each device to sync |
+| `EMAIL_SMTP_USER` | The Gmail address that sends the email |
+| `EMAIL_SMTP_PASSWORD` | An [app password](https://myaccount.google.com/apppasswords) for that account |
+| `EMAIL_TO` | Who gets it, comma separated |
+
+It also uses the existing `FIREBASE_CONFIG` and, for the energy line, `ENERGY_PASSPHRASE`. Run **Daily summary email** from the Actions tab to send one right away. The schedule lists each hour for both summer and winter time, and the script sends only the one that matches the clock in `EMAIL_TIMEZONE` (default `America/Los_Angeles`).
+
 ## Deploying
 
 Every push to `main` deploys through `.github/workflows/pages.yml`, and it also runs every morning to refresh the PG&E data. One-time setup: in the repo go to **Settings > Pages** and set **Source** to **GitHub Actions**.
@@ -154,9 +173,10 @@ python3 -m http.server 8000
 - `styles.css` – design tokens, light and dark themes, layout and motion
 - `app.js` – state, weather, views and actions
 - `icons.js` – inline SVG icon set
+- `receipt.js` – fridge kinds and the receipt reader
 - `sync.js`, `sync-config.js` – encrypted household sync (Firebase Firestore)
 - `avatars/` – Phu's and Nhi's avatars
 - `sw.js`, `manifest.webmanifest`, `icons/` – installable PWA and offline cache
 - `health.js`, `health-config.js` – Fitbit data through Google sign-in and the Google Health API
-- `sync/` – the daily PG&E sync, the one-time sign-in script, the encryption helper and the deploy step that writes the Firebase config
+- `sync/` – the daily PG&E sync, the one-time sign-in script, the encryption helper, the deploy step that writes the Firebase config, and the summary email
 - `docs/screenshots/` – the README screenshots (sample data)

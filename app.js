@@ -1,5 +1,6 @@
 import { icon, hydrateIcons } from './icons.js';
 import { createSync, syncAvailable } from './sync.js';
+import { FRIDGE_CATS, guessCat, readReceipt } from './receipt.js';
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 
 /* =========================================================
@@ -47,6 +48,7 @@ function defaultState() {
     stars: { phu: 0, nhi: 0 },
     log: [],
     expenses: [],
+    fridge: [],
     health: {},
   };
 }
@@ -125,7 +127,7 @@ function tickClock() {
   const h = now.getHours();
   const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   $('#greeting').textContent = `${greet}, ${USERS.map((u) => u.name).join(' and ')}`;
-  $('#date').textContent = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  $('#date').textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   $('#clock').textContent = fmtTime(now);
   updateSky(now.getTime());
 }
@@ -159,16 +161,20 @@ function updateSky(now) {
   const sky = skyState(now);
   const p = Math.min(1, Math.max(0, sky.p));
   // Arc across the right part of the panel; it starts and ends just below the hills.
-  const x = 30 + p * 64;
+  // On a narrow panel the text fills the left side, so the arc stays on the right.
+  const x = hero.clientWidth < 600 ? 64 + p * 30 : 30 + p * 64;
   const y = 92 - Math.sin(p * Math.PI) * 78;
   if (skyReady) {
     orb.style.left = `${x.toFixed(2)}%`;
     orb.style.top = `${y.toFixed(2)}%`;
   }
   orb.dataset.kind = sky.kind;
-  // Sky color follows the real sun: an hour of dawn, daytime, ninety minutes of dusk, then night.
+  // Sky color follows the real sun: warm morning until 11, bright midday, a sunset glow from
+  // ninety minutes before sunset until 45 minutes after, then night.
   let pod = 'night';
-  if (sky.kind === 'sun') pod = now - sky.rise < 36e5 ? 'morning' : sky.set - now < 54e5 ? 'evening' : 'day';
+  const h = new Date(now).getHours();
+  if (sky.kind === 'sun') pod = sky.set - now < 54e5 ? 'evening' : h < 11 ? 'morning' : 'day';
+  else if (now - sky.set >= 0 && now - sky.set < 27e5) pod = 'evening';
   if (document.documentElement.dataset.theme === 'dark') pod = 'night';
   if (!hero.classList.contains(pod)) {
     hero.classList.remove('morning', 'day', 'evening', 'night');
@@ -179,9 +185,10 @@ function updateSky(now) {
     tod.innerHTML = icon(sky.kind);
     tod.dataset.v = sky.kind;
   }
-  const label = sky.kind === 'sun'
+  const sunLine = sky.kind === 'sun'
     ? `Sunset at ${fmtTime(new Date(sky.set))}`
     : `Sunrise at ${fmtTime(new Date(now < sky.rise ? sky.rise : sunToday().nextRise))}`;
+  const label = weatherValid() ? `${Math.round(weather.temp)}° ${wmo(weather.code, weather.isDay).label} · ${sunLine}` : sunLine;
   if ($('#sun-note').textContent !== label) $('#sun-note').textContent = label;
 }
 
@@ -371,7 +378,7 @@ function syncBanner(always = false, link = true) {
   if (m.ok) return `<p class="sync-line">${icon('check')}${m.text}</p>`;
   return link
     ? `<a class="sync-banner" href="#/settings">${icon('zap')}<span>${m.text}</span><b>Settings ${icon('arrowRight')}</b></a>`
-    : `<div class="sync-banner">${icon('zap')}<span>${m.text}</span></div>`;
+    : `<div class="sync-banner">${icon('zap')}<span>${m.text.replace(/ in Settings/, ' below')}</span></div>`;
 }
 
 // Daily or monthly rows for a range, newest last. Each row: { key, label, kwh, therms, eCost, gCost, cost }
@@ -611,6 +618,7 @@ const PAGES = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'calendar', label: 'Calendar', icon: 'calendar' },
   { id: 'tasks', label: 'Tasks', icon: 'checkSquare' },
+  { id: 'fridge', label: 'Fridge', icon: 'fridge' },
   { id: 'piggy', label: 'Piggy Bank', icon: 'piggy' },
   { id: 'energy', label: 'Energy', icon: 'zap' },
   { id: 'health', label: 'Health', icon: 'heart' },
@@ -658,20 +666,25 @@ $('#tabs').addEventListener('pointerdown', (e) => {
 
 /* Swipe left or right anywhere on a page to move to the next tab.
    The page and the tab highlight follow the finger, then settle. */
-const swipe = { id: null, x: 0, y: 0, dx: 0, on: false, samples: [], done: false };
+const swipe = { id: null, x: 0, y: 0, dx: 0, on: false, samples: [], done: false, frame: 0, rects: null };
+let swipeNav = false; // the next render comes from a swipe
 const scrollsSideways = (el) => {
   for (; el && el !== document.body; el = el.parentElement) {
     if (el.scrollWidth > el.clientWidth + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowX)) return true;
   }
   return false;
 };
+// Tab positions are measured once when a drag starts, so moving the finger never forces a layout.
+function measureTabs() {
+  const tabs = $('#tabs'); const bar = tabs.getBoundingClientRect();
+  const off = tabs.scrollLeft - tabs.clientLeft - 6 - bar.left;
+  return Object.fromEntries([...tabs.querySelectorAll('.tab')].map((t) => { const r = t.getBoundingClientRect(); return [t.dataset.page, { left: r.left + off, width: r.width }]; }));
+}
 function inkBetween(a, b, t) {
   const ink = $('#tabs .tab-ink');
-  const bar = $('#tabs').getBoundingClientRect();
-  const ra = a.getBoundingClientRect(); const rb = b.getBoundingClientRect();
-  const left = ra.left + (rb.left - ra.left) * t; const width = ra.width + (rb.width - ra.width) * t;
+  const left = a.left + (b.left - a.left) * t; const width = a.width + (b.width - a.width) * t;
   ink.style.width = `${width}px`;
-  ink.style.transform = `translateX(${left - bar.left + $('#tabs').scrollLeft - $('#tabs').clientLeft - 6}px)`;
+  ink.style.transform = `translateX(${left}px)`;
 }
 function swipeNeighbor(dir) {
   const i = PAGES.findIndex((p) => p.id === currentRoute()) + dir;
@@ -690,6 +703,7 @@ view.addEventListener('pointermove', (e) => {
     if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { swipe.id = null; return; }
     if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
     swipe.on = true; swipe.x = e.clientX; // start from here so the page doesn't jump
+    swipe.rects = measureTabs(); swipe.w = view.clientWidth;
     view.setPointerCapture(e.pointerId);
     view.classList.add('dragging'); $('#tabs').classList.add('dragging');
     return;
@@ -699,17 +713,23 @@ view.addEventListener('pointermove', (e) => {
   // Past the first or last tab the page only gives a little, like a rubber band.
   swipe.dx = next ? raw : raw / (1 + Math.abs(raw) / 60);
   swipe.samples.push([e.timeStamp, e.clientX]); if (swipe.samples.length > 6) swipe.samples.shift();
-  const w = view.clientWidth;
-  view.style.transform = `translate3d(${swipe.dx}px,0,0)`;
-  view.style.opacity = String(1 - Math.min(Math.abs(swipe.dx) / w, 1) * 0.35);
-  const cur = $(`#tabs .tab[data-page="${currentRoute()}"]`);
-  if (next) inkBetween(cur, $(`#tabs .tab[data-page="${next.id}"]`), Math.min(Math.abs(raw) / (w * 0.6), 1));
-  else moveInk();
+  // Draw at most once per frame; touch screens can send moves faster than the display refreshes.
+  if (!swipe.frame) swipe.frame = requestAnimationFrame(() => {
+    swipe.frame = 0;
+    if (!swipe.on) return;
+    const w = swipe.w; const dx = swipe.dx;
+    view.style.transform = `translate3d(${dx}px,0,0)`;
+    view.style.opacity = String(1 - Math.min(Math.abs(dx) / w, 1) * 0.35);
+    const nb = swipeNeighbor(dx < 0 ? 1 : -1);
+    const cur = swipe.rects[currentRoute()];
+    if (cur) inkBetween(cur, nb ? swipe.rects[nb.id] : cur, Math.min(Math.abs(dx) / (w * 0.6), 1));
+  });
 });
 function endSwipe(e, cancelled) {
   if (e.pointerId !== swipe.id) return;
   swipe.id = null;
   if (!swipe.on) return;
+  swipe.on = false; cancelAnimationFrame(swipe.frame); swipe.frame = 0;
   swipe.done = true; setTimeout(() => { swipe.done = false; }, 350);
   const [t0, x0] = swipe.samples[0];
   const v = (e.clientX - x0) / Math.max(e.timeStamp - t0, 1); // px per ms
@@ -719,13 +739,9 @@ function endSwipe(e, cancelled) {
   $('#tabs').classList.remove('dragging');
   view.classList.remove('dragging');
   if (go) {
-    view.classList.add('leaving');
-    view.style.transform = `translate3d(${-dir * Math.min(view.clientWidth * 0.3, 160)}px,0,0)`;
-    view.style.opacity = '0';
-    setTimeout(() => {
-      view.classList.remove('leaving'); view.style.transform = ''; view.style.opacity = '';
-      location.hash = `#/${next.id}`;
-    }, 140);
+    // Switch straight away: the new page slides in from the side the finger was heading.
+    swipeNav = true;
+    location.hash = `#/${next.id}`;
   } else {
     view.classList.add('settling');
     view.style.transform = ''; view.style.opacity = '';
@@ -1205,15 +1221,16 @@ function houseMessage() {
   }
 }
 function houseCard() {
+  const head = `<div class="card-head">${icon('home')}<h2>Household</h2></div>
+    <div class="profiles">${USERS.map((u) => `<div class="profile">${avatar(u.id, 'lg')}<b>${u.name}</b></div>`).join('')}</div>
+    <h3 class="set-sub">Sync across devices</h3>`;
   if (!syncAvailable()) {
-    return `<div class="card">
-      <div class="card-head">${icon('users')}<h2>Sync across devices</h2></div>
-      <div class="sync-banner">${icon('users')}<span>Not set up yet. Each device keeps its own events, tasks and expenses until sync is turned on for this site.</span></div>
+    return `<div class="card">${head}
+      <p class="hint">Not set up yet. Each device keeps its own events, tasks and expenses until sync is turned on for this site.</p>
     </div>`;
   }
   const m = houseMessage();
-  return `<div class="card">
-    <div class="card-head">${icon('users')}<h2>Sync across devices</h2></div>
+  return `<div class="card">${head}
     ${m.ok ? `<p class="sync-line">${icon('check')}${m.text}</p>` : `<div class="sync-banner">${icon('users')}<span>${m.text}</span></div>`}
     ${houseSync.state === 'new' ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 16px"><button class="btn" data-action="house-create">Start a new household</button><button class="btn ghost" data-action="house-cancel">Cancel</button></div>` : ''}
     <div class="field"><label for="house-pass">Household passphrase</label>
@@ -1260,38 +1277,53 @@ const monthRange = (key) => monthBounds(key).map((d) => d.toLocaleDateString([],
 const expensesIn = (key) => state.expenses.filter((x) => x.date.startsWith(key)).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
 
 // Who paid what, and who owes whom for the shared (split 50/50) expenses.
+// Paid by 'both' means each paid half, so nobody owes on it. A settle-up entry
+// ({ kind: 'settle', paidBy, to }) is money between the two of you, not spending.
+const isSettle = (x) => x.kind === 'settle';
+const spending = (list) => list.filter((x) => !isSettle(x));
 function expenseStats(list) {
   const paid = Object.fromEntries(USERS.map((u) => [u.id, 0]));
   const sharedPaid = { ...paid };
   let total = 0; let shared = 0;
-  list.forEach((x) => {
-    total += x.amount; paid[x.paidBy] = (paid[x.paidBy] || 0) + x.amount;
-    if (x.split) { shared += x.amount; sharedPaid[x.paidBy] = (sharedPaid[x.paidBy] || 0) + x.amount; }
-  });
   const [a, b] = USERS;
-  const net = sharedPaid[a.id] - shared / 2; // > 0 means b owes a
+  const add = (to, who, n) => { for (const id of who === 'both' ? USERS.map((u) => u.id) : [who]) to[id] = (to[id] || 0) + (who === 'both' ? n / 2 : n); };
+  let settled = 0; // paid from b to a, minus a to b
+  list.forEach((x) => {
+    if (isSettle(x)) { settled += x.paidBy === b.id ? x.amount : -x.amount; return; }
+    total += x.amount; add(paid, x.paidBy, x.amount);
+    if (x.split) { shared += x.amount; add(sharedPaid, x.paidBy, x.amount); }
+  });
+  const net = sharedPaid[a.id] - shared / 2 - settled; // > 0 means b owes a
   return { total, paid, shared, each: shared / 2, owed: Math.abs(net), from: net > 0 ? b : a, to: net > 0 ? a : b };
 }
 
 function expenseRow(x, showSplit) {
   const u = userOf(x.paidBy);
-  const note = x.split ? (showSplit ? `Split · ${fmtCash(x.amount / 2)} each` : 'Split') : `Just ${u?.name}`;
+  if (isSettle(x)) {
+    return `<button class="row expense settle-row" data-action="edit-expense" data-id="${x.id}">
+      ${avatar(x.paidBy, 'md')}
+      <span class="ex-main"><b>Settled up</b><small>${u?.name} paid ${userOf(x.to)?.name} back</small></span>
+      <span class="ex-amt">${fmtCash(x.amount)}</span></button>`;
+  }
+  const both = x.paidBy === 'both';
+  const note = both ? 'Each paid half' : x.split ? (showSplit ? `Split · ${fmtCash(x.amount / 2)} each` : 'Split') : `Just ${u?.name}`;
   return `<button class="row expense" data-action="edit-expense" data-id="${x.id}">
     ${avatar(x.paidBy, 'md')}
-    <span class="ex-main"><b>${esc(x.title)}</b><small>${u?.name} paid · ${note}</small></span>
+    <span class="ex-main"><b>${esc(x.title)}</b><small>${both ? 'Both paid' : `${u?.name} paid`} · ${note}</small></span>
     <span class="ex-amt">${fmtCash(x.amount)}</span></button>`;
 }
 
 views.piggy = () => {
   const key = piggyMonth;
-  const list = expensesIn(key);
-  const st = expenseStats(list);
+  const all = expensesIn(key);
+  const list = spending(all);
+  const st = expenseStats(all);
   const showSplit = !!state.settings.showSplit;
   const [first, last] = monthBounds(key);
   const isNow = key === monthKey(new Date());
   const daysSoFar = isNow ? new Date().getDate() : last.getDate();
   const byDay = {};
-  list.forEach((x) => { (byDay[x.date] ||= []).push(x); });
+  all.forEach((x) => { (byDay[x.date] ||= []).push(x); });
   const months = [...new Set(state.expenses.map((x) => x.date.slice(0, 7)))].sort().reverse();
 
   return `<div class="section-title">Piggy Bank<span class="spacer"></span>
@@ -1312,14 +1344,15 @@ views.piggy = () => {
   ${showSplit ? `<div class="card split-card">
     <div class="card-head">${icon('users')}<h2>Split 50/50</h2><span class="hint">${fmtCash(st.shared)} of shared costs, ${fmtCash(st.each)} each</span></div>
     <div class="split-people">${USERS.map((u) => {
-      const sp = expensesIn(key).filter((x) => x.split && x.paidBy === u.id).reduce((a, x) => a + x.amount, 0);
+      const sp = list.filter((x) => x.split && (x.paidBy === u.id || x.paidBy === 'both')).reduce((a, x) => a + (x.paidBy === 'both' ? x.amount / 2 : x.amount), 0);
       return `<div class="split-person">${avatarImg(u, 'md')}<div><b>${u.name}</b><small>Paid ${fmtCash(sp)} · share ${fmtCash(st.each)}</small></div></div>`;
     }).join('')}</div>
-    <div class="settle ${st.owed < 0.005 ? 'even' : ''}">${st.owed < 0.005 ? 'All square this month' : `<b>${st.from.name}</b> owes <b>${st.to.name}</b> <b class="settle-amt">${fmtCash(st.owed)}</b>`}</div>
+    <div class="settle ${st.owed < 0.005 ? 'even' : ''}">${st.owed < 0.005 ? 'All square this month' : `<b>${st.from.name}</b> owes <b>${st.to.name}</b> <b class="settle-amt">${fmtCash(st.owed)}</b>
+      <button class="btn sm" data-action="settle-up">${icon('check')} Settle up</button>`}</div>
   </div>` : ''}
   <div class="card">
     <div class="card-head">${icon('calendar')}<h2>Log</h2><span class="hint">${first.toLocaleDateString([], { month: 'short', day: 'numeric' })} to ${last.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
-    ${list.length ? Object.entries(byDay).map(([d, xs]) => `<div class="ex-day"><div class="ex-day-head"><span>${dayLabel(d)}</span><span>${fmtCash(xs.reduce((a, x) => a + x.amount, 0))}</span></div>
+    ${all.length ? Object.entries(byDay).map(([d, xs]) => `<div class="ex-day"><div class="ex-day-head"><span>${dayLabel(d)}</span><span>${fmtCash(spending(xs).reduce((a, x) => a + x.amount, 0))}</span></div>
       <div class="list">${xs.map((x) => expenseRow(x, showSplit)).join('')}</div></div>`).join('')
     : `<div class="piggy-empty">${icon('piggy')}<p>Nothing logged for ${monthName(key)} yet.</p><button class="btn" data-action="add-expense">${icon('plus')} Add an expense</button></div>`}
   </div>
@@ -1343,7 +1376,7 @@ function openExpenseSheet(ex) {
       <div class="field"><label for="ex-amount">Amount</label><input class="input" id="ex-amount" type="number" inputmode="decimal" step="0.01" min="0" value="${x.amount}" placeholder="0.00"></div>
       <div class="field"><label for="ex-date">Day</label><input class="input" type="date" id="ex-date" value="${x.date}"></div>
     </div>
-    <div class="field"><label>Who paid?</label>${whoPicker(x.paidBy, false)}</div>
+    <div class="field"><label>Who paid?</label>${whoPicker(x.paidBy, 'both')}<div class="hint">Both means each of you paid half, so nobody owes anything on it.</div></div>
     <div class="setting-row imp-row"><div><b>Split 50/50</b><div class="hint">Counts toward what each of you owes. Turn off for a personal expense.</div></div>
       <button class="switch" id="ex-split" role="switch" aria-checked="${!!x.split}" data-action="toggle-important"></button></div>
     <div class="sheet-actions">
@@ -1352,6 +1385,90 @@ function openExpenseSheet(ex) {
       <button class="btn" data-action="save-expense" data-id="${x.id}">${ex ? 'Save' : 'Add expense'}</button>
     </div>`);
   if (!ex) setTimeout(() => $('#ex-title')?.focus(), 50);
+}
+
+/* ---------- Fridge ---------- */
+// Each item: { id, name, qty, cat, added, use } with `use` an optional use-by day.
+const catOf = (id) => FRIDGE_CATS.find((c) => c.id === id) || FRIDGE_CATS.at(-1);
+const daysLeft = (it) => (it.use ? daysIncl(isoDay(new Date()), it.use) - 1 : null);
+const suggestUse = (cat) => (catOf(cat).days ? isoDay(addDays(new Date(), catOf(cat).days)) : '');
+function useLabel(it) {
+  const d = daysLeft(it);
+  if (d === null) return '';
+  if (d < 0) return `<span class="use late">Past use-by</span>`;
+  if (d === 0) return `<span class="use late">Use today</span>`;
+  return `<span class="use${d <= 2 ? ' soon' : ''}">Use in ${d} day${d === 1 ? '' : 's'}</span>`;
+}
+function fridgeRow(it) {
+  return `<div class="fr-row${daysLeft(it) !== null && daysLeft(it) <= 0 ? ' late' : ''}">
+    <button class="fr-main" data-action="edit-fridge" data-id="${it.id}">
+      <b>${esc(it.name)}</b><small>Added ${fmtShort(it.added)}${it.use ? ' · ' : ''}${useLabel(it)}</small></button>
+    <span class="fr-qty">${it.qty}</span>
+    <button class="btn-round sm" data-action="use-fridge" data-id="${it.id}" aria-label="Use one ${esc(it.name)}">${icon('minus')}</button></div>`;
+}
+views.fridge = () => {
+  const items = state.fridge || [];
+  const scan = `<label class="btn ghost">${icon('receipt')} Scan receipt<input type="file" id="receipt-file" accept="image/*" hidden></label>`;
+  const head = `<div class="section-title">Fridge<span class="spacer"></span>${scan}
+    <button class="btn-round accent" data-action="add-fridge" aria-label="Add an item">${icon('plus')}</button></div>`;
+  if (!items.length) {
+    return `${head}<div class="card fr-empty">${icon('fridge')}<p>Nothing logged yet. Add what's in the fridge, or snap a grocery receipt and the items get added for you.</p>
+      <div class="fr-empty-btns"><button class="btn" data-action="add-fridge">${icon('plus')} Add an item</button>${scan.replace('btn ghost', 'btn ghost')}</div></div>`;
+  }
+  const soon = items.filter((it) => daysLeft(it) !== null && daysLeft(it) <= 2).sort((a, b) => daysLeft(a) - daysLeft(b));
+  const groups = FRIDGE_CATS.map((c) => [c, items.filter((it) => catOf(it.cat).id === c.id).sort((a, b) => (a.use || '9').localeCompare(b.use || '9') || a.name.localeCompare(b.name))])
+    .filter(([, list]) => list.length);
+  return `${head}
+  ${soon.length ? `<div class="card fr-soon"><div class="card-head">${icon('clock')}<h2>Use soon</h2><span class="hint">${soon.length} item${soon.length === 1 ? '' : 's'}</span></div>
+    <div class="fr-list">${soon.map(fridgeRow).join('')}</div></div>` : ''}
+  <div class="fr-grid">${groups.map(([c, list]) => `<div class="card">
+    <div class="card-head">${icon(c.icon)}<h2>${c.label}</h2><span class="hint">${list.reduce((n, it) => n + it.qty, 0)}</span></div>
+    <div class="fr-list">${list.map(fridgeRow).join('')}</div></div>`).join('')}</div>`;
+};
+const catSelect = (id, cur) => `<select class="input" id="${id}">${FRIDGE_CATS.map((c) => `<option value="${c.id}"${c.id === cur ? ' selected' : ''}>${c.label}</option>`).join('')}</select>`;
+function openFridgeSheet(it) {
+  const x = it || { id: '', name: '', qty: 1, cat: 'other', use: '' };
+  openSheet(`${sheetHead(it ? 'Edit item' : 'Add to fridge', 'fridge')}
+    <div class="field"><label for="fr-name">Item</label><input class="input" id="fr-name" value="${esc(x.name)}" placeholder="e.g. Eggs"></div>
+    <div class="field-row">
+      <div class="field"><label for="fr-qty">How many</label><input class="input" id="fr-qty" type="number" inputmode="numeric" min="1" step="1" value="${x.qty}"></div>
+      <div class="field"><label for="fr-cat">Kind</label>${catSelect('fr-cat', x.cat)}</div>
+    </div>
+    <div class="field"><label for="fr-use">Use by <span class="muted">(optional)</span></label><input class="input" type="date" id="fr-use" value="${x.use || ''}"></div>
+    <div class="sheet-actions">
+      ${it ? `<button class="btn danger" data-action="del-fridge" data-id="${x.id}">${icon('trash')} Remove</button><span class="spacer"></span>` : ''}
+      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="save-fridge" data-id="${x.id}">${it ? 'Save' : 'Add'}</button>
+    </div>`);
+}
+// The receipt's items, ticked, for a once-over before they go in the fridge.
+function openReceiptSheet(found) {
+  openSheet(`${sheetHead('From your receipt', 'receipt')}
+    ${found.length ? `<p class="hint">Untick anything that isn't for the fridge and fix any names the reader got wrong.</p>
+    <div class="rc-list" data-nofocus>${found.map((f, i) => `<div class="rc-row" data-i="${i}">
+      <button class="check on rc-tick" data-action="rc-tick" aria-label="Include">${icon('check')}</button>
+      <input class="input rc-name" value="${esc(f.name)}" aria-label="Item">
+      <input class="input rc-qty" type="number" min="1" value="${f.qty}" aria-label="How many">
+      ${catSelect(`rc-cat-${i}`, f.cat).replace('class="input"', 'class="input rc-cat"')}</div>`).join('')}</div>`
+    : `<p class="hint">No items found on that photo. Try again with the receipt flat, in good light and filling the frame.</p>`}
+    <div class="sheet-actions">
+      <button class="btn ghost" data-action="close-sheet">${found.length ? 'Cancel' : 'Close'}</button>
+      ${found.length ? `<button class="btn" data-action="save-receipt">Add to fridge</button>` : ''}
+    </div>`);
+  $('#sheet').dataset.kind = 'receipt';
+}
+async function scanReceipt(file) {
+  openSheet(`${sheetHead('Reading receipt', 'receipt')}
+    <p class="hint">Reading the items on this device. This can take a few seconds.</p>
+    <div class="rc-bar"><i id="rc-progress"></i></div>`);
+  $('#sheet').dataset.kind = 'receipt';
+  try {
+    const found = await readReceipt(file, (p) => { const b = $('#rc-progress'); if (b) b.style.width = `${Math.round(p * 100)}%`; });
+    if ($('#sheet').dataset.kind === 'receipt') openReceiptSheet(found);
+  } catch (err) {
+    closeSheet();
+    toast(err.message || "Couldn't read that photo");
+  }
 }
 
 /* ---------- Energy ---------- */
@@ -1503,8 +1620,8 @@ function healthCard() {
   const head = `<div class="card-head">${icon('heart')}<h2>Fitbit health</h2></div>`;
   if (!healthAvailable()) {
     return `<div class="card">${head}
-      <div class="sync-banner">${icon('heart')}<span>Not set up yet. Fitbit sign-in needs a one-time setup for this site.</span></div>
-      <details class="setup" open><summary>One-time setup</summary><ol class="hint">
+      <p class="hint">Not set up yet. Fitbit sign-in needs a one-time setup for this site.</p>
+      <details class="setup"><summary>One-time setup</summary><ol class="hint">
         <li>In Google Cloud, turn on the <b>Google Health API</b> and add each person's Google account as a test user.</li>
         <li>Create a <b>Web application</b> OAuth client with <code>${esc(location.origin)}</code> as an authorized JavaScript origin.</li>
         <li>Save its client ID as the GitHub secret <code>GOOGLE_HEALTH_CLIENT_ID</code> and run <b>Deploy to GitHub Pages</b>.</li>
@@ -1520,19 +1637,15 @@ function healthCard() {
 views.settings = () => {
   const s = state.settings;
   return `
+  <div class="settings">
   <div class="section-title">Settings</div>
-  <div class="page-grid" style="grid-template-columns:repeat(auto-fill,minmax(380px,1fr))">
-    ${houseCard()}
+    <h3 class="set-group">General</h3>
     <div class="card">
-      <div class="card-head">${icon('home')}<h2>Household</h2></div>
-      <div class="profiles">${USERS.map((u) => `<div class="profile">${avatar(u.id, 'lg')}<b>${u.name}</b></div>`).join('')}</div>
+      <div class="card-head">${icon('monitor')}<h2>Display &amp; weather</h2></div>
       <div class="field"><label for="set-place">Weather location</label>
         <div style="display:flex;gap:8px"><input class="input" id="set-place" placeholder="Search a city" value="${esc(s.place.name)}">
-        <button class="btn" data-action="place-search">${icon('search')}</button></div>
+        <button class="btn" data-action="place-search" aria-label="Search">${icon('search')}</button></div>
         <div class="chips" id="place-results"></div></div>
-    </div>
-    <div class="card">
-      <div class="card-head">${icon('monitor')}<h2>Display</h2></div>
       <div class="setting-row"><div><b>Temperature</b></div>
         <div class="seg">${['F', 'C'].map((u) => `<button class="${s.unit === u ? 'on' : ''}" data-action="set-unit" data-v="${u}">°${u}</button>`).join('')}</div></div>
       <div class="setting-row"><div><b>Theme</b><div class="hint">Auto goes dark from 9 PM to 6 AM.</div></div>
@@ -1542,13 +1655,15 @@ views.settings = () => {
       <div class="setting-row"><div><b>Keep screen on</b><div class="hint">Stops the screen from sleeping while the dashboard is open.</div></div>
         <button class="switch" role="switch" aria-checked="${s.wakeLock}" data-action="set-wake"></button></div>
     </div>
+    ${houseCard()}
+    <h3 class="set-group">Connections</h3>
     <div class="card">
       <div class="card-head">${icon('zap')}<h2>PG&amp;E energy</h2></div>
       ${syncBanner(true, false)}
       <div class="field"><label for="energy-pass">Sync passphrase</label>
         <div style="display:flex;gap:8px"><input class="input" id="energy-pass" type="password" autocomplete="off" placeholder="${energyPass ? 'Saved on this device' : 'The ENERGY_PASSPHRASE you chose'}">
         <button class="btn" data-action="energy-connect">${energyPass ? 'Update' : 'Connect'}</button></div></div>
-      <details class="setup"${energyPass ? '' : ' open'}><summary>How to sign in to PG&amp;E (one time)</summary>
+      <details class="setup"><summary>How to sign in to PG&amp;E (one time)</summary>
         <p class="hint">This device never signs in to PG&amp;E itself. A GitHub job signs in to PG&amp;E every morning and saves your usage, locked with your passphrase.</p>
         <ol class="hint">
           <li>In the Home-Assistance repo on GitHub, open <b>Settings › Secrets and variables › Actions</b> and add <code>PGE_USERNAME</code>, <code>PGE_PASSWORD</code> and <code>ENERGY_PASSPHRASE</code> (a phrase you make up).</li>
@@ -1564,6 +1679,16 @@ views.settings = () => {
       </div>
     </div>
     ${healthCard()}
+    <div class="card">
+      <div class="card-head">${icon('bell')}<h2>Summary email</h2></div>
+      <p class="hint">A GitHub job emails the household at 7 AM, noon, 5 PM and 9 PM with what's on, open tasks, stars and anything in the fridge to use up.</p>
+      <details class="setup"><summary>Turn it on (one time)</summary><ol class="hint">
+        <li>On the sending Gmail account, create an <b>app password</b> (Google Account › Security › 2-Step Verification › App passwords).</li>
+        <li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add <code>EMAIL_SMTP_USER</code> (that Gmail address), <code>EMAIL_SMTP_PASSWORD</code> (the app password), <code>EMAIL_TO</code> (who gets it, comma separated) and <code>HOUSEHOLD_PASSPHRASE</code> (the passphrase you sync with).</li>
+        <li>To try it now, run <b>Daily summary email</b> in the repo's <b>Actions</b> tab.</li>
+      </ol></details>
+    </div>
+    <h3 class="set-group">Data</h3>
     <div class="card">
       <div class="card-head">${icon('sparkles')}<h2>About</h2></div>
       <p class="hint">Display settings stay on this device. Events, tasks and expenses are shared with your other devices when sync is on. Weather comes from Open-Meteo.</p>
@@ -1593,6 +1718,7 @@ function renderView(anim) {
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
   window.scrollTo(0, y);
+  if (swipeNav) { swipeNav = false; view.style.transform = ''; view.style.opacity = ''; animate(view, 'swiped'); }
   if (anim === 'fwd' || anim === 'back') animate(view, `enter-${anim}`);
   else if (anim === 'cal') animate($('.cal-body'), 'fade-in');
 }
@@ -1621,7 +1747,7 @@ function openSheet(html) {
   $('#sheet').hidden = false;
   $('#sheet-backdrop').hidden = false;
   const first = $('#sheet').querySelector('input, textarea');
-  if (first) setTimeout(() => first.focus(), 50);
+  if (first && !$('#sheet [data-nofocus]')) setTimeout(() => first.focus(), 50);
 }
 // Plays the closing animation, then hides the sheet.
 function closeSheet() {
@@ -1640,8 +1766,9 @@ function closeSheet() {
 const sheetHead = (title, ic) => `<h3>${icon(ic)}${title}<button class="btn-round close" data-action="close-sheet" aria-label="Close">${icon('x')}</button></h3>`;
 
 // Person picker shared by the event and task sheets. `allowBoth` adds "Both" and "Anyone".
+// allowBoth: true adds Both and Anyone; 'both' adds only Both.
 function whoPicker(selected, allowBoth) {
-  const opts = [...USERS.map((u) => ({ id: u.id, label: u.name })), ...(allowBoth ? [{ id: 'both', label: 'Both' }, { id: '', label: 'Anyone' }] : [])];
+  const opts = [...USERS.map((u) => ({ id: u.id, label: u.name })), ...(allowBoth ? [{ id: 'both', label: 'Both' }] : []), ...(allowBoth === true ? [{ id: '', label: 'Anyone' }] : [])];
   return `<div class="who-pick" id="who-pick">${opts.map((o) => `
     <button class="who-opt ${o.id === selected ? 'on' : ''}" data-action="pick-who" data-who="${o.id}">${avatar(o.id, 'sm') || `<span class="av-none">${icon('calendar')}</span>`}${o.label}</button>`).join('')}</div>`;
 }
@@ -1871,6 +1998,40 @@ const actions = {
   },
   'clear-energy': () => { energy = null; try { localStorage.removeItem(ENERGY_KEY); } catch { /* ignore */ } toast('Energy data removed'); },
   'add-expense': () => openExpenseSheet(null),
+  'add-fridge': () => openFridgeSheet(null),
+  'edit-fridge': (el) => openFridgeSheet(state.fridge.find((x) => x.id === el.dataset.id)),
+  'save-fridge': (el) => {
+    const name = $('#fr-name').value.trim();
+    if (!name) { toast('Add what the item is'); return; }
+    const data = { name, qty: Math.max(1, Math.round(Number($('#fr-qty').value) || 1)), cat: $('#fr-cat').value, use: $('#fr-use').value };
+    const existing = state.fridge.find((x) => x.id === el.dataset.id);
+    if (existing) Object.assign(existing, data);
+    else state.fridge.push({ id: `f${Date.now()}`, added: isoDay(new Date()), ...data, use: data.use || suggestUse(data.cat) });
+    closeSheet();
+  },
+  'del-fridge': (el) => { state.fridge = state.fridge.filter((x) => x.id !== el.dataset.id); closeSheet(); },
+  'use-fridge': (el) => {
+    const it = state.fridge.find((x) => x.id === el.dataset.id);
+    if (!it) return;
+    it.qty -= 1;
+    if (it.qty <= 0) { state.fridge = state.fridge.filter((x) => x !== it); toast(`${it.name} is used up`); }
+  },
+  'rc-tick': (el) => { el.classList.toggle('on'); el.closest('.rc-row').classList.toggle('off', !el.classList.contains('on')); },
+  'save-receipt': () => {
+    const today = isoDay(new Date()); const t = Date.now();
+    let n = 0;
+    $('#sheet').querySelectorAll('.rc-row').forEach((row, i) => {
+      const name = row.querySelector('.rc-name').value.trim();
+      if (!row.querySelector('.rc-tick').classList.contains('on') || !name) return;
+      const cat = row.querySelector('.rc-cat').value;
+      const qty = Math.max(1, Math.round(Number(row.querySelector('.rc-qty').value) || 1));
+      const same = state.fridge.find((x) => x.name.toLowerCase() === name.toLowerCase());
+      if (same) { same.qty += qty; same.added = today; same.use = suggestUse(cat) || same.use; } else state.fridge.push({ id: `f${t + i}`, name, qty, cat, added: today, use: suggestUse(cat) });
+      n += 1;
+    });
+    closeSheet();
+    toast(`Added ${n} item${n === 1 ? '' : 's'} to the fridge`);
+  },
   'edit-expense': (el) => openExpenseSheet(state.expenses.find((x) => x.id === el.dataset.id)),
   'save-expense': (el) => {
     const title = $('#ex-title').value.trim();
@@ -1883,6 +2044,15 @@ const actions = {
     else state.expenses.push({ id: `x${Date.now()}`, ...data });
     piggyMonth = date.slice(0, 7);
     closeSheet();
+  },
+  'settle-up': () => {
+    const st = expenseStats(expensesIn(piggyMonth));
+    if (st.owed < 0.005) return;
+    if (!confirm(`Mark that ${st.from.name} paid ${st.to.name} ${fmtCash(st.owed)}?`)) return;
+    const today = isoDay(new Date());
+    const date = piggyMonth === monthKey(new Date()) ? today : isoDay(monthBounds(piggyMonth)[1]);
+    state.expenses.push({ id: `x${Date.now()}`, kind: 'settle', title: 'Settled up', amount: Math.round(st.owed * 100) / 100, date, paidBy: st.from.id, to: st.to.id, split: false });
+    toast('All square');
   },
   'del-expense': (el) => {
     state.expenses = state.expenses.filter((x) => x.id !== el.dataset.id);
@@ -1898,13 +2068,13 @@ const actions = {
 
   reset: () => {
     if (!confirm('Clear all events and tasks on this device?')) return;
-    state = { ...defaultState(), settings: state.settings, expenses: state.expenses, health: state.health, events: [], tasks: [] };
+    state = { ...defaultState(), settings: state.settings, expenses: state.expenses, fridge: state.fridge, health: state.health, events: [], tasks: [] };
     save();
   },
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['pick-who', 'pick-seg', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense']);
+const NO_RERENDER = new Set(['pick-who', 'pick-seg', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -1924,6 +2094,17 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#she
 const sheetObserver = new MutationObserver(() => { if ($('#sheet').hidden) renderView(); });
 sheetObserver.observe($('#sheet'), { attributes: true, attributeFilter: ['hidden'] });
 
+// A new fridge item picks its kind from the name, until the kind is chosen by hand.
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'fr-cat') e.target.dataset.picked = '1';
+  const cat = $('#fr-cat');
+  if (e.target.id === 'fr-name' && cat && !cat.dataset.picked && !$('#sheet [data-action="del-fridge"]')) cat.value = guessCat(e.target.value);
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'receipt-file' || !e.target.files[0]) return;
+  scanReceipt(e.target.files[0]);
+  e.target.value = '';
+});
 document.addEventListener('change', async (e) => {
   if (e.target.id !== 'energy-file') return;
   let read = 0;
