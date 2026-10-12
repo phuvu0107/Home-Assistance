@@ -40,6 +40,10 @@ async function open(key, box) {
 /* ---------- State <-> items ---------- */
 const LISTS = { e: 'events', t: 'tasks', x: 'expenses', l: 'log', f: 'fridge' };
 const strip = ({ u, ...rest }) => rest;
+// Items this version of the app reads and writes. Anything else in the household doc came from a
+// newer version (a screen that hasn't reloaded since an update is still on the old one), so it is
+// passed along untouched instead of being treated as deleted.
+const managed = (k) => k === 'stars' || k.startsWith('h:') || (k.split(':')[0] in LISTS && k.includes(':'));
 const same = (a, b) => JSON.stringify(strip(a)) === JSON.stringify(strip(b));
 
 function toItems(state) {
@@ -112,7 +116,8 @@ export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) 
   const status = (s, extra = {}) => onStatus({ state: s, ...extra });
 
   // Work out what changed locally since the last sync: new or edited items get a fresh
-  // time, and items that disappeared get a deletion note.
+  // time, and items that disappeared get a deletion note. Only items this version knows about
+  // can be deleted, so an older app can never wipe out data it doesn't understand.
   function localDoc() {
     const now = Date.now();
     const items = toItems(getState());
@@ -121,7 +126,11 @@ export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) 
       const was = base?.items?.[k];
       items[k] = { ...it, u: was && same(was, it) ? was.u : now };
     }
-    for (const k of Object.keys(base?.items || {})) if (!items[k]) gone[k] = now;
+    for (const [k, it] of Object.entries(base?.items || {})) {
+      if (items[k]) continue;
+      if (managed(k)) gone[k] = now;
+      else items[k] = it; // kept as is, with its own update time
+    }
     return { items, gone };
   }
 

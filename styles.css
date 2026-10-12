@@ -496,9 +496,10 @@ label.btn { cursor: pointer; }
 .view .card:nth-child(3) { animation-delay: .06s; }
 .view .card:nth-child(4) { animation-delay: .09s; }
 .view.dragging { will-change: transform, opacity; transition: none; }
-/* After a swipe the page itself slides in; the cards don't also rise one by one. */
-.view.swiped.enter-fwd, .view.swiped.enter-back { animation-duration: .3s; }
-.view.swiped .card, .view.swiped .board > * { animation: none; }
+/* The neighbor page during a swipe: drawn beside the current one and moved with it. */
+.main { position: relative; overflow-x: clip; }
+.view-peek { position: absolute; pointer-events: none; will-change: transform; }
+.view-peek .card, .view-peek .board > * { animation: none !important; }
 .view.settling { transition: transform .32s var(--ease-out), opacity .32s var(--ease-out); }
 .tabs.dragging .tab-ink { transition: none !important; }
 .cal-body.fade-in { animation: fade-in .3s ease-out; }
