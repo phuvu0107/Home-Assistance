@@ -5,6 +5,7 @@ import { icon, hydrateIcons } from './icons.js';
    ========================================================= */
 const STORE_KEY = 'home-dashboard.v2';
 const WEATHER_KEY = 'home-dashboard.weather.v1';
+const ENERGY_KEY = 'home-dashboard.energy.v1';
 
 // The two people in the household. `color` picks one of the existing c-* color families.
 const USERS = [
@@ -243,6 +244,198 @@ async function fetchWeather() {
   if (currentRoute() === 'home') renderView();
 }
 
+/* =========================================================
+   Energy (PG&E Green Button CSV, loaded by hand in Settings)
+   ========================================================= */
+// Shape: { electric: { 'YYYY-MM-DD': [kWh, cost] }, gas: { 'YYYY-MM-DD': [therms, cost] } }
+let energy = null;
+try { energy = JSON.parse(localStorage.getItem(ENERGY_KEY)); } catch { energy = null; }
+const saveEnergy = () => { try { localStorage.setItem(ENERGY_KEY, JSON.stringify(energy)); } catch { /* ignore */ } };
+
+const csvCells = (line) => (line.match(/("([^"]|"")*"|[^,]*)(,|$)/g) || []).map((c) => c.replace(/,$/, '').replace(/^"|"$/g, '').replace(/""/g, '"').trim());
+const money = (v) => Number(String(v || '').replace(/[$,\s]/g, '')) || 0;
+
+// Reads a PG&E "Download My Data" CSV (usage or billing export) into daily totals.
+// Returns the number of days read, or 0 when the file isn't in that format.
+function importGreenButton(text) {
+  const lines = text.split(/\r?\n/);
+  const at = lines.findIndex((l) => /^"?TYPE"?,/i.test(l));
+  if (at < 0) return 0;
+  const head = csvCells(lines[at]).map((h) => h.toUpperCase());
+  const col = (re) => head.findIndex((h) => re.test(h));
+  const iType = col(/^TYPE$/); const iDate = col(/^(START )?DATE$/); const iUse = col(/^USAGE/);
+  const iUnit = col(/^UNITS$/); const iCost = col(/^COST$/);
+  if (iDate < 0 || iUse < 0) return 0;
+  energy = energy || { electric: {}, gas: {} };
+  const days = new Set();
+  const fresh = {};
+  for (const line of lines.slice(at + 1)) {
+    const c = csvCells(line);
+    if (c.length <= iUse || !/^\d{4}-\d{2}-\d{2}$/.test(c[iDate])) continue;
+    const label = `${c[iType] || ''} ${iUnit >= 0 ? c[iUnit] : ''} ${head[iUse]}`.toLowerCase();
+    const kind = /gas|therm/.test(label) ? 'gas' : 'electric';
+    const key = `${kind}|${c[iDate]}`;
+    // A day in a new file replaces that day from older files instead of adding to it.
+    if (!fresh[key]) { fresh[key] = true; energy[kind][c[iDate]] = [0, 0]; }
+    const d = energy[kind][c[iDate]];
+    d[0] += Number(c[iUse]) || 0;
+    d[1] += iCost >= 0 ? money(c[iCost]) : 0;
+    days.add(c[iDate]);
+  }
+  if (!days.size) return 0;
+  energy.loadedAt = Date.now();
+  saveEnergy();
+  return days.size;
+}
+
+const energyDays = () => [...new Set([...Object.keys(energy?.electric || {}), ...Object.keys(energy?.gas || {})])].sort();
+const dayTotal = (iso) => {
+  const e = energy.electric[iso] || [0, 0]; const g = energy.gas[iso] || [0, 0];
+  return { kwh: e[0], therms: g[0], eCost: e[1], gCost: g[1], cost: e[1] + g[1] };
+};
+const sumDays = (list) => list.map(dayTotal).reduce((a, d) => ({ kwh: a.kwh + d.kwh, therms: a.therms + d.therms, cost: a.cost + d.cost }), { kwh: 0, therms: 0, cost: 0 });
+const fmtMoney = (n) => `$${n.toFixed(n >= 100 ? 0 : 2)}`;
+const fmtShort = (iso) => new Date(`${iso}T12:00`).toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+// Auto sync: the Pages workflow publishes data/energy.enc.json every morning
+// (see sync/pge_sync.py). The passphrase typed in Settings unlocks it here.
+const PASS_KEY = 'home-dashboard.energy-pass.v1';
+let energyPass = '';
+try { energyPass = localStorage.getItem(PASS_KEY) || ''; } catch { energyPass = ''; }
+let energySync = { state: energyPass ? 'checking' : 'off' };
+
+const fromB64 = (v) => Uint8Array.from(atob(v), (c) => c.charCodeAt(0));
+async function decryptEnergy(box, pass) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: fromB64(box.salt), iterations: box.iter },
+    base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(box.iv) }, key, fromB64(box.data));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+async function syncEnergy() {
+  if (!energyPass) { energySync = { state: 'off' }; return; }
+  let box;
+  try {
+    const res = await fetch('data/energy.enc.json', { cache: 'no-store' });
+    if (res.status === 404) { energySync = { state: 'nofile' }; refreshEnergyViews(); return; }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    box = await res.json();
+  } catch {
+    energySync = { state: 'unreachable', at: energy?.syncedAt };
+    refreshEnergyViews();
+    return;
+  }
+  try {
+    const data = await decryptEnergy(box, energyPass);
+    energy = energy || { electric: {}, gas: {} };
+    for (const k of ['electric', 'gas']) energy[k] = { ...(energy[k] || {}), ...(data[k] || {}) };
+    energy.syncedAt = data.syncedAt;
+    saveEnergy();
+    energySync = { state: Date.now() - data.syncedAt > 36 * 36e5 ? 'stale' : 'ok', at: data.syncedAt };
+  } catch {
+    energySync = { state: 'badpass' };
+  }
+  refreshEnergyViews();
+}
+function refreshEnergyViews() {
+  if (['home', 'energy', 'settings'].includes(currentRoute()) && $('#sheet').hidden && !document.activeElement?.matches('input, textarea')) renderView();
+}
+
+// One sentence on whether PG&E data is flowing, and what to do if it isn't.
+function syncMessage() {
+  const at = energySync.at ? ago(energySync.at) : '';
+  switch (energySync.state) {
+    case 'ok': return { ok: true, text: `Syncing from PG&E every morning. Last update ${at}.` };
+    case 'checking': return { ok: true, text: 'Checking for new PG&E data…' };
+    case 'stale': return { ok: false, text: `Not syncing. The last PG&E update was ${at}, so the PG&E sign-in may need renewing in Settings.` };
+    case 'nofile': return { ok: false, text: "Not syncing. The daily PG&E job hasn't published any data yet. Finish signing in to PG&E in Settings." };
+    case 'badpass': return { ok: false, text: "Not syncing. The passphrase on this device doesn't match. Re-enter it in Settings." };
+    case 'unreachable': return { ok: false, text: `Can't reach the PG&E data right now${at ? `. Last update ${at}` : ''}. It will try again.` };
+    default: return { ok: false, text: 'Not syncing. Sign in to PG&E in Settings to get daily updates.' };
+  }
+}
+// `always` also shows the all-good line; `link` sends a not-syncing banner to Settings.
+function syncBanner(always = false, link = true) {
+  const m = syncMessage();
+  if (m.ok && !always) return '';
+  if (m.ok) return `<p class="sync-line">${icon('check')}${m.text}</p>`;
+  return link
+    ? `<a class="sync-banner" href="#/settings">${icon('zap')}<span>${m.text}</span><b>Settings ${icon('arrowRight')}</b></a>`
+    : `<div class="sync-banner">${icon('zap')}<span>${m.text}</span></div>`;
+}
+
+// Daily or monthly rows for a range, newest last. Each row: { key, label, kwh, therms, eCost, gCost, cost }
+function energyRows(range) {
+  const all = energyDays();
+  if (!all.length) return [];
+  const last = new Date(`${all[all.length - 1]}T12:00`);
+  if (range === '12m') {
+    return Array.from({ length: 12 }, (_, i) => {
+      const m = new Date(last.getFullYear(), last.getMonth() - 11 + i, 1);
+      const key = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`;
+      const days = all.filter((d) => d.startsWith(key)).map(dayTotal);
+      const t = days.reduce((a, d) => ({ kwh: a.kwh + d.kwh, therms: a.therms + d.therms, eCost: a.eCost + d.eCost, gCost: a.gCost + d.gCost }), { kwh: 0, therms: 0, eCost: 0, gCost: 0 });
+      return { key, label: m.toLocaleDateString([], { month: 'short' }), days: days.length, ...t, cost: t.eCost + t.gCost };
+    });
+  }
+  const n = Number(range) || 30;
+  return Array.from({ length: n }, (_, i) => {
+    const key = isoDay(addDays(last, i - n + 1));
+    return { key, label: fmtShort(key), days: all.includes(key) ? 1 : 0, ...dayTotal(key) };
+  });
+}
+
+function energyChart(rows, height = 130) {
+  const hasCost = rows.some((r) => r.cost > 0);
+  const val = (r) => (hasCost ? r.cost : r.kwh);
+  const max = Math.max(...rows.map(val), 0.01);
+  const w = 300 / rows.length;
+  const bw = Math.max(1, w * 0.72);
+  const bars = rows.map((r, i) => {
+    const x = (i * w + (w - bw) / 2).toFixed(2);
+    const hE = ((hasCost ? r.eCost : r.kwh) / max) * 100;
+    const hG = hasCost ? (r.gCost / max) * 100 : 0;
+    return `<rect class="bar-e" x="${x}" y="${100 - hE}" width="${bw.toFixed(2)}" height="${hE}"><title>${r.label}: ${hasCost ? fmtMoney(r.eCost) : `${r.kwh.toFixed(1)} kWh`}</title></rect>${hG ? `<rect class="bar-g" x="${x}" y="${100 - hE - hG}" width="${bw.toFixed(2)}" height="${hG}"><title>${r.label} gas: ${fmtMoney(r.gCost)}</title></rect>` : ''}`;
+  }).join('');
+  const gas = rows.some((r) => r.gCost > 0);
+  return `<div class="energy-chart">
+    <div class="chart-top"><span>${hasCost ? 'Cost' : 'kWh'} per ${rows.length === 12 ? 'month' : 'day'}</span><span>${hasCost && gas ? '<i class="key-e"></i>Electric <i class="key-g"></i>Gas · ' : ''}top ${hasCost ? fmtMoney(max) : `${max.toFixed(1)} kWh`}</span></div>
+    <svg viewBox="0 0 300 100" preserveAspectRatio="none" style="height:${height}px" role="img" aria-label="${hasCost ? 'Cost' : 'Usage'} chart">${bars}</svg>
+    <div class="chart-axis"><span>${rows[0].label}</span><span>${rows[rows.length - 1].label}</span></div>
+  </div>`;
+}
+
+function energyTotals(rows) {
+  const t = rows.reduce((a, r) => ({ kwh: a.kwh + r.kwh, therms: a.therms + r.therms, eCost: a.eCost + r.eCost, gCost: a.gCost + r.gCost, days: a.days + r.days }), { kwh: 0, therms: 0, eCost: 0, gCost: 0, days: 0 });
+  return { ...t, cost: t.eCost + t.gCost };
+}
+
+function energyCard() {
+  const all = energyDays();
+  const head = `<div class="card-head">${icon('zap')}<h2>Energy</h2>${all.length ? `<a class="link" href="#/energy">Details ${icon('arrowRight')}</a>` : ''}</div>`;
+  if (!all.length) return `<div class="card a-energy">${head}${syncBanner()}</div>`;
+  const last = all[all.length - 1];
+  const rows = energyRows('30');
+  const now = energyTotals(rows);
+  const prev = sumDays(energyRows('60').slice(0, 30).filter((r) => r.days).map((r) => r.key));
+  const month = sumDays(all.filter((d) => d.slice(0, 7) === last.slice(0, 7)));
+  const hasCost = now.cost > 0;
+  const change = prev.cost > 0 && energyRows('60').slice(0, 30).filter((r) => r.days).length >= 25 ? Math.round(((now.cost - prev.cost) / prev.cost) * 100) : null;
+  return `<div class="card a-energy">${head}
+    <div class="energy">
+      <div class="energy-stats">
+        <div><small>${new Date(`${last}T12:00`).toLocaleDateString([], { month: 'long' })} so far</small><b>${hasCost ? fmtMoney(month.cost) : `${Math.round(month.kwh)} kWh`}</b></div>
+        <div><small>Last 30 days</small><b>${hasCost ? fmtMoney(now.cost) : `${Math.round(now.kwh)} kWh`}</b>
+          ${change === null ? '' : change === 0 ? '<span class="trend">Same as the 30 days before</span>' : `<span class="trend ${change > 0 ? 'up' : 'down'}">${icon(change > 0 ? 'arrowUp' : 'arrowDown')}${Math.abs(change)}% vs the 30 days before</span>`}</div>
+      </div>
+      ${energyChart(rows)}
+    </div>
+    <p class="hint energy-foot">PG&amp;E data through ${fmtShort(last)}</p>
+    ${syncBanner()}
+  </div>`;
+}
+
 function weatherValid() {
   const { lat, lon } = state.settings.place;
   return weather && weather.unit === state.settings.unit && weather.placeKey === `${lat},${lon}`;
@@ -255,6 +448,7 @@ const PAGES = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'calendar', label: 'Calendar', icon: 'calendar' },
   { id: 'tasks', label: 'Tasks', icon: 'checkSquare' },
+  { id: 'energy', label: 'Energy', icon: 'zap' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
@@ -263,11 +457,29 @@ const currentRoute = () => {
   return PAGES.some((p) => p.id === r) ? r : 'home';
 };
 
+// The tabs are drawn once; switching tabs slides the highlight to the new one.
 function renderNav() {
   const r = currentRoute();
-  $('#tabs').innerHTML = PAGES.map((p) => `
-    <a class="tab ${p.id === r ? 'active' : ''}" href="#/${p.id}">${icon(p.icon)}<span>${p.label}</span></a>`).join('');
+  const tabs = $('#tabs');
+  if (!tabs.children.length) {
+    tabs.innerHTML = `<span class="tab-ink" aria-hidden="true"></span>${PAGES.map((p) => `
+      <a class="tab" href="#/${p.id}" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span></a>`).join('')}`;
+  }
+  tabs.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === r));
+  moveInk();
 }
+function moveInk() {
+  const t = $('#tabs .tab.active');
+  const ink = $('#tabs .tab-ink');
+  if (!t || !ink) return;
+  const r = t.getBoundingClientRect();
+  const bar = t.parentElement.getBoundingClientRect();
+  ink.style.width = `${r.width}px`;
+  ink.style.transform = `translateX(${r.left - bar.left + t.parentElement.scrollLeft - 6}px)`;
+}
+// The bar can change width without a window resize (a page scrollbar appearing, fonts loading).
+new ResizeObserver(moveInk).observe($('#tabs'));
+document.fonts?.ready.then(() => { moveInk(); requestAnimationFrame(() => $('#tabs').classList.add('ink-ready')); });
 
 /* =========================================================
    Views
@@ -405,6 +617,7 @@ views.home = () => `
         }).join('')}
       </div>
     </div>
+    ${energyCard()}
   </div>`;
 
 /* ---------- Calendar ---------- */
@@ -513,7 +726,7 @@ views.calendar = () => {
       <div class="seg">${['week', 'month'].map((x) => `<button class="${v === x ? 'on' : ''}" data-action="cal-view" data-v="${x}">${x === 'week' ? 'Week' : 'Month'}</button>`).join('')}</div>
       <button class="btn-round accent" data-action="add-event" data-d="${isoDay(new Date())}" aria-label="Add event">${icon('plus')}</button>
     </div>
-    ${v === 'month' ? monthView() : weekView()}
+    <div class="cal-body">${v === 'month' ? monthView() : weekView()}</div>
   </div>`;
 };
 
@@ -529,6 +742,42 @@ views.tasks = () => `
         <button class="add-task" data-action="add-task" data-who="${u.id}">${icon('plus')} Add a task for ${u.name}</button>
       </div>`).join('')}
   </div>`;
+
+/* ---------- Energy ---------- */
+const ENERGY_RANGES = { 30: '30 days', 90: '90 days', '12m': '12 months' };
+views.energy = () => {
+  const range = state.settings.energyRange || '30';
+  const all = energyDays();
+  if (!all.length) {
+    return `<div class="section-title">Energy</div>
+    <div class="card energy-empty">${syncBanner()}
+      <p class="hint">Once PG&amp;E data comes in, this page shows your daily and monthly use and cost, split into electric and gas.</p></div>`;
+  }
+  const rows = energyRows(range);
+  const t = energyTotals(rows);
+  const months = energyRows('12m').filter((r) => r.days).reverse();
+  const perDay = t.days ? t.cost / t.days : 0;
+  return `<div class="section-title">Energy<span class="spacer"></span>
+    <div class="seg">${Object.entries(ENERGY_RANGES).map(([k, l]) => `<button class="${range === k ? 'on' : ''}" data-action="energy-range" data-v="${k}">${l}</button>`).join('')}</div></div>
+  ${syncBanner(true)}
+  <div class="energy-tiles">
+    <div class="card tile"><small>Total cost</small><b>${fmtMoney(t.cost)}</b><span>${t.days} day${t.days === 1 ? '' : 's'} of data</span></div>
+    <div class="card tile"><small><i class="key-e"></i>Electric</small><b>${fmtMoney(t.eCost)}</b><span>${Math.round(t.kwh).toLocaleString()} kWh</span></div>
+    <div class="card tile"><small><i class="key-g"></i>Gas</small><b>${fmtMoney(t.gCost)}</b><span>${Math.round(t.therms).toLocaleString()} therms</span></div>
+    <div class="card tile"><small>Average per day</small><b>${fmtMoney(perDay)}</b><span>${t.days ? (t.kwh / t.days).toFixed(1) : 0} kWh a day</span></div>
+  </div>
+  <div class="card energy-main">${energyChart(rows, 220)}</div>
+  <div class="card">
+    <div class="card-head">${icon('calendar')}<h2>By month</h2><span class="hint">PG&amp;E data through ${fmtShort(all[all.length - 1])}</span></div>
+    <div class="table-wrap"><table class="energy-table">
+      <thead><tr><th>Month</th><th>Electric</th><th>Gas</th><th>Total</th></tr></thead>
+      <tbody>${months.map((m) => `<tr><td>${new Date(`${m.key}-15T12:00`).toLocaleDateString([], { month: 'long', year: 'numeric' })}${m.days < 28 ? ` <span class="muted">(${m.days} days)</span>` : ''}</td>
+        <td>${fmtMoney(m.eCost)} <span class="muted">${Math.round(m.kwh)} kWh</span></td>
+        <td>${fmtMoney(m.gCost)} <span class="muted">${Math.round(m.therms)} therms</span></td>
+        <td><b>${fmtMoney(m.cost)}</b></td></tr>`).join('')}</tbody>
+    </table></div>
+  </div>`;
+};
 
 views.settings = () => {
   const s = state.settings;
@@ -555,6 +804,27 @@ views.settings = () => {
         <button class="switch" role="switch" aria-checked="${s.wakeLock}" data-action="set-wake"></button></div>
     </div>
     <div class="card">
+      <div class="card-head">${icon('zap')}<h2>PG&amp;E energy</h2></div>
+      ${syncBanner(true, false)}
+      <div class="field"><label for="energy-pass">Sync passphrase</label>
+        <div style="display:flex;gap:8px"><input class="input" id="energy-pass" type="password" autocomplete="off" placeholder="${energyPass ? 'Saved on this device' : 'The ENERGY_PASSPHRASE you chose'}">
+        <button class="btn" data-action="energy-connect">${energyPass ? 'Update' : 'Connect'}</button></div></div>
+      <details class="setup"${energyPass ? '' : ' open'}><summary>How to sign in to PG&amp;E (one time)</summary>
+        <p class="hint">The fridge never signs in itself. A GitHub job signs in to PG&amp;E every morning and saves your usage, locked with your passphrase.</p>
+        <ol class="hint">
+          <li>In the Home-Assistance repo on GitHub, open <b>Settings › Secrets and variables › Actions</b> and add <code>PGE_USERNAME</code>, <code>PGE_PASSWORD</code> and <code>ENERGY_PASSPHRASE</code> (a phrase you make up).</li>
+          <li>PG&amp;E sends a code the first time a new device signs in. On your computer run <code>python3 sync/pge_pair.py</code>, enter the code, and save the line it prints as <code>PGE_LOGIN_DATA</code>.</li>
+          <li>In the repo's <b>Actions</b> tab, run <b>Deploy to GitHub Pages</b>. It then runs every morning by itself.</li>
+          <li>Type the same passphrase above and tap Connect.</li>
+        </ol></details>
+      <p class="hint">Or load a PG&amp;E <b>Download My Data</b> CSV by hand.${energyDays().length ? ` ${energyDays().length} days stored, ${fmtShort(energyDays()[0])} to ${fmtShort(energyDays().at(-1))}.` : ''}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <label class="btn ghost">${icon('plug')} Load PG&amp;E file<input type="file" id="energy-file" accept=".csv,text/csv" multiple hidden></label>
+        ${energyPass ? `<button class="btn ghost" data-action="energy-disconnect">Stop syncing</button>` : ''}
+        ${energyDays().length ? `<button class="btn ghost" data-action="clear-energy">${icon('trash')} Remove data</button>` : ''}
+      </div>
+    </div>
+    <div class="card">
       <div class="card-head">${icon('sparkles')}<h2>About</h2></div>
       <p class="hint">Events, tasks and settings are saved on this device only. Weather comes from Open-Meteo.</p>
       <button class="btn danger" data-action="reset">${icon('trash')} Clear events and tasks</button>
@@ -563,7 +833,17 @@ views.settings = () => {
 };
 
 let wkScroll = null;
-function renderView() {
+// Replays a CSS entrance animation on an element.
+function animate(el, cls) {
+  if (!el) return;
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+  // Drop the class once it has played, so later re-renders don't replay it.
+  clearTimeout(el.animTimer);
+  el.animTimer = setTimeout(() => el.classList.remove(cls), 700);
+}
+function renderView(anim) {
   const r = currentRoute();
   const view = $('#view');
   const y = window.scrollY;
@@ -573,26 +853,48 @@ function renderView() {
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
   window.scrollTo(0, y);
+  if (anim === 'fwd' || anim === 'back') animate(view, `enter-${anim}`);
+  else if (anim === 'cal') animate($('.cal-body'), 'fade-in');
 }
 
+let lastRoute = null;
 function render() {
+  const r = currentRoute();
+  const order = (id) => PAGES.findIndex((p) => p.id === id);
+  const anim = lastRoute && lastRoute !== r ? (order(r) > order(lastRoute) ? 'fwd' : 'back') : null;
+  lastRoute = r;
   renderNav();
-  renderView();
+  renderView(anim);
+  moveInk();
 }
 
 /* =========================================================
    Sheets (modal dialogs)
    ========================================================= */
+let sheetTimer = null;
 function openSheet(html) {
+  clearTimeout(sheetTimer);
+  $('#sheet').classList.remove('closing');
+  $('#sheet-backdrop').classList.remove('closing');
   $('#sheet').innerHTML = html;
   $('#sheet').hidden = false;
   $('#sheet-backdrop').hidden = false;
   const first = $('#sheet').querySelector('input, textarea');
   if (first) setTimeout(() => first.focus(), 50);
 }
+// Plays the closing animation, then hides the sheet.
 function closeSheet() {
-  $('#sheet').hidden = true;
-  $('#sheet-backdrop').hidden = true;
+  if ($('#sheet').hidden) return;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  $('#sheet').classList.add('closing');
+  $('#sheet-backdrop').classList.add('closing');
+  clearTimeout(sheetTimer);
+  sheetTimer = setTimeout(() => {
+    $('#sheet').hidden = true;
+    $('#sheet-backdrop').hidden = true;
+    $('#sheet').classList.remove('closing');
+    $('#sheet-backdrop').classList.remove('closing');
+  }, reduced ? 0 : 160);
 }
 const sheetHead = (title, ic) => `<h3>${icon(ic)}${title}<button class="btn-round close" data-action="close-sheet" aria-label="Close">${icon('x')}</button></h3>`;
 
@@ -728,6 +1030,22 @@ const actions = {
     toast(`Weather location set to ${el.dataset.name}`);
     fetchWeather();
   },
+  'energy-range': (el) => { state.settings.energyRange = el.dataset.v; save(); },
+  'energy-connect': () => {
+    const v = $('#energy-pass').value;
+    if (!v) { toast('Type the passphrase first'); return; }
+    energyPass = v;
+    try { localStorage.setItem(PASS_KEY, v); } catch { /* ignore */ }
+    energySync = { state: 'checking' };
+    $('#energy-pass').blur();
+    syncEnergy();
+  },
+  'energy-disconnect': () => {
+    energyPass = '';
+    try { localStorage.removeItem(PASS_KEY); } catch { /* ignore */ }
+    energySync = { state: 'off' };
+  },
+  'clear-energy': () => { energy = null; try { localStorage.removeItem(ENERGY_KEY); } catch { /* ignore */ } toast('Energy data removed'); },
   reset: () => {
     if (!confirm('Clear all events and tasks on this device?')) return;
     state = { ...defaultState(), settings: state.settings, events: [], tasks: [] };
@@ -746,7 +1064,7 @@ document.addEventListener('click', (e) => {
   if (!fn) return;
   fn(el, e);
   save();
-  if (!NO_RERENDER.has(name)) renderView();
+  if (!NO_RERENDER.has(name)) renderView(['cal-move', 'cal-today', 'cal-view'].includes(name) ? 'cal' : undefined);
 });
 
 $('#sheet-backdrop').addEventListener('click', closeSheet);
@@ -755,6 +1073,14 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#she
 // Refresh the page behind a sheet when it closes, so a saved event or task shows up.
 const sheetObserver = new MutationObserver(() => { if ($('#sheet').hidden) renderView(); });
 sheetObserver.observe($('#sheet'), { attributes: true, attributeFilter: ['hidden'] });
+
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 'energy-file') return;
+  let read = 0;
+  for (const f of e.target.files) read += importGreenButton(await f.text());
+  toast(read ? `Energy data now covers ${energyDays().length} days` : "That file doesn't look like a PG&E Download My Data CSV");
+  renderView();
+});
 
 document.addEventListener('keydown', (e) => {
   if (e.target.id === 'set-place' && e.key === 'Enter') searchPlace();
@@ -837,6 +1163,7 @@ tickClock();
 setTimeout(() => { skyReady = true; tickClock(); }, 400);
 render();
 fetchWeather();
+syncEnergy();
 syncWakeLock();
 
 window.addEventListener('hashchange', () => {
@@ -857,7 +1184,8 @@ setInterval(() => {
   }
 }, 1000);
 setInterval(fetchWeather, 15 * 60 * 1000);
-window.addEventListener('online', fetchWeather);
+setInterval(syncEnergy, 60 * 60 * 1000);
+window.addEventListener('online', () => { fetchWeather(); syncEnergy(); });
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

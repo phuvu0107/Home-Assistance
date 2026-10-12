@@ -3,6 +3,9 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  schedule:
+    # Every morning at about 7 AM Pacific, to pick up yesterday's PG&E data.
+    - cron: '0 14 * * *'
   workflow_dispatch:
 
 permissions:
@@ -20,13 +23,36 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      HAS_PGE: ${{ secrets.PGE_USERNAME != '' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
+      - id: pages
+        uses: actions/configure-pages@v5
       - name: Collect site files
         run: |
-          mkdir _site
+          mkdir -p _site/data
           cp -r index.html styles.css app.js icons.js sw.js manifest.webmanifest icons avatars _site/
+      - uses: actions/setup-python@v5
+        if: env.HAS_PGE == 'true'
+        with:
+          python-version: '3.12'
+      # Skipped until the PG&E secrets are added. A failed sync keeps the last
+      # published data and still deploys the site.
+      - name: Sync PG&E energy data
+        if: env.HAS_PGE == 'true'
+        continue-on-error: true
+        working-directory: sync
+        env:
+          PGE_USERNAME: ${{ secrets.PGE_USERNAME }}
+          PGE_PASSWORD: ${{ secrets.PGE_PASSWORD }}
+          PGE_LOGIN_DATA: ${{ secrets.PGE_LOGIN_DATA }}
+          ENERGY_PASSPHRASE: ${{ secrets.ENERGY_PASSPHRASE }}
+          PREV_URL: ${{ steps.pages.outputs.base_url }}/data/energy.enc.json
+          OUT: ../_site/data/energy.enc.json
+        run: |
+          pip install --quiet -r requirements.txt
+          python pge_sync.py
       - uses: actions/upload-pages-artifact@v3
       - id: deployment
         uses: actions/deploy-pages@v4
