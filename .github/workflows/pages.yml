@@ -32,11 +32,16 @@ jobs:
       - name: Collect site files
         run: |
           mkdir -p _site/data
-          cp -r index.html styles.css app.js icons.js sync.js sync-config.js sw.js manifest.webmanifest icons avatars _site/
+          cp -r index.html styles.css app.js icons.js sync.js sync-config.js health.js health-config.js sw.js manifest.webmanifest icons avatars _site/
       - name: Add household sync config
         env:
           FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
         run: python3 sync/make_sync_config.py _site/sync-config.js
+      - name: Add Fitbit sign-in config
+        env:
+          GOOGLE_HEALTH_CLIENT_ID: ${{ secrets.GOOGLE_HEALTH_CLIENT_ID }}
+        run: |
+          python3 -c "import json, os; print('export default ' + json.dumps(os.environ.get('GOOGLE_HEALTH_CLIENT_ID', '').strip() or None) + ';')" > _site/health-config.js
       - uses: actions/setup-python@v5
         if: env.HAS_PGE == 'true'
         with:

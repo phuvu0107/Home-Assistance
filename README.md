@@ -41,6 +41,11 @@ PG&E use and cost for the current bill, from the day the billing cycle started t
 
 ![Energy page](docs/screenshots/energy.png)
 
+### Health
+Fitbit data for each of you: steps today, last night's sleep with deep and REM time, resting heart rate and weight, with 14-day charts and a table of the week. Switch between Phu and Nhi at the top. Each person connects their own Fitbit with Google sign-in (see [Fitbit health sync](#fitbit-health-sync)), and their numbers then show on every screen in the household.
+
+![Health page](docs/screenshots/health.png)
+
 ### Settings
 Sync across devices, weather city, °F/°C, light/dark/auto theme, 24-hour clock, keep screen on, and the PG&E sync passphrase with one-time sign-in steps.
 
@@ -91,9 +96,21 @@ One-time setup:
 
 You can also load a PG&E **Download My Data** CSV in the same Settings card instead.
 
+## Fitbit health sync
+
+Fitbit data comes from the [Google Health API](https://developers.google.com/health), read right in the browser. On the Health tab each person taps **Connect** and signs in with the Google account their Fitbit uses. Google gives the page a read-only pass that lasts about an hour and stays in that browser tab; it's never saved. The page reads the last 30 days, and the daily numbers are shared with the household through [sync](#sync-across-devices), encrypted like everything else, so the fridge screen shows everyone's stats without anyone signing in there. Tap **Update** for the latest; while the pass is still good it refreshes by itself.
+
+One-time setup:
+
+1. In the Google Cloud project, enable the **Google Health API**.
+2. Under **Google Auth Platform**: fill in **Branding**, set **Audience** to External and add each person's Google account as a test user, and under **Data Access** add the `googlehealth.activity_and_fitness.readonly`, `googlehealth.sleep.readonly` and `googlehealth.health_metrics_and_measurements.readonly` scopes.
+3. Under **Clients**, create a **Web application** client with `https://phuvu0107.github.io` as an authorized JavaScript origin. Save its client ID as the Actions secret `GOOGLE_HEALTH_CLIENT_ID` and run **Deploy to GitHub Pages**. The deploy writes it into the published `health-config.js`; the repo copy stays empty.
+
+While the Google app is in Testing, only the test users from step 2 can connect.
+
 ## Sync across devices
 
-Events, tasks, stars and expenses can be shared by every device in the house through a free [Firebase](https://firebase.google.com) Firestore database. Data is encrypted in the browser with a household passphrase before it's sent, so the database only stores scrambled data, and the record's name is a hash of the passphrase.
+Events, tasks, stars, expenses and Fitbit numbers can be shared by every device in the house through a free [Firebase](https://firebase.google.com) Firestore database. Data is encrypted in the browser with a household passphrase before it's sent, so the database only stores scrambled data, and the record's name is a hash of the passphrase.
 
 One-time setup:
 1. Create a Firebase project, then add a Firestore database in production mode.
@@ -133,5 +150,6 @@ python3 -m http.server 8000
 - `sync.js`, `sync-config.js` – encrypted household sync (Firebase Firestore)
 - `avatars/` – Phu's and Nhi's avatars
 - `sw.js`, `manifest.webmanifest`, `icons/` – installable PWA and offline cache
+- `health.js`, `health-config.js` – Fitbit data through Google sign-in and the Google Health API
 - `sync/` – the daily PG&E sync, the one-time sign-in script, the encryption helper and the deploy step that writes the Firebase config
 - `docs/screenshots/` – the README screenshots (sample data)
