@@ -498,6 +498,8 @@ label.btn { cursor: pointer; }
 .sheet h3 { margin: 0 0 18px; font-size: 20px; display: flex; align-items: center; gap: 10px; }
 .sheet h3 .close { margin-left: auto; }
 .sheet-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+.house-intro { margin: -6px 0 16px; color: var(--text-2); font-size: 14px; line-height: 1.5; }
+.sheet .sync-banner { margin: 0 0 16px; }
 .toast {
   position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 50;
   background: #1c2333; color: #fff; padding: 12px 20px; border-radius: 999px; font-weight: 500; box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
