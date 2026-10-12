@@ -800,7 +800,7 @@ views.settings = () => {
         <div class="seg">${['auto', 'light', 'dark'].map((t) => `<button class="${s.theme === t ? 'on' : ''}" data-action="set-theme" data-v="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></div>
       <div class="setting-row"><div><b>24-hour clock</b></div>
         <button class="switch" role="switch" aria-checked="${s.clock24}" data-action="set-clock24"></button></div>
-      <div class="setting-row"><div><b>Keep screen on</b><div class="hint">Stops the Surface from sleeping while the dashboard is open.</div></div>
+      <div class="setting-row"><div><b>Keep screen on</b><div class="hint">Stops the screen from sleeping while the dashboard is open.</div></div>
         <button class="switch" role="switch" aria-checked="${s.wakeLock}" data-action="set-wake"></button></div>
     </div>
     <div class="card">
@@ -810,7 +810,7 @@ views.settings = () => {
         <div style="display:flex;gap:8px"><input class="input" id="energy-pass" type="password" autocomplete="off" placeholder="${energyPass ? 'Saved on this device' : 'The ENERGY_PASSPHRASE you chose'}">
         <button class="btn" data-action="energy-connect">${energyPass ? 'Update' : 'Connect'}</button></div></div>
       <details class="setup"${energyPass ? '' : ' open'}><summary>How to sign in to PG&amp;E (one time)</summary>
-        <p class="hint">The fridge never signs in itself. A GitHub job signs in to PG&amp;E every morning and saves your usage, locked with your passphrase.</p>
+        <p class="hint">This device never signs in to PG&amp;E itself. A GitHub job signs in to PG&amp;E every morning and saves your usage, locked with your passphrase.</p>
         <ol class="hint">
           <li>In the Home-Assistance repo on GitHub, open <b>Settings › Secrets and variables › Actions</b> and add <code>PGE_USERNAME</code>, <code>PGE_PASSWORD</code> and <code>ENERGY_PASSPHRASE</code> (a phrase you make up).</li>
           <li>PG&amp;E sends a code the first time a new device signs in. On your computer run <code>python3 sync/pge_pair.py</code>, enter the code, and save the line it prints as <code>PGE_LOGIN_DATA</code>.</li>
