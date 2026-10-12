@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Home Assistant</title>
+  <meta name="description" content="Touch-friendly home dashboard for a wall or fridge mounted tablet.">
+  <meta name="theme-color" content="#f6f3ee">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <a class="brand" href="#/home">
+        <span class="brand-icon" data-icon="home"></span>
+        <span class="brand-name">Home Assistant</span>
+      </a>
+      <nav class="side-nav" id="side-nav"></nav>
+      <div class="side-weather" id="side-weather"></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="search">
+          <span data-icon="search"></span>
+          <input id="search" type="search" placeholder="Search anything... (e.g. lights, devices, notes)" autocomplete="off">
+          <div class="search-results" id="search-results" hidden></div>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="bell" aria-label="Notifications">
+            <span data-icon="bell"></span>
+            <span class="badge" id="bell-badge" hidden></span>
+          </button>
+          <div class="popover" id="bell-pop" hidden></div>
+          <a class="avatar" id="avatar" href="#/settings" aria-label="Settings">T</a>
+        </div>
+      </header>
+
+      <section class="hero" id="hero">
+        <svg class="hero-art" viewBox="0 0 1000 200" preserveAspectRatio="xMaxYMax slice" aria-hidden="true">
+          <path class="m1" d="M250 200 C380 150 450 115 530 125 C610 135 650 100 720 92 C790 84 840 120 900 118 C950 116 980 110 1000 112 L1000 200Z"/>
+          <path class="m2" d="M400 200 C500 170 590 150 680 158 C770 166 820 140 890 146 C940 150 975 160 1000 162 L1000 200Z"/>
+          <g class="palm" transform="translate(915 118) scale(.75)">
+            <path d="M40 108 C38 80 34 50 26 22" stroke-width="5" fill="none"/>
+            <path d="M26 22 C10 10 -14 12 -26 24 C-8 18 10 20 26 22Z"/>
+            <path d="M26 22 C18 2 0 -8 -14 -4 C0 2 14 10 26 22Z"/>
+            <path d="M26 22 C34 0 54 -6 70 2 C54 4 40 10 26 22Z"/>
+            <path d="M26 22 C46 14 70 18 82 32 C64 26 46 24 26 22Z"/>
+            <path d="M26 22 C40 30 50 46 50 60 C42 44 34 34 26 22Z"/>
+          </g>
+        </svg>
+        <div class="hero-badge"><span data-icon="home"></span></div>
+        <div class="hero-text">
+          <h1 id="greeting">Good evening</h1>
+          <p>Here's what's happening at home.</p>
+        </div>
+        <div class="hero-time">
+          <div class="hero-date" id="date"></div>
+          <div class="hero-clock"><span id="clock"></span><span class="hero-tod" id="tod-icon"></span></div>
+        </div>
+      </section>
+
+      <nav class="tabs" id="tabs"></nav>
+
+      <div id="view" class="view"></div>
+    </main>
+  </div>
+
+  <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
+  <div class="sheet" id="sheet" hidden></div>
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
