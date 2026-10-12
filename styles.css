@@ -406,7 +406,9 @@ label.btn { cursor: pointer; }
 .wk-ev.done .ev-done { width: 16px; height: 16px; font-size: 11px; }
 .btn.wide { width: 100%; justify-content: center; margin-top: 4px; }
 .btn.done-btn { background: var(--green-fg); border-color: var(--green-fg); color: #fff; }
-.sheet-sub { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; font-size: 15px; font-weight: 600; }
+.task.with-face { padding-left: 12px; gap: 0; }
+.task.with-face .task-body { padding-left: 12px; }
+.list + .day-tasks { margin-top: 10px; }
 
 .wk { --gutter: 56px; }
 .wk-head, .wk-allrow, .wk-grid { display: grid; grid-template-columns: var(--gutter) repeat(7, minmax(0, 1fr)); }
