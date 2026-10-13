@@ -148,7 +148,7 @@ function tickClock() {
   const g = $('#greeting');
   if (g.dataset.line !== line) {
     g.dataset.line = line;
-    g.innerHTML = `<span class="punch">${line}</span><span class="names">${names}</span>`;
+    g.innerHTML = `<span class="punch">${line}, <span class="nowrap">${names}</span></span>`;
   }
   $('#date').textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   $('#clock').textContent = fmtTime(now);
