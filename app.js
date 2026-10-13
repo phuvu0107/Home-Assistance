@@ -645,18 +645,20 @@ function weatherValid() {
 /* =========================================================
    Navigation
    ========================================================= */
-// Five pages you use every day get a tab; the rest sit under More. Swiping moves between the five.
+// Three pages you use every day get a tab; the rest sit in the half circle under More.
+// The More pages are listed left to right around the arc, so Settings lands at the top.
 const PAGES = [
   { id: 'home', label: 'Home', icon: 'home', main: true },
   { id: 'calendar', label: 'Calendar', icon: 'calendar', main: true },
   { id: 'tasks', label: 'Chores', icon: 'checkSquare', main: true },
-  { id: 'fridge', label: 'Kitchen', icon: 'fridge', main: true },
-  { id: 'piggy', label: 'Money', icon: 'piggy', main: true },
-  { id: 'energy', label: 'Energy', icon: 'zap', note: 'PG&E use and bills' },
-  { id: 'health', label: 'Health', icon: 'heart', note: 'Steps, sleep and heart rate' },
-  { id: 'settings', label: 'Settings', icon: 'settings', note: 'Display, household and connections' },
+  { id: 'fridge', label: 'Kitchen', icon: 'fridge' },
+  { id: 'piggy', label: 'Money', icon: 'piggy' },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
+  { id: 'energy', label: 'Energy', icon: 'zap' },
+  { id: 'health', label: 'Health', icon: 'heart' },
 ];
 const MAIN = PAGES.filter((p) => p.main);
+const MORE = PAGES.filter((p) => !p.main);
 const ROUTE_ALIAS = { board: 'tasks' }; // the Leaderboard now lives on Chores
 
 const currentRoute = () => {
@@ -666,17 +668,27 @@ const currentRoute = () => {
 };
 
 // The tabs are drawn once; switching tabs slides the highlight to the new one.
-// Phones get them as a bar along the bottom, wide screens as a rail down the left.
+// They float as a see-through bar at the bottom of every screen. While a More page is open,
+// the More tab wears that page's icon and name.
 function renderNav() {
   const r = currentRoute();
   const tabs = $('#tabs');
   if (!tabs.children.length) {
     tabs.innerHTML = `<span class="tab-ink" aria-hidden="true"></span>${MAIN.map((p) => `
       <a class="tab" href="#/${p.id}" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span></a>`).join('')}
-      <button class="tab" data-page="more" data-action="open-more">${icon('more')}<span>More</span></button>`;
+      <button class="tab" data-page="more" aria-haspopup="menu" aria-expanded="false"></button>`;
   }
   const on = MAIN.some((p) => p.id === r) ? r : 'more';
   tabs.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === on));
+  const m = MORE.find((p) => p.id === r);
+  const more = tabs.querySelector('[data-page="more"]');
+  const key = m ? m.id : 'more';
+  if (more.dataset.shows !== key) {
+    more.dataset.shows = key;
+    more.innerHTML = m ? `${icon(m.icon)}<span>${m.label}</span>` : `${icon('more', 'more-dots')}<span>More</span>`;
+    more.setAttribute('aria-label', m ? `More, showing ${m.label}` : 'More');
+  }
+  closeDome();
   moveInk();
 }
 // The highlight is placed by measuring the tab, so it works for the bottom bar and the side rail alike.
@@ -695,12 +707,134 @@ function moveInk() {
   const t = $('#tabs .tab.active');
   if (t) placeInk(tabBox(t));
 }
-function openMore() {
-  openSheet(`${sheetHead('More', 'more')}
-    <div class="list more-list">${PAGES.filter((p) => !p.main).map((p) => `<a class="row" href="#/${p.id}">
-      <span class="ibox c-purple-ico">${icon(p.icon)}</span><span><b>${p.label}</b><small>${p.note}</small></span>${icon('chevron', 'chev')}</a>`).join('')}</div>`);
-  $('#sheet').dataset.kind = 'more';
+/* ---------- More: a half circle that opens out of the More tab ----------
+   Tap More, then tap a page. Or hold More and slide around the arc: a ring follows the finger
+   and the page under it opens on release. Sliding along the bar picks a main tab the same way. */
+const ARC = [155, 122, 90, 58, 25]; // degrees, left to right, one per More page
+let domeOpen = false;
+let dome = null; // geometry of the open half circle, in screen pixels
+function buildDome() {
+  const bar = $('#tabs').getBoundingClientRect();
+  const R = Math.round(Math.min(window.innerWidth / 2 - 12, window.innerWidth >= 900 ? 270 : 186));
+  const big = R > 220;
+  dome = { cx: bar.left + bar.width / 2, cy: bar.top - 8, R, r: Math.round(R * 0.69), orb: big ? 70 : 54, lens: big ? 86 : 66 };
+  const rad = (a) => (a * Math.PI) / 180;
+  const r = currentRoute();
+  const el = $('#dome');
+  el.innerHTML = `<div class="dome-disc" style="left:${dome.cx - R}px;top:${dome.cy - R}px;width:${2 * R}px;height:${R}px"></div>
+    <div class="dome-arm" style="left:${dome.cx}px;top:${dome.cy}px;--r:${dome.r}px;--lens:${dome.lens}px"><span class="dome-lens"></span></div>
+    ${MORE.map((p, i) => `<a class="orb${p.id === r ? ' on' : ''}" role="menuitem" href="#/${p.id}" data-i="${i}" style="--orb:${dome.orb}px;--d:${MORE.length - 1 - i};left:${(dome.cx + dome.r * Math.cos(rad(ARC[i]))).toFixed(1)}px;top:${(dome.cy - dome.r * Math.sin(rad(ARC[i]))).toFixed(1)}px">${icon(p.icon)}<span class="orb-lbl">${p.label}</span></a>`).join('')}
+    <div class="dome-hint" style="left:${dome.cx}px;top:${dome.cy - 18}px">Slide to pick</div>`;
+  el.classList.toggle('big', big);
+  // Revealed by a circle growing out of the More tab.
+  const mb = $('#tabs [data-page="more"]').getBoundingClientRect();
+  const mx = mb.left + mb.width / 2; const my = mb.top + mb.height / 2;
+  el.style.setProperty('--mx', `${mx}px`); el.style.setProperty('--my', `${my}px`);
+  el.style.setProperty('--reach', `${Math.ceil(Math.hypot(Math.max(mx - (dome.cx - R), dome.cx + R - mx), my - (dome.cy - R))) + 24}px`);
 }
+const moreIndex = () => MORE.findIndex((p) => p.id === currentRoute());
+// The ring swings around the rim to the page picked.
+function placeLens(i) {
+  const arm = $('#dome .dome-arm');
+  if (!arm) return;
+  arm.style.opacity = i < 0 ? 0 : 1;
+  if (i >= 0) arm.style.setProperty('--a', ARC[i]);
+}
+function openDome() {
+  if (domeOpen || !$('#sheet').hidden) return;
+  domeOpen = true;
+  buildDome();
+  const arm = $('#dome .dome-arm');
+  arm.style.transition = 'none'; placeLens(moreIndex()); void arm.offsetWidth; arm.style.transition = '';
+  $('#dome').getBoundingClientRect(); // start the reveal from closed
+  $('#dome').classList.add('open');
+  document.body.classList.add('dome-open');
+  $('#tabs [data-page="more"]').setAttribute('aria-expanded', 'true');
+}
+function closeDome() {
+  if (!domeOpen) return;
+  domeOpen = false;
+  $('#dome').classList.remove('open');
+  document.body.classList.remove('dome-open');
+  $('#tabs [data-page="more"]')?.setAttribute('aria-expanded', 'false');
+}
+// Over the half circle the page is picked by the finger's direction from its center,
+// so anywhere along a spoke counts, not just the button itself.
+function domeSlot(x, y) {
+  if (!domeOpen || !dome) return null;
+  const dx = x - dome.cx; const dy = dome.cy - y; const dist = Math.hypot(dx, dy);
+  if (dy < -6 || dist < 34 || dist > dome.R + 60) return null;
+  const a = (Math.atan2(Math.max(dy, 0), dx) * 180) / Math.PI;
+  let best = 0;
+  ARC.forEach((v, i) => { if (Math.abs(v - a) < Math.abs(ARC[best] - a)) best = i; });
+  return best;
+}
+function barSlot(x, y) {
+  const r = $('#tabs').getBoundingClientRect();
+  if (x < r.left - 8 || x > r.right + 8 || y < r.top - 10 || y > r.bottom + 30) return null;
+  const tabs = [...$('#tabs').querySelectorAll('.tab')];
+  return Math.max(0, Math.min(tabs.length - 1, Math.floor(((x - r.left) / r.width) * tabs.length)));
+}
+const navGesture = { id: null };
+function navTrack(e) {
+  const g = navGesture;
+  let pop = g.from !== 'bar' ? domeSlot(e.clientX, e.clientY) : null;
+  const bar = pop === null ? barSlot(e.clientX, e.clientY) : null;
+  if (pop !== g.pop || bar !== g.bar) { if ((pop ?? bar) !== null && g.moved) navigator.vibrate?.(6); }
+  g.pop = pop; g.bar = bar;
+  $('#dome').querySelectorAll('.orb').forEach((o, i) => o.classList.toggle('hot', i === pop));
+  const tabs = [...$('#tabs').querySelectorAll('.tab')];
+  tabs.forEach((t, i) => t.classList.toggle('hot', i === bar));
+  placeLens(pop ?? moreIndex());
+  if (bar !== null) placeInk(tabBox(tabs[bar])); else moveInk();
+}
+function navStart(e) {
+  if (navGesture.id !== null || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  const pop = domeSlot(e.clientX, e.clientY);
+  const bar = pop === null ? barSlot(e.clientX, e.clientY) : null;
+  if (pop === null && bar === null) { if (domeOpen) { e.preventDefault(); closeDome(); moveInk(); } return; }
+  e.preventDefault();
+  e.currentTarget.setPointerCapture(e.pointerId);
+  const from = pop !== null ? 'pop' : bar === MAIN.length ? 'more' : 'bar';
+  Object.assign(navGesture, { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false, from, pop: null, bar: null, opened: false });
+  if (from === 'more' && !domeOpen) { openDome(); navGesture.opened = true; }
+  $('#tabs').classList.add('scrubbing'); $('#dome').classList.add('scrubbing');
+  navTrack(e);
+}
+function navMove(e) {
+  if (e.pointerId !== navGesture.id) return;
+  if (!navGesture.moved && Math.hypot(e.clientX - navGesture.x, e.clientY - navGesture.y) > 6) navGesture.moved = true;
+  navTrack(e);
+}
+const goTo = (id) => { if (id === currentRoute()) render(); else location.hash = `#/${id}`; };
+function navEnd(e, cancelled) {
+  const g = navGesture;
+  if (e.pointerId !== g.id) return;
+  g.id = null;
+  $('#tabs').classList.remove('scrubbing'); $('#dome').classList.remove('scrubbing');
+  document.querySelectorAll('#tabs .hot, #dome .hot').forEach((x) => x.classList.remove('hot'));
+  if (!cancelled && g.pop !== null) { closeDome(); goTo(MORE[g.pop].id); return; }
+  if (!cancelled && g.bar !== null) {
+    // A tap on More opens the half circle and leaves it open; tapping More again closes it.
+    if (g.bar === MAIN.length) { if (!g.opened && !g.moved && domeOpen) closeDome(); placeLens(moreIndex()); moveInk(); return; }
+    closeDome(); goTo(MAIN[g.bar].id); return;
+  }
+  placeLens(moreIndex()); moveInk();
+}
+for (const el of [$('#tabs'), $('#dome')]) {
+  el.addEventListener('pointerdown', navStart);
+  el.addEventListener('pointermove', navMove);
+  el.addEventListener('pointerup', (e) => navEnd(e, false));
+  el.addEventListener('pointercancel', (e) => navEnd(e, true));
+  // Taps are handled above; only keyboard presses (detail 0) go through as clicks.
+  el.addEventListener('click', (e) => {
+    if (e.detail !== 0) { e.preventDefault(); return; }
+    if (e.target.closest('[data-page="more"]')) { e.preventDefault(); domeOpen ? closeDome() : (openDome(), $('#dome .orb')?.focus()); }
+  });
+}
+$('#dome-scrim').addEventListener('pointerdown', (e) => { e.preventDefault(); closeDome(); placeLens(moreIndex()); moveInk(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && domeOpen) { closeDome(); $('#tabs [data-page="more"]').focus(); } });
+window.addEventListener('resize', () => { if (domeOpen) closeDome(); });
 
 // One add button, in the same corner on every page. Pages that can add more than one kind of
 // thing open a short menu.
@@ -734,15 +868,6 @@ function openAddMenu() {
 new ResizeObserver(moveInk).observe($('#tabs'));
 document.fonts?.ready.then(() => { moveInk(); requestAnimationFrame(() => $('#tabs').classList.add('ink-ready')); });
 
-// Light the tab up the moment a finger lands on it, before the tap finishes.
-$('#tabs').addEventListener('pointerdown', (e) => {
-  const t = e.target.closest('.tab');
-  if (!t || t.classList.contains('active')) return;
-  $('#tabs .tab.active')?.classList.remove('active');
-  t.classList.add('active');
-  moveInk();
-});
-
 /* Swipe left or right anywhere on a page to move to the next tab.
    The page and the tab highlight follow the finger, then settle. */
 const swipe = { id: null, x: 0, y: 0, dx: 0, on: false, samples: [], done: false, frame: 0, rects: null };
@@ -761,7 +886,7 @@ function inkBetween(a, b, t) {
   const mix = (k) => a[k] + (b[k] - a[k]) * t;
   placeInk({ left: mix('left'), top: mix('top'), width: mix('width'), height: mix('height') });
 }
-// Only the five main pages swipe; a page from More stays put.
+// Only the three main pages swipe; a page from More stays put.
 function swipeNeighbor(dir) {
   const i = MAIN.findIndex((p) => p.id === currentRoute());
   return i < 0 ? undefined : MAIN[i + dir];
@@ -2003,7 +2128,6 @@ function openTaskSheet(task, who = USERS[0].id) {
    ========================================================= */
 const actions = {
   'close-sheet': closeSheet,
-  'open-more': openMore,
   'add-menu': openAddMenu,
   'pick-who': (el) => {
     el.parentElement.querySelectorAll('.who-opt').forEach((b) => b.classList.toggle('on', b === el));
@@ -2250,7 +2374,7 @@ const actions = {
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['open-more', 'add-menu', 'pick-who', 'pick-seg', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
+const NO_RERENDER = new Set(['add-menu', 'pick-who', 'pick-seg', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
