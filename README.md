@@ -153,6 +153,12 @@ Changes show up on the other screens within a second or two. Edits made offline 
 
 It also uses the existing `FIREBASE_CONFIG` and, for the energy line, `ENERGY_PASSPHRASE`. Each email opens with the weather (tomorrow's for the 9 PM recap): high and low with the hour each one hits, sunrise, sunset and the chance of rain, and is flagged high importance. Run **Daily summary email** from the Actions tab to send one right away. The schedule lists each hour for both summer and winter time, and the script sends only the one that matches the clock in `EMAIL_TIMEZONE` (default `America/Los_Angeles`).
 
+GitHub can start scheduled runs hours late (on 13 Oct 2026 they ran about 7 hours behind), so a run that starts more than 90 minutes after its time sends nothing rather than a stale email. To get the emails on time, start the workflow from a free outside timer such as [cron-job.org](https://cron-job.org):
+
+1. Create a [fine-grained token](https://github.com/settings/personal-access-tokens/new) for this repository only, with **Actions: Read and write**.
+2. Add four cron jobs at 7:00, 12:00, 17:00 and 21:00 in the `America/Los_Angeles` time zone, each a `POST` to `https://api.github.com/repos/<owner>/<repo>/actions/workflows/daily-email.yml/dispatches` with headers `Authorization: Bearer <token>` and `Accept: application/vnd.github+json`, and body `{"ref":"main","inputs":{"slot":"morning"}}` (then `midday`, `evening`, `night`).
+3. In **Settings > Secrets and variables > Actions > Variables**, add `EMAIL_TIMER` = `external` so GitHub's own schedule stops and nothing sends twice.
+
 ## Deploying
 
 Every push to `main` deploys through `.github/workflows/pages.yml`, and it also runs every morning to refresh the PG&E data. One-time setup: in the repo go to **Settings > Pages** and set **Source** to **GitHub Actions**.
