@@ -143,7 +143,7 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
 .hero-people { position: relative; flex: none; padding: 5px; border-radius: 999px; background: rgba(255, 255, 255, .55); box-shadow: 0 4px 14px rgba(0, 0, 0, .06); }
 .hero.night .hero-people { background: rgba(255, 255, 255, .14); }
 .hero-people .av { border-color: rgba(255, 255, 255, .9); }
-.hero-text { position: relative; }
+.hero-text { position: relative; z-index: 1; }
 .hero-greet { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 10px; margin-bottom: 6px; }
 .hero-greet .nowrap { white-space: nowrap; }
 .hero-greet .punch { font-size: 30px; line-height: 1.15; font-weight: 800; letter-spacing: -.02em; background: linear-gradient(90deg, #0b7285, #2b8a3e); -webkit-background-clip: text; background-clip: text; color: transparent; animation: punch-in .6s cubic-bezier(.2, 1.4, .4, 1) both; }
@@ -159,6 +159,7 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
 .hero-wx .ico { font-size: 30px; grid-row: 1; }
 .hero-wx b { font-size: 40px; font-weight: 700; letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
 .hero-wx span { grid-column: 1 / -1; font-size: 13px; opacity: .78; line-height: 1.4; margin-top: 4px; }
+.hero-wx em { display: block; font-style: normal; }
 /* Pages other than Home: a slim strip with the time, date and temperature. */
 .hero { transition: padding .3s var(--ease-out, ease), min-height .3s var(--ease-out, ease); }
 .hero.slim { min-height: 0; padding: 12px 20px; border-radius: 18px; }
@@ -851,8 +852,13 @@ label.btn { cursor: pointer; }
   .glance { padding: 12px; gap: 10px; }
   .hero-wx b { font-size: 30px; }
   .hero-wx .ico { font-size: 22px; }
-  .hero:not(.slim) .hero-wx { position: absolute; right: 20px; top: 18px; }
-  .hero:not(.slim) .orb { display: none; }
+  /* Weather gets its own line under the date so it never sits on the greeting or the sun. */
+  .hero:not(.slim) .hero-wx { order: 2; flex-basis: 100%; margin: 4px 0 0; display: flex; align-items: center; gap: 8px; text-align: left; }
+  .hero:not(.slim) .hero-wx .ico { font-size: 20px; }
+  .hero:not(.slim) .hero-wx b { font-size: 20px; }
+  .hero:not(.slim) .hero-wx span { margin: 0; font-size: 14px; }
+  .hero:not(.slim) .hero-wx em { display: inline; }
+  .hero:not(.slim) .hero-wx em + em::before { content: ' · '; }
   .cal-bar .seg { order: 5; width: 100%; display: flex; }
   .cal-bar .seg button { flex: 1; }
   .balance .btn { width: 100%; justify-content: center; }

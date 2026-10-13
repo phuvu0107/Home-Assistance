@@ -185,8 +185,10 @@ function updateSky(now) {
   const p = Math.min(1, Math.max(0, sky.p));
   // Arc across the right part of the panel; it starts and ends just below the hills.
   // On a narrow panel the text fills the left side, so the arc stays on the right.
-  const x = hero.clientWidth < 600 ? 64 + p * 30 : 30 + p * 64;
-  const y = 92 - Math.sin(p * Math.PI) * 78;
+  // On a phone the weather takes the bottom row, so the arc stays above it.
+  const narrow = hero.clientWidth < 600;
+  const x = narrow ? 72 + p * 22 : 30 + p * 64;
+  const y = narrow ? 66 - Math.sin(p * Math.PI) * 48 : 92 - Math.sin(p * Math.PI) * 78;
   if (skyReady) {
     orb.style.left = `${x.toFixed(2)}%`;
     orb.style.top = `${y.toFixed(2)}%`;
@@ -214,7 +216,7 @@ function updateSky(now) {
   if ($('#sun-note').textContent !== sunLine) $('#sun-note').textContent = sunLine;
   // Weather sits in the panel's corner; there is no separate card to wait on.
   const wx = weatherValid()
-    ? `${icon(wmo(weather.code, weather.isDay).icon)}<b>${Math.round(weather.temp)}°</b><span>${wmo(weather.code, weather.isDay).label}<br>H ${Math.round(weather.hi)}° · L ${Math.round(weather.lo)}°</span>` : '';
+    ? `${icon(wmo(weather.code, weather.isDay).icon)}<b>${Math.round(weather.temp)}°</b><span><em>${wmo(weather.code, weather.isDay).label}</em><em>H ${Math.round(weather.hi)}° · L ${Math.round(weather.lo)}°</em></span>` : '';
   const box = $('#hero-wx');
   if (box.dataset.v !== wx) { box.innerHTML = wx; box.dataset.v = wx; }
 }
