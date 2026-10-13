@@ -2097,10 +2097,8 @@ const seriesOf = (e) => (e.series ? state.events.filter((x) => x.series === e.se
 const defaultUntil = (date, rep) => (date ? isoDay(addDays(new Date(`${date}T12:00`), rep === 'weekly' ? 28 : 6)) : '');
 
 function repeatFields(date) {
-  return `<div class="field-row">
-      <div class="field"><label>Repeats</label><div class="seg" id="ev-repeat">${Object.entries(REPEATS).map(([k, l]) => `<button class="${k ? '' : 'on'}" data-action="pick-repeat" data-v="${k}">${l}</button>`).join('')}</div></div>
-      <div class="field" id="ev-until-field" hidden><label for="ev-until">Until</label><input class="input" type="date" id="ev-until" min="${date}"></div>
-    </div>`;
+  return `<div class="field"><label>Repeats</label><div class="seg" id="ev-repeat">${Object.entries(REPEATS).map(([k, l]) => `<button class="${k ? '' : 'on'}" data-action="pick-repeat" data-v="${k}">${l}</button>`).join('')}</div></div>
+    <div class="field" id="ev-until-field" hidden><label for="ev-until">Repeats until</label><input class="input" type="date" id="ev-until" min="${date}"></div>`;
 }
 function seriesNote(e) {
   const all = seriesOf(e);
