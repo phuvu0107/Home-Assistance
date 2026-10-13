@@ -2227,8 +2227,12 @@ const actions = {
     const e = state.events.find((x) => x.id === el.dataset.id);
     if (!e) return;
     if (!eventDone(e) && e.date > isoDay(new Date())) { toast("This hasn't happened yet"); return; }
-    // From the event pop-up, use the stars picked there.
-    if (el.dataset.close && !eventDone(e) && $('#ev-stars .on')) e.stars = Number($('#ev-stars .on').dataset.v);
+    // From the event pop-up, use the people and stars picked there, so switching to Both and
+    // tapping Mark done pays both instead of only whoever the event had before.
+    if (el.dataset.close && !eventDone(e)) {
+      if ($('#who-pick .who-opt.on')) e.who = pickedWho();
+      if ($('#ev-stars .on')) e.stars = Number($('#ev-stars .on').dataset.v);
+    }
     awardStars(e, 'event', !eventDone(e));
     if (el.dataset.close) closeSheet();
     redrawDaySheet();
