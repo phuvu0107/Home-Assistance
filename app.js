@@ -708,7 +708,7 @@ function moveInk() {
   if (t) placeInk(tabBox(t));
 }
 /* ---------- More: a half circle that opens out of the More tab ----------
-   Tap More, then tap a page. Or hold More and slide around the arc: a ring follows the finger
+   Tap More, then tap a page. Or hold More, slide up, then left or right: a ring follows the finger
    and the page under it opens on release. Sliding along the bar picks a main tab the same way. */
 const ARC = [155, 122, 90, 58, 25]; // degrees, left to right, one per More page
 let domeOpen = false;
@@ -719,12 +719,13 @@ function buildDome() {
   const big = R > 220;
   dome = { cx: bar.left + bar.width / 2, cy: bar.top - 8, R, r: Math.round(R * 0.69), orb: big ? 70 : 54, lens: big ? 86 : 66 };
   const rad = (a) => (a * Math.PI) / 180;
+  dome.xs = ARC.map((a) => dome.cx + dome.r * Math.cos(rad(a)));
   const r = currentRoute();
   const el = $('#dome');
   el.innerHTML = `<div class="dome-disc" style="left:${dome.cx - R}px;top:${dome.cy - R}px;width:${2 * R}px;height:${R}px"></div>
     <div class="dome-arm" style="left:${dome.cx}px;top:${dome.cy}px;--r:${dome.r}px;--lens:${dome.lens}px"><span class="dome-lens"></span></div>
-    ${MORE.map((p, i) => `<a class="orb${p.id === r ? ' on' : ''}" role="menuitem" href="#/${p.id}" data-i="${i}" style="--orb:${dome.orb}px;--d:${MORE.length - 1 - i};left:${(dome.cx + dome.r * Math.cos(rad(ARC[i]))).toFixed(1)}px;top:${(dome.cy - dome.r * Math.sin(rad(ARC[i]))).toFixed(1)}px">${icon(p.icon)}<span class="orb-lbl">${p.label}</span></a>`).join('')}
-    <div class="dome-hint" style="left:${dome.cx}px;top:${dome.cy - 18}px">Slide to pick</div>`;
+    ${MORE.map((p, i) => `<a class="orb${p.id === r ? ' on' : ''}" role="menuitem" href="#/${p.id}" data-i="${i}" style="--orb:${dome.orb}px;--d:${MORE.length - 1 - i};left:${dome.xs[i].toFixed(1)}px;top:${(dome.cy - dome.r * Math.sin(rad(ARC[i]))).toFixed(1)}px">${icon(p.icon)}<span class="orb-lbl">${p.label}</span></a>`).join('')}
+    <div class="dome-hint" style="left:${dome.cx}px;top:${dome.cy - 18}px">Slide left or right</div>`;
   el.classList.toggle('big', big);
   // Revealed by a circle growing out of the More tab.
   const mb = $('#tabs [data-page="more"]').getBoundingClientRect();
@@ -758,15 +759,15 @@ function closeDome() {
   document.body.classList.remove('dome-open');
   $('#tabs [data-page="more"]')?.setAttribute('aria-expanded', 'false');
 }
-// Over the half circle the page is picked by the finger's direction from its center,
-// so anywhere along a spoke counts, not just the button itself.
-function domeSlot(x, y) {
+// Above the bar, the page is picked by how far left or right the finger is: whichever page sits
+// closest sideways wins. So from More you slide up and then sideways, and the page nearest More
+// (Health) is the one right above it. On a fresh press the finger has to be on the half circle itself.
+function domeSlot(x, y, sliding) {
   if (!domeOpen || !dome) return null;
-  const dx = x - dome.cx; const dy = dome.cy - y; const dist = Math.hypot(dx, dy);
-  if (dy < -6 || dist < 34 || dist > dome.R + 60) return null;
-  const a = (Math.atan2(Math.max(dy, 0), dx) * 180) / Math.PI;
+  if (y > dome.cy + 6 || y < dome.cy - dome.R - 80) return null;
+  if (!sliding && Math.hypot(x - dome.cx, dome.cy - y) > dome.R + 10) return null;
   let best = 0;
-  ARC.forEach((v, i) => { if (Math.abs(v - a) < Math.abs(ARC[best] - a)) best = i; });
+  dome.xs.forEach((v, i) => { if (Math.abs(v - x) < Math.abs(dome.xs[best] - x)) best = i; });
   return best;
 }
 function barSlot(x, y) {
@@ -778,7 +779,7 @@ function barSlot(x, y) {
 const navGesture = { id: null };
 function navTrack(e) {
   const g = navGesture;
-  let pop = g.from !== 'bar' ? domeSlot(e.clientX, e.clientY) : null;
+  let pop = g.from !== 'bar' ? domeSlot(e.clientX, e.clientY, g.from === 'more' || g.moved) : null;
   const bar = pop === null ? barSlot(e.clientX, e.clientY) : null;
   if (pop !== g.pop || bar !== g.bar) { if ((pop ?? bar) !== null && g.moved) navigator.vibrate?.(6); }
   g.pop = pop; g.bar = bar;
