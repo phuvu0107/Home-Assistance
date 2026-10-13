@@ -936,3 +936,6 @@ body.dome-open .fab { opacity: 0; transform: scale(.6); pointer-events: none; }
   .lb-stars b { font-size: 24px; }
 }
 @media (min-width: 821px) { .hero:not(.slim) .hero-wx { margin-right: 120px; } } /* clear of the palm */
+/* While the half circle is open, More is the one lit tab. */
+body.dome-open .tab.active:not([data-page="more"]) { color: var(--text-2); font-weight: 500; }
+body.dome-open .tab[data-page="more"] { color: var(--accent); }
