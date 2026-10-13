@@ -1949,14 +1949,44 @@ function openEventSheet(ev, date, time = '') {
       <div class="field"><label for="ev-end">Ends</label><input class="input" type="time" id="ev-end" value="${e.end || ''}"></div>
     </div>
     <p class="hint">Leave Starts empty for an all-day event.</p>
+    ${ev ? seriesNote(e) : repeatFields(e.date)}
     <div class="field"><label>Stars when done</label><div class="seg" id="ev-stars">${[0, 1, 3, 5, 10].map((n) => `<button class="${eventStars(e) === n ? 'on' : ''}" data-action="pick-seg" data-v="${n}">${n || 'None'}</button>`).join('')}</div></div>
     ${impRow(e.important)}
     ${ev && e.date <= isoDay(new Date()) ? `<button class="btn ${eventDone(e) ? 'ghost' : 'done-btn'} wide" data-action="toggle-event" data-id="${e.id}" data-close="1">${icon('check')} ${eventDone(e) ? 'Mark not done' : 'Mark done'}</button>` : ''}
+    ${ev && seriesOf(e).length > 1 ? `<button class="btn ghost wide" data-action="del-series" data-id="${e.id}">${icon('trash')} Delete all ${seriesOf(e).length} days</button>` : ''}
     <div class="sheet-actions">
       ${ev ? `<button class="btn danger" data-action="del-event" data-id="${e.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
       <button class="btn" data-action="save-event" data-id="${e.id}">${ev ? 'Save' : 'Add event'}</button>
     </div>`);
+}
+
+// A repeating event is saved as one event per day, linked by a shared series id. Each day can
+// then be ticked, earn stars and be edited on its own, and screens on older versions of the app
+// simply see ordinary events.
+const REPEATS = { '': 'Never', daily: 'Every day', weekly: 'Every week' };
+const REPEAT_STEP = { daily: 1, weekly: 7 };
+const MAX_REPEATS = 60; // all events share one synced document, so keep a series small
+const seriesOf = (e) => (e.series ? state.events.filter((x) => x.series === e.series).sort(byStart) : [e]);
+const defaultUntil = (date, rep) => (date ? isoDay(addDays(new Date(`${date}T12:00`), rep === 'weekly' ? 28 : 6)) : '');
+
+function repeatFields(date) {
+  return `<div class="field-row">
+      <div class="field"><label>Repeats</label><div class="seg" id="ev-repeat">${Object.entries(REPEATS).map(([k, l]) => `<button class="${k ? '' : 'on'}" data-action="pick-repeat" data-v="${k}">${l}</button>`).join('')}</div></div>
+      <div class="field" id="ev-until-field" hidden><label for="ev-until">Until</label><input class="input" type="date" id="ev-until" min="${date}"></div>
+    </div>`;
+}
+function seriesNote(e) {
+  const all = seriesOf(e);
+  if (all.length < 2) return '';
+  return `<p class="hint">Repeats ${all.length} times, ${dayLabel(all[0].date)} to ${dayLabel(all[all.length - 1].date)}. Changes and Delete apply to this day only.</p>`;
+}
+// The days a new event lands on: its own date, then every day or week up to the end day.
+function repeatDates(date, rep, until) {
+  if (!rep) return [date];
+  const out = [];
+  for (let d = new Date(`${date}T12:00`); isoDay(d) <= until; d = addDays(d, REPEAT_STEP[rep])) out.push(isoDay(d));
+  return out;
 }
 
 function daySheetHtml(iso) {
@@ -2036,12 +2066,24 @@ const actions = {
     if (!title || !date) { toast('Add a title and a date'); return; }
     const data = { title, date, time: $('#ev-time').value || '', end: $('#ev-end').value || '', who: pickedWho(), important: pickedImportant(), stars: Number($('#ev-stars .on')?.dataset.v ?? 5) };
     const existing = state.events.find((x) => x.id === el.dataset.id);
-    // Stars already given keep their old count and people: take them back first, give the new ones after.
-    const redo = existing && eventDone(existing) && (existing.stars !== data.stars || existing.who !== data.who);
-    if (redo) awardStars(existing, 'event', false);
-    if (existing) Object.assign(existing, data);
-    if (redo) awardStars(existing, 'event', true);
-    else state.events.push({ id: `e${Date.now()}`, ...data });
+    if (existing) {
+      // Stars already given keep their old count and people: take them back first, give the new ones after.
+      const redo = eventDone(existing) && (existing.stars !== data.stars || existing.who !== data.who);
+      if (redo) awardStars(existing, 'event', false);
+      Object.assign(existing, data);
+      if (redo) awardStars(existing, 'event', true);
+    } else {
+      const rep = $('#ev-repeat .on')?.dataset.v || '';
+      const until = $('#ev-until')?.value || '';
+      if (rep && !until) { toast('Pick the day it stops repeating'); return; }
+      if (rep && until < date) { toast('The end day must be on or after the start'); return; }
+      const dates = repeatDates(date, rep, until);
+      if (dates.length > MAX_REPEATS) { toast(`That's ${dates.length} days. Pick an earlier end day (${MAX_REPEATS} at most).`); return; }
+      const id = `e${Date.now()}`;
+      const series = dates.length > 1 ? id : undefined;
+      dates.forEach((d, i) => state.events.push({ id: i ? `${id}-${i}` : id, ...data, date: d, ...(series && { series }) }));
+      if (series) toast(`Added ${dates.length} days`);
+    }
     calCursor = new Date(`${date}T12:00`);
     closeSheet();
   },
@@ -2055,9 +2097,23 @@ const actions = {
     if (el.dataset.close) closeSheet();
     redrawDaySheet();
   },
+  'pick-repeat': (el) => {
+    el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
+    const until = $('#ev-until');
+    $('#ev-until-field').hidden = !el.dataset.v;
+    const date = $('#ev-date').value;
+    until.min = date;
+    if (el.dataset.v && (!until.value || until.value < date)) until.value = defaultUntil(date, el.dataset.v);
+  },
   'board-period': (el) => { state.settings.boardPeriod = el.dataset.v; },
   'del-event': (el) => {
     state.events = state.events.filter((e) => e.id !== el.dataset.id);
+    closeSheet();
+  },
+  'del-series': (el) => {
+    const e = state.events.find((x) => x.id === el.dataset.id);
+    if (!e?.series || !confirm(`Delete all ${seriesOf(e).length} days of "${e.title}"?`)) return;
+    state.events = state.events.filter((x) => x.series !== e.series);
     closeSheet();
   },
 
@@ -2250,7 +2306,7 @@ const actions = {
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['open-more', 'add-menu', 'pick-who', 'pick-seg', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
+const NO_RERENDER = new Set(['open-more', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
