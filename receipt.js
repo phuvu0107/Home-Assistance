@@ -121,27 +121,48 @@ function loadTesseract() {
   return loading;
 }
 
-// Phone photos are huge; a smaller grey copy reads faster and just as well. Glare and shadow
-// across the paper are evened out by dividing by a blurred copy, which keeps the price column
-// readable when the light falls on one side of the receipt.
+// Evens out glare and shadow on a photo of a receipt, in place, and makes it grey: each pixel is
+// divided by the average brightness around it, so paper turns white and print stays dark however
+// the light falls. Plain pixel math rather than canvas filters, which Safari on iPhone ignores.
+export function flatten(px, w, h) {
+  const lum = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) lum[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+  // Running sums make each neighbourhood average a few lookups.
+  const W = w + 1;
+  const sum = new Float64Array(W * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) {
+      row += lum[y * w + x];
+      sum[(y + 1) * W + x + 1] = sum[y * W + x + 1] + row;
+    }
+  }
+  const r = Math.max(8, Math.round(Math.max(w, h) / 40));
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - r), x1 = Math.min(w, x + r + 1);
+      const bg = (sum[y1 * W + x1] - sum[y0 * W + x1] - sum[y1 * W + x0] + sum[y0 * W + x0]) / ((y1 - y0) * (x1 - x0));
+      const v = (lum[y * w + x] / Math.max(bg, 1) - 0.45) / 0.5; // print near 0, paper at 1
+      const i = (y * w + x) * 4;
+      px[i] = px[i + 1] = px[i + 2] = Math.max(0, Math.min(255, v * 255));
+    }
+  }
+  return px;
+}
+
+// Phone photos are huge; a smaller copy reads faster and just as well.
 async function prepare(file) {
   const img = await createImageBitmap(file);
   const scale = Math.min(1, 1800 / Math.max(img.width, img.height));
-  const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-  const canvas = (filter, src) => {
-    const c = document.createElement('canvas');
-    c.width = w; c.height = h;
-    const g = c.getContext('2d');
-    g.filter = filter;
-    g.drawImage(src, 0, 0, w, h);
-    return c;
-  };
-  const grey = canvas('grayscale(1)', img);
-  const light = canvas('blur(20px) invert(1)', grey);
-  const g = grey.getContext('2d');
-  g.globalCompositeOperation = 'color-dodge'; // grey / (1 - inverted blur) = grey / blur
-  g.drawImage(light, 0, 0);
-  return canvas('contrast(1.3)', grey);
+  const c = document.createElement('canvas');
+  c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0, c.width, c.height);
+  const data = g.getImageData(0, 0, c.width, c.height);
+  flatten(data.data, c.width, c.height);
+  g.putImageData(data, 0, 0);
+  return c;
 }
 
 // Marks read from the table beside the receipt sit in a thin strip at the photo's left edge,

@@ -1,7 +1,7 @@
 // Run with: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseReceipt, receiptText } from '../receipt.js';
+import { flatten, parseReceipt, receiptText } from '../receipt.js';
 
 // Tesseract's text for a Thien Thanh Market receipt photo (8 foods, 4 of them sold by weight),
 // after the glare is evened out and the edge marks are dropped.
@@ -88,4 +88,19 @@ test('drops marks at the photo edge and stray letters where a price should be', 
     { words: [word('2', 30, 50), word('BANANAS', 80, 300), word('1.18', 936, 1040)] },
   ] };
   assert.equal(receiptText(data, W), 'BEAN SPROUT $1.39\nSHRIMP 21/25\n2 BANANAS 1.18');
+});
+
+test('evens out a shadow so paper is white and print stays dark on both sides', () => {
+  const w = 200, h = 50;
+  const px = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const paper = 240 - x; // bright on the left, in shadow on the right
+    const ink = y === 25 && (x === 20 || x === 180);
+    const v = ink ? paper * 0.3 : paper;
+    px.set([v, v, v, 255], (y * w + x) * 4);
+  }
+  flatten(px, w, h);
+  const at = (x, y) => px[(y * w + x) * 4];
+  assert.ok(at(20, 10) > 200 && at(180, 10) > 200, 'paper is white in light and shadow');
+  assert.ok(at(20, 25) < 60 && at(180, 25) < 60, 'print is dark in light and shadow');
 });
