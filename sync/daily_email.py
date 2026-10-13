@@ -110,6 +110,7 @@ def who_label(who):
 
 
 SLOTS = {7: "morning", 12: "midday", 17: "evening", 21: "night"}
+MAX_LATE = dt.timedelta(minutes=90)  # a scheduled run later than this sends nothing
 
 
 def build(state, now, energy, sky, slot="morning"):
@@ -215,10 +216,17 @@ def pick_slot(now, tz):
     cron = os.environ.get("SCHEDULE", "").split()
     if not cron:  # started by hand: pick the nearest slot
         return SLOTS[min(SLOTS, key=lambda h: abs(h - now.hour))]
-    meant = dt.datetime.now(dt.timezone.utc).replace(hour=int(cron[1]), minute=int(cron[0]), second=0, microsecond=0)
-    if meant > dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=5):
+    utc_now = dt.datetime.now(dt.timezone.utc)
+    meant = utc_now.replace(hour=int(cron[1]), minute=int(cron[0]), second=0, microsecond=0)
+    if meant > utc_now + dt.timedelta(minutes=5):
         meant -= dt.timedelta(days=1)  # meant for just before midnight UTC
-    return SLOTS.get(meant.astimezone(ZoneInfo(tz)).hour)
+    slot = SLOTS.get(meant.astimezone(ZoneInfo(tz)).hour)
+    late = utc_now - meant
+    if slot and late > MAX_LATE:
+        # GitHub has started scheduled runs hours late; a 7 AM email at 2 PM is just noise.
+        print(f"Skipping the {slot} email: GitHub started this run {late.seconds // 3600}h {late.seconds % 3600 // 60}m late.")
+        return "late"
+    return slot
 
 
 def main():
@@ -229,7 +237,9 @@ def main():
         return
     tz = os.environ.get("EMAIL_TIMEZONE", "America/Los_Angeles")
     now = dt.datetime.now(ZoneInfo(tz))
-    slot = os.environ.get("SLOT") or pick_slot(now, tz)
+    slot = os.environ.get("SLOT", "").strip().replace("auto", "") or pick_slot(now, tz)
+    if slot == "late":
+        return
     if not slot:
         print("Not an email hour in this time zone today (the other summer/winter time run sends it).")
         return
