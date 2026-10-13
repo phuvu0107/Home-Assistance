@@ -13,13 +13,23 @@ on:
     - cron: '0 1 * * *'
     - cron: '0 4 * * *'
     - cron: '0 5 * * *'
+  # An outside timer can start this on time with a slot (see README), since GitHub can start
+  # scheduled runs hours late.
   workflow_dispatch:
+    inputs:
+      slot:
+        description: Which email (auto picks the nearest)
+        type: choice
+        options: [auto, morning, midday, evening, night]
+        default: auto
 
 permissions:
   contents: read
 
 jobs:
   email:
+    # With an outside timer set up, GitHub's own schedule stands down so nothing sends twice.
+    if: github.event_name != 'schedule' || vars.EMAIL_TIMER != 'external'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +45,7 @@ jobs:
           EMAIL_SMTP_PASSWORD: ${{ secrets.EMAIL_SMTP_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           SCHEDULE: ${{ github.event.schedule }}
+          SLOT: ${{ inputs.slot }}
           ENERGY_PASSPHRASE: ${{ secrets.ENERGY_PASSPHRASE }}
           ENERGY_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/energy.enc.json
         run: |
