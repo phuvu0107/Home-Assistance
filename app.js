@@ -703,8 +703,9 @@ function placeInk(box) {
   ink.style.width = `${box.width}px`; ink.style.height = `${box.height}px`;
   ink.style.transform = `translate(${box.left}px, ${box.top}px)`;
 }
+// While the half circle is open the highlight sits on More, so only one thing is lit at a time.
 function moveInk() {
-  const t = $('#tabs .tab.active');
+  const t = document.body.classList.contains('dome-open') ? $('#tabs [data-page="more"]') : $('#tabs .tab.active');
   if (t) placeInk(tabBox(t));
 }
 /* ---------- More: a half circle that opens out of the More tab ----------
@@ -751,6 +752,7 @@ function openDome() {
   $('#dome').classList.add('open');
   document.body.classList.add('dome-open');
   $('#tabs [data-page="more"]').setAttribute('aria-expanded', 'true');
+  moveInk();
 }
 function closeDome() {
   if (!domeOpen) return;
@@ -758,13 +760,15 @@ function closeDome() {
   $('#dome').classList.remove('open');
   document.body.classList.remove('dome-open');
   $('#tabs [data-page="more"]')?.setAttribute('aria-expanded', 'false');
+  moveInk();
 }
 // Above the bar, the page is picked by how far left or right the finger is: whichever page sits
 // closest sideways wins. So from More you slide up and then sideways, and the page nearest More
 // (Health) is the one right above it. On a fresh press the finger has to be on the half circle itself.
 function domeSlot(x, y, sliding) {
   if (!domeOpen || !dome) return null;
-  if (y > dome.cy + 6 || y < dome.cy - dome.R - 80) return null;
+  // A slide that began on More keeps steering the half circle even while the finger is still over the bar.
+  if ((!sliding && y > dome.cy + 6) || y < dome.cy - dome.R - 80) return null;
   if (!sliding && Math.hypot(x - dome.cx, dome.cy - y) > dome.R + 10) return null;
   let best = 0;
   dome.xs.forEach((v, i) => { if (Math.abs(v - x) < Math.abs(dome.xs[best] - x)) best = i; });
@@ -779,8 +783,10 @@ function barSlot(x, y) {
 const navGesture = { id: null };
 function navTrack(e) {
   const g = navGesture;
-  let pop = g.from !== 'bar' ? domeSlot(e.clientX, e.clientY, g.from === 'more' || g.moved) : null;
-  const bar = pop === null ? barSlot(e.clientX, e.clientY) : null;
+  // A press that starts on More (or on the half circle) only ever picks from the half circle;
+  // the bar's own tabs answer only to presses that start on them.
+  const pop = g.from === 'bar' ? null : g.from === 'more' && !g.moved ? null : domeSlot(e.clientX, e.clientY, true);
+  const bar = g.from === 'bar' ? barSlot(e.clientX, e.clientY) : null;
   if (pop !== g.pop || bar !== g.bar) { if ((pop ?? bar) !== null && g.moved) navigator.vibrate?.(6); }
   g.pop = pop; g.bar = bar;
   $('#dome').querySelectorAll('.orb').forEach((o, i) => o.classList.toggle('hot', i === pop));
@@ -815,11 +821,9 @@ function navEnd(e, cancelled) {
   $('#tabs').classList.remove('scrubbing'); $('#dome').classList.remove('scrubbing');
   document.querySelectorAll('#tabs .hot, #dome .hot').forEach((x) => x.classList.remove('hot'));
   if (!cancelled && g.pop !== null) { closeDome(); goTo(MORE[g.pop].id); return; }
-  if (!cancelled && g.bar !== null) {
-    // A tap on More opens the half circle and leaves it open; tapping More again closes it.
-    if (g.bar === MAIN.length) { if (!g.opened && !g.moved && domeOpen) closeDome(); placeLens(moreIndex()); moveInk(); return; }
-    closeDome(); goTo(MAIN[g.bar].id); return;
-  }
+  // A tap on More opens the half circle and leaves it open; tapping More again closes it.
+  if (g.from === 'more') { if (!cancelled && !g.opened && !g.moved) closeDome(); placeLens(moreIndex()); moveInk(); return; }
+  if (!cancelled && g.bar !== null && g.bar < MAIN.length) { closeDome(); goTo(MAIN[g.bar].id); return; }
   placeLens(moreIndex()); moveInk();
 }
 for (const el of [$('#tabs'), $('#dome')]) {
