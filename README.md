@@ -62,7 +62,7 @@ Grouped into Display (weather city, °F/°C, light/dark/auto theme, 24-hour cloc
 ![Settings page](docs/screenshots/settings.png)
 
 ### Works on any screen
-The layout adapts from a wide display down to a phone. Every screen gets a see-through tab bar floating at the bottom with Home, Calendar, Chores and More. More opens a half circle with Kitchen, Money, Settings, Energy and Health: tap one, or hold More, slide up, then left or right, and let go on the page you want. One + button adds whatever fits the page you're on. On touch screens you can swipe left or right to move between Home, Calendar and Chores, with the page following your finger. Motion is turned off when the device asks for reduced motion.
+The layout adapts from a wide display down to a phone. Every screen gets a see-through tab bar floating at the bottom with Home, Calendar, More and Chores, More in the middle. More opens a half circle with Kitchen, Money, Settings, Energy and Health: tap one, or hold More, slide up, then left or right, and let go on the page you want. One + button adds whatever fits the page you're on. On touch screens you can swipe left or right to move between Home, Calendar and Chores, with the page following your finger. Motion is turned off when the device asks for reduced motion.
 
 <img src="docs/screenshots/phone.png" alt="Dashboard on a phone" width="320">
 

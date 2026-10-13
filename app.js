@@ -674,9 +674,10 @@ function renderNav() {
   const r = currentRoute();
   const tabs = $('#tabs');
   if (!tabs.children.length) {
-    tabs.innerHTML = `<span class="tab-ink" aria-hidden="true"></span>${MAIN.map((p) => `
-      <a class="tab" href="#/${p.id}" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span></a>`).join('')}
-      <button class="tab" data-page="more" aria-haspopup="menu" aria-expanded="false"></button>`;
+    // More sits in the middle, so sliding straight up from it lands on Settings at the top of the half circle.
+    const tab = (p) => `<a class="tab" href="#/${p.id}" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span></a>`;
+    tabs.innerHTML = `<span class="tab-ink" aria-hidden="true"></span>${MAIN.slice(0, 2).map(tab).join('')}
+      <button class="tab" data-page="more" aria-haspopup="menu" aria-expanded="false"></button>${MAIN.slice(2).map(tab).join('')}`;
   }
   const on = MAIN.some((p) => p.id === r) ? r : 'more';
   tabs.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === on));
@@ -725,7 +726,7 @@ function buildDome() {
   const el = $('#dome');
   el.innerHTML = `<div class="dome-disc" style="left:${dome.cx - R}px;top:${dome.cy - R}px;width:${2 * R}px;height:${R}px"></div>
     <div class="dome-arm" style="left:${dome.cx}px;top:${dome.cy}px;--r:${dome.r}px;--lens:${dome.lens}px"><span class="dome-lens"></span></div>
-    ${MORE.map((p, i) => `<a class="orb${p.id === r ? ' on' : ''}" role="menuitem" href="#/${p.id}" data-i="${i}" style="--orb:${dome.orb}px;--d:${MORE.length - 1 - i};left:${dome.xs[i].toFixed(1)}px;top:${(dome.cy - dome.r * Math.sin(rad(ARC[i]))).toFixed(1)}px">${icon(p.icon)}<span class="orb-lbl">${p.label}</span></a>`).join('')}
+    ${MORE.map((p, i) => `<a class="orb${p.id === r ? ' on' : ''}" role="menuitem" href="#/${p.id}" data-i="${i}" style="--orb:${dome.orb}px;--d:${Math.abs(i - (MORE.length - 1) / 2)};left:${dome.xs[i].toFixed(1)}px;top:${(dome.cy - dome.r * Math.sin(rad(ARC[i]))).toFixed(1)}px">${icon(p.icon)}<span class="orb-lbl">${p.label}</span></a>`).join('')}
     <div class="dome-hint" style="left:${dome.cx}px;top:${dome.cy - 18}px">Slide left or right</div>`;
   el.classList.toggle('big', big);
   // Revealed by a circle growing out of the More tab.
@@ -785,7 +786,14 @@ function navTrack(e) {
   const g = navGesture;
   // A press that starts on More (or on the half circle) only ever picks from the half circle;
   // the bar's own tabs answer only to presses that start on them.
-  const pop = g.from === 'bar' ? null : g.from === 'more' && !g.moved ? null : domeSlot(e.clientX, e.clientY, true);
+  let pop = g.from === 'bar' ? null : g.from === 'more' && !g.moved ? null : domeSlot(e.clientX, e.clientY, true);
+  // From More, the pick follows how far the finger has moved sideways from where it pressed:
+  // straight up is Settings, then one page per step left or right.
+  if (pop !== null && g.from === 'more') {
+    const step = Math.max(48, (dome.xs[MORE.length - 1] - dome.xs[0]) / (MORE.length - 1));
+    const mid = (MORE.length - 1) / 2;
+    pop = Math.max(0, Math.min(MORE.length - 1, Math.round(mid + (e.clientX - g.x) / step)));
+  }
   const bar = g.from === 'bar' ? barSlot(e.clientX, e.clientY) : null;
   if (pop !== g.pop || bar !== g.bar) { if ((pop ?? bar) !== null && g.moved) navigator.vibrate?.(6); }
   g.pop = pop; g.bar = bar;
@@ -802,7 +810,7 @@ function navStart(e) {
   if (pop === null && bar === null) { if (domeOpen) { e.preventDefault(); closeDome(); moveInk(); } return; }
   e.preventDefault();
   e.currentTarget.setPointerCapture(e.pointerId);
-  const from = pop !== null ? 'pop' : bar === MAIN.length ? 'more' : 'bar';
+  const from = pop !== null ? 'pop' : $('#tabs').querySelectorAll('.tab')[bar].dataset.page === 'more' ? 'more' : 'bar';
   Object.assign(navGesture, { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false, from, pop: null, bar: null, opened: false });
   if (from === 'more' && !domeOpen) { openDome(); navGesture.opened = true; }
   $('#tabs').classList.add('scrubbing'); $('#dome').classList.add('scrubbing');
@@ -823,7 +831,8 @@ function navEnd(e, cancelled) {
   if (!cancelled && g.pop !== null) { closeDome(); goTo(MORE[g.pop].id); return; }
   // A tap on More opens the half circle and leaves it open; tapping More again closes it.
   if (g.from === 'more') { if (!cancelled && !g.opened && !g.moved) closeDome(); placeLens(moreIndex()); moveInk(); return; }
-  if (!cancelled && g.bar !== null && g.bar < MAIN.length) { closeDome(); goTo(MAIN[g.bar].id); return; }
+  const page = g.bar !== null && $('#tabs').querySelectorAll('.tab')[g.bar].dataset.page;
+  if (!cancelled && page && page !== 'more') { closeDome(); goTo(page); return; }
   placeLens(moreIndex()); moveInk();
 }
 for (const el of [$('#tabs'), $('#dome')]) {
