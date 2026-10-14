@@ -1,6 +1,6 @@
 import { icon, hydrateIcons } from './icons.js';
 import { createSync, syncAvailable } from './sync.js';
-import { FRIDGE_CATS, guessCat, readReceipt } from './receipt.js';
+import { FRIDGE_CATS, guessCat, readExpense, readReceipt } from './receipt.js';
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 
 /* =========================================================
@@ -857,7 +857,7 @@ const FAB = {
   calendar: { action: 'add-event', label: 'Add event' },
   tasks: { action: 'add-task', label: 'Add chore' },
   fridge: { action: 'add-menu', label: 'Add to kitchen' },
-  piggy: { action: 'add-expense', label: 'Add expense' },
+  piggy: { action: 'add-menu', label: 'Add expense' },
 };
 function setFab(r) {
   const fab = $('#fab'); const f = FAB[r];
@@ -871,11 +871,13 @@ function setFab(r) {
 function openAddMenu() {
   const opt = (action, ic, title, note) => `<button class="row" data-action="${action}" data-d="${isoDay(new Date())}"><span class="ibox c-purple-ico">${icon(ic)}</span><span><b>${title}</b><small>${note}</small></span>${icon('chevron', 'chev')}</button>`;
   const scan = `<label class="row"><span class="ibox c-purple-ico">${icon('receipt')}</span><span><b>Scan a receipt</b><small>Snap a grocery receipt and pick what goes in</small></span>${icon('chevron', 'chev')}<input type="file" id="receipt-file" accept="image/*" hidden></label>`;
-  const items = currentRoute() === 'fridge'
-    ? [opt('add-fridge', 'plus', 'Add an item', 'Type in one thing'), scan]
+  const scanMoney = `<label class="row"><span class="ibox c-purple-ico">${icon('receipt')}</span><span><b>Scan a receipt</b><small>Snap a receipt and the store, total and day fill in</small></span>${icon('chevron', 'chev')}<input type="file" id="receipt-money" accept="image/*" hidden></label>`;
+  const r = currentRoute();
+  const items = r === 'fridge' ? [opt('add-fridge', 'plus', 'Add an item', 'Type in one thing'), scan]
+    : r === 'piggy' ? [opt('add-expense', 'plus', 'Add an expense', 'Type it in'), scanMoney]
     : [opt('add-task', 'checkSquare', 'Chore', 'Something to do, with stars'), opt('add-event', 'calendar', 'Event', 'Something on the calendar'),
       opt('add-fridge', 'fridge', 'Kitchen item', 'Something in the fridge'), opt('add-expense', 'piggy', 'Expense', 'Something you paid for')];
-  openSheet(`${sheetHead(currentRoute() === 'fridge' ? 'Add to kitchen' : 'Add', 'plus')}<div class="list more-list">${items.join('')}</div>`);
+  openSheet(`${sheetHead(r === 'fridge' ? 'Add to kitchen' : r === 'piggy' ? 'Add expense' : 'Add', 'plus')}<div class="list more-list">${items.join('')}</div>`);
   $('#sheet').dataset.kind = 'add';
 }
 // The bar can change width without a window resize (a page scrollbar appearing, fonts loading).
@@ -1648,7 +1650,7 @@ views.piggy = () => {
     <div class="card-head">${icon('calendar')}<h2>Log</h2></div>
     ${all.length ? Object.entries(byDay).map(([d, xs]) => `<div class="ex-day"><div class="ex-day-head"><span>${dayLabel(d)}</span><span>${fmtCash(spending(xs).reduce((a, x) => a + x.amount, 0))}</span></div>
       <div class="list">${xs.map((x) => expenseRow(x, showSplit)).join('')}</div></div>`).join('')
-    : `<div class="piggy-empty">${icon('piggy')}<p>Nothing logged for ${monthName(key)} yet.</p><button class="btn" data-action="add-expense">${icon('plus')} Add an expense</button></div>`}
+    : `<div class="piggy-empty">${icon('piggy')}<p>Nothing logged for ${monthName(key)} yet.</p><div class="fr-empty-btns"><button class="btn" data-action="add-expense">${icon('plus')} Add an expense</button><label class="btn ghost">${icon('receipt')} Scan receipt<input type="file" id="receipt-money" accept="image/*" hidden></label></div></div>`}
   </div>
   ${months.length > 1 ? `<div class="card">
     <div class="card-head">${icon('piggy')}<h2>By month</h2></div>
@@ -1657,11 +1659,13 @@ views.piggy = () => {
   </div>` : ''}`;
 };
 
-function openExpenseSheet(ex) {
+// `scan` is what a receipt photo gave ({ store, amount, date }), to check before adding.
+function openExpenseSheet(ex, scan) {
   const today = isoDay(new Date());
   const inMonth = piggyMonth === monthKey(new Date()) ? today : isoDay(monthBounds(piggyMonth)[0]);
-  const x = ex || { id: '', title: '', amount: '', date: inMonth, paidBy: USERS[0].id, split: true };
-  openSheet(`${sheetHead(ex ? 'Edit expense' : 'New expense', 'piggy')}
+  const x = ex || { id: '', title: scan?.store || '', amount: scan?.amount ?? '', date: scan ? scan.date || today : inMonth, paidBy: USERS[0].id, split: true };
+  openSheet(`${sheetHead(ex ? 'Edit expense' : scan ? 'From your receipt' : 'New expense', 'piggy')}
+    ${scan ? `<p class="hint">${scan.amount ? 'Check what the reader got, then pick who paid.' : "The total wasn't readable, so type it in."}</p>` : ''}
     <div class="field"><label for="ex-title">What was it?</label><input class="input" id="ex-title" value="${esc(x.title)}" placeholder="e.g. Groceries"></div>
     <div class="field-row">
       <div class="field"><label for="ex-amount">Amount</label><input class="input" id="ex-amount" type="number" inputmode="decimal" step="0.01" min="0" value="${x.amount}" placeholder="0.00"></div>
@@ -1675,7 +1679,20 @@ function openExpenseSheet(ex) {
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
       <button class="btn" data-action="save-expense" data-id="${x.id}">${ex ? 'Save' : 'Add expense'}</button>
     </div>`);
-  if (!ex) setTimeout(() => $('#ex-title')?.focus(), 50);
+  if (!ex && !scan) setTimeout(() => $('#ex-title')?.focus(), 50);
+}
+async function scanExpense(file) {
+  openSheet(`${sheetHead('Reading receipt', 'receipt')}
+    <p class="hint">Reading the total on this device. This can take a few seconds.</p>
+    <div class="rc-bar"><i id="rc-progress"></i></div>`);
+  $('#sheet').dataset.kind = 'receipt-money';
+  try {
+    const found = await readExpense(file, (p) => { const b = $('#rc-progress'); if (b) b.style.width = `${Math.round(p * 100)}%`; });
+    if ($('#sheet').dataset.kind === 'receipt-money') openExpenseSheet(null, found);
+  } catch (err) {
+    closeSheet();
+    toast(err.message || "Couldn't read that photo");
+  }
 }
 
 /* ---------- Fridge ---------- */
@@ -2477,8 +2494,8 @@ document.addEventListener('input', (e) => {
   if (e.target.id === 'fr-name' && cat && !cat.dataset.picked && !$('#sheet [data-action="del-fridge"]')) cat.value = guessCat(e.target.value);
 });
 document.addEventListener('change', (e) => {
-  if (e.target.id !== 'receipt-file' || !e.target.files[0]) return;
-  scanReceipt(e.target.files[0]);
+  if (!['receipt-file', 'receipt-money'].includes(e.target.id) || !e.target.files[0]) return;
+  (e.target.id === 'receipt-file' ? scanReceipt : scanExpense)(e.target.files[0]);
   e.target.value = '';
 });
 document.addEventListener('change', async (e) => {

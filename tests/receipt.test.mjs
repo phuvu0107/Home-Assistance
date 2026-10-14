@@ -1,7 +1,7 @@
 // Run with: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { flatten, parseReceipt, receiptText } from '../receipt.js';
+import { flatten, parseExpense, parseReceipt, receiptText } from '../receipt.js';
 
 // Tesseract's text for a Thien Thanh Market receipt photo (8 foods, 4 of them sold by weight),
 // after the glare is evened out and the edge marks are dropped.
@@ -103,4 +103,23 @@ test('evens out a shadow so paper is white and print stays dark on both sides', 
   const at = (x, y) => px[(y * w + x) * 4];
   assert.ok(at(20, 10) > 200 && at(180, 10) > 200, 'paper is white in light and shadow');
   assert.ok(at(20, 25) < 60 && at(180, 25) < 60, 'print is dark in light and shadow');
+});
+
+test('reads the store, total and day for a Money expense', () => {
+  const today = new Date(2026, 9, 14);
+  assert.deepEqual(parseExpense(`${THIEN_THANH}\n10/12/2026 18:42`, today), { store: 'Thien Thanh Market', amount: 34.75, date: '2026-10-12' });
+});
+
+test('falls back to the card line when the total is lost, and skips misread dates', () => {
+  const text = 'TRADER JOES\n123 MAIN ST\nBANANA 0.29\nSUBTOTAL 51.20\nTAX 1.10\nVISA $52.30\n13/45/2026\n01/02/2031';
+  assert.deepEqual(parseExpense(text, new Date(2026, 9, 14)), { store: 'Trader Joes', amount: 52.3, date: '' });
+});
+
+test('takes the total over the subtotal and savings', () => {
+  const text = 'COSTCO WHOLESALE\nSUBTOTAL 120.00\nTOTAL SAVINGS 15.00\nTAX 4.20\n**** TOTAL 124.20\n2026-10-03';
+  assert.deepEqual(parseExpense(text, new Date(2026, 9, 14)), { store: 'Costco Wholesale', amount: 124.2, date: '2026-10-03' });
+});
+
+test('an unreadable photo gives an empty expense', () => {
+  assert.deepEqual(parseExpense('', new Date(2026, 9, 14)), { store: '', amount: null, date: '' });
 });
