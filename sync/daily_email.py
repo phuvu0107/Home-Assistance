@@ -63,7 +63,7 @@ def household_state(passphrase):
     key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=SALT, iterations=ITER).derive(passphrase.encode())
     doc = json.loads(AESGCM(key).decrypt(base64.b64decode(box["iv"]), base64.b64decode(box["data"]), None))
     items = doc["items"]
-    lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge"}
+    lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge", "k": "thanks", "n": "notes"}
     state = {name: [v for k, v in items.items() if k.startswith(p + ":")] for p, name in lists.items()}
     state["stars"] = items.get("stars", {}).get("value", {})
     return state
@@ -190,6 +190,18 @@ def build(state, now, energy, sky, slot="morning"):
     if upcoming and slot in ("morning", "night"):
         sections.append(("Coming up this week", [event_line(e, day=True) for e in upcoming[:6]]))
 
+    # Thank-yous nobody has opened in the app yet go first, so they're seen even without opening it.
+    # Each shows up for two days of emails, then waits in the app.
+    recent = now.timestamp() * 1000 - 2 * 864e5
+    unread = sorted((k for k in state.get("thanks", []) if not k.get("readAt") and k.get("at", 0) >= recent), key=lambda k: k.get("at", 0))
+    if unread:
+        sections.insert(0, ("Thank-you notes", [
+            f"{k.get('emoji') or '💌'} {USERS.get(k.get('from'), '')} to {USERS.get(k.get('to'), '')}: \u201c{k.get('text') or 'Thank you!'}\u201d"
+            + (f" (for {k['for']})" if k.get("for") else "") for k in unread]))
+    notes = sorted((n for n in state.get("notes", []) if not n.get("until") or n["until"] >= iso), key=lambda n: -n.get("at", 0))
+    if notes and slot in ("morning", "night"):
+        sections.append(("Notes on the fridge", [f"{USERS.get(n.get('by'), '')}: {' '.join(n.get('text', '').split())}" for n in notes[:8]]))
+
     plural = lambda n, w: f"{n} {w}{'s' if n != 1 else ''}"
     subject = {
         "morning": f"{now.strftime('%A, %b %-d')} · {plural(len(events), 'event')}, {plural(task_count, 'task')}",
@@ -197,6 +209,8 @@ def build(state, now, energy, sky, slot="morning"):
         "evening": f"Evening check-in · {plural(task_count, 'task')} open",
         "night": f"Tonight's recap · tomorrow has {plural(len(events), 'event')}",
     }[slot]
+    if unread:
+        subject = f"💌 {subject}"
     greet = {"morning": "Good morning", "midday": "Good afternoon", "evening": "Good evening", "night": "Good night"}[slot]
     sign = {"morning": "Have a great day!", "midday": "Keep it up!", "evening": "Enjoy your evening!", "night": "Sleep well!"}[slot]
     hello = f"{greet}, {' and '.join(USERS.values())}!"

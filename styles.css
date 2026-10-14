@@ -939,3 +939,90 @@ body.dome-open .fab { opacity: 0; transform: scale(.6); pointer-events: none; }
 /* While the half circle is open, More is the one lit tab. */
 body.dome-open .tab.active:not([data-page="more"]) { color: var(--text-2); font-weight: 500; }
 body.dome-open .tab[data-page="more"] { color: var(--accent); }
+
+/* ---------- Thank-you notes and sticky notes ---------- */
+/* Paper colors: soft and a little muted, so a few notes together still look calm. */
+:root {
+  --p-butter: #fbf1c7; --p-sage: #dfeedb; --p-blush: #fbe1dc; --p-sky: #dbeaf7; --p-lilac: #e9e2f7; --paper-ink: #3b3427;
+  --paper-shadow: 0 1px 1px rgba(60, 45, 20, .06), 0 10px 22px -10px rgba(60, 45, 20, .32);
+}
+:root[data-theme="dark"] {
+  --p-butter: #4a432c; --p-sage: #33443a; --p-blush: #4b3534; --p-sky: #2f3f4f; --p-lilac: #3d3652; --paper-ink: #f2ede2;
+  --paper-shadow: 0 1px 1px rgba(0, 0, 0, .3), 0 10px 22px -10px rgba(0, 0, 0, .6);
+}
+.p-butter { --paper: var(--p-butter); } .p-sage { --paper: var(--p-sage); } .p-blush { --paper: var(--p-blush); }
+.p-sky { --paper: var(--p-sky); } .p-lilac { --paper: var(--p-lilac); }
+
+.notes-board { display: flex; gap: 22px; overflow-x: auto; padding: 14px 4px 18px 14px; margin: -6px -4px 6px -6px; scroll-snap-type: x proximity; scrollbar-width: none; }
+.notes-board::-webkit-scrollbar { display: none; }
+.sticky {
+  position: relative; flex: none; width: 210px; min-height: 150px; display: flex; flex-direction: column; gap: 10px; text-align: left;
+  padding: 30px 16px 14px; border: 0; border-radius: 3px 3px 3px 3px; background: var(--paper); color: var(--paper-ink);
+  box-shadow: var(--paper-shadow); transform: rotate(var(--tilt, 0deg)); scroll-snap-align: start;
+  transition: transform .25s cubic-bezier(.2, 1.3, .4, 1), box-shadow .25s;
+}
+/* The bottom corner curls up a little. */
+.sticky::after { content: ''; position: absolute; right: 0; bottom: 0; width: 22px; height: 22px; border-radius: 0 0 3px 0;
+  background: linear-gradient(135deg, transparent 50%, color-mix(in srgb, var(--paper) 78%, #000) 50%); opacity: .5; }
+.sticky:active { transform: rotate(0deg) scale(.98); }
+.sticky > .av { position: absolute; top: -12px; left: -10px; width: 38px; height: 38px; border-width: 3px; border-color: var(--bg); box-shadow: 0 3px 8px rgba(0, 0, 0, .14); }
+.sticky-text { flex: 1; font-size: 16px; line-height: 1.38; font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.sticky small { font-size: 12px; opacity: .62; }
+.sticky-new { position: absolute; top: 9px; right: 10px; font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--accent); }
+.sticky.new { animation: stick-on .5s cubic-bezier(.2, 1.4, .4, 1) both; }
+@keyframes stick-on { from { transform: rotate(var(--tilt, 0deg)) translateY(-10px) scale(.96); opacity: 0; } }
+.note-add { flex: none; width: 92px; min-height: 150px; border: 1.5px dashed var(--card-border); border-radius: 6px; background: none; color: var(--text-2);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-weight: 500; font-size: 13px; }
+.note-add .ico { font-size: 22px; }
+.note-add.solo { width: 100%; min-height: 0; flex-direction: row; padding: 14px; margin-bottom: 16px; border-radius: var(--radius-sm); }
+@media (min-width: 900px) { .sticky { width: 230px; min-height: 170px; } .sticky-text { font-size: 17px; } .note-add { min-height: 170px; } }
+
+/* Writing a note: the text box is the note itself, in the color picked. */
+.note-edit { position: relative; margin: 6px 0 18px 8px; padding: 30px 16px 12px; border-radius: 3px; background: var(--paper); color: var(--paper-ink); box-shadow: var(--paper-shadow); transform: rotate(-.6deg); transition: background-color .2s; }
+.note-edit > .av { position: absolute; top: -12px; left: -10px; width: 38px; height: 38px; border-width: 3px; border-color: var(--card); }
+.note-edit textarea { width: 100%; border: 0; background: none; outline: none; resize: none; font-size: 17px; line-height: 1.4; font-weight: 500; color: inherit; }
+.note-edit textarea::placeholder { color: inherit; opacity: .45; }
+.note-edit small { display: block; text-align: right; font-size: 12px; opacity: .55; }
+.swatches { display: flex; gap: 10px; }
+.swatch { width: 38px; height: 38px; border-radius: 50%; border: 2px solid var(--card-border); background: var(--paper); }
+.swatch.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* Thank-yous */
+.heart-btn { width: 36px; height: 36px; flex: none; border-radius: 50%; border: 0; background: none; display: grid; place-items: center; font-size: 19px; color: var(--text-3); }
+.heart-btn.on { color: var(--rose-fg); }
+.heart-btn.on svg { fill: currentColor; }
+.heart-btn:active { transform: scale(.85); }
+.lb-row .heart-btn { margin: -6px -6px -6px 0; }
+.inbox { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.inbox-strip { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 12px 16px 12px 12px; border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--rose-fg) 25%, transparent); background: var(--rose-bg); color: var(--text); box-shadow: var(--shadow); animation: inbox-in .5s cubic-bezier(.2, 1.3, .4, 1) both; }
+.inbox-strip > span:nth-child(2) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.inbox-strip b { font-weight: 600; }
+.inbox-strip small { color: var(--text-2); font-size: 13px; }
+.inbox-strip .chev { color: var(--text-3); }
+.inbox-face { position: relative; display: flex; }
+.inbox-face .av + .av { margin-left: -10px; }
+.inbox-face i { position: absolute; right: -8px; bottom: -6px; font-style: normal; font-size: 17px; animation: wiggle 2.4s ease-in-out infinite; }
+@keyframes inbox-in { from { transform: translateY(-8px); opacity: 0; } }
+@keyframes wiggle { 0%, 80%, 100% { transform: rotate(0); } 85% { transform: rotate(-14deg); } 90% { transform: rotate(12deg); } 95% { transform: rotate(-6deg); } }
+.thx-list { display: flex; flex-direction: column; gap: 10px; }
+.thx { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 14px; background: var(--muted-surface); text-align: left; }
+.thx-emoji { font-size: 24px; line-height: 1.2; }
+.thx-body { min-width: 0; flex: 1; }
+.thx-body p { margin: 0 0 4px; font-weight: 500; overflow-wrap: anywhere; }
+.thx-body small { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: var(--text-3); font-size: 12px; }
+.thx.big { padding: 18px; background: var(--rose-bg); }
+.thx.big .thx-emoji { font-size: 34px; }
+.thx.big p { font-size: 18px; }
+.thx-open { display: block; width: 100%; border: 0; padding: 0; background: none; }
+.thx-for { display: flex; align-items: center; gap: 10px; margin: -6px 0 16px; color: var(--text-2); }
+.emoji-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.emoji-pick button { width: 48px; height: 48px; border-radius: 14px; border: 1px solid var(--card-border); background: var(--card); font-size: 22px; }
+.emoji-pick button.on { border-color: var(--accent); background: var(--accent-soft); transform: scale(1.06); }
+.jar { margin-top: 16px; }
+.jar-nav { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); font-weight: 500; }
+.jar-nav .btn-round:disabled { opacity: .35; }
+.tab-badge { position: absolute; top: 4px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--rose-fg); color: #fff;
+  font-size: 11px; font-weight: 700; font-style: normal; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--card); }
+@media (prefers-reduced-motion: reduce) { .inbox-face i, .inbox-strip, .sticky.new { animation: none; } }
