@@ -1322,13 +1322,20 @@ const DAY_END = 22; // 10 PM
 
 const minutesOf = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
 
-// Lay out one day's timed events in side-by-side lanes when they overlap.
+// Lay out one day's timed events in side-by-side lanes when they overlap. Times are clipped to the
+// visible hours first, so events before 7 AM or after 10 PM, which all sit at the edge, get lanes
+// instead of stacking on top of each other. Every event takes at least 30 minutes of space.
 function laneLayout(events) {
+  const lo = DAY_START * 60;
+  const hi = DAY_END * 60;
   const items = events.map((e) => {
-    const start = minutesOf(e.time);
-    const end = Math.max(start + 30, e.end ? minutesOf(e.end) : start + 60);
+    const t = minutesOf(e.time);
+    const t2 = Math.max(t + 30, e.end ? minutesOf(e.end) : t + 60);
+    const start = Math.min(Math.max(t, lo), hi - 30);
+    const end = Math.max(start + 30, Math.min(t2, hi));
     return { e, start, end, lane: 0, lanes: 1 };
   });
+  items.sort((a, b) => a.start - b.start);
   let group = [];
   let groupEnd = -1;
   const flush = () => { const n = Math.max(...group.map((g) => g.lane)) + 1; group.forEach((g) => { g.lanes = n; }); group = []; };
@@ -1354,21 +1361,18 @@ function weekView() {
       <small>${d.toLocaleDateString([], { weekday: 'short' })}</small><b>${d.getDate()}</b></div>`).join('');
   const allDay = days.map((d) => {
     const iso = isoDay(d);
-    const tasks = iso === todayIso && calChores() ? tasksToday().map(taskChip).join('') : '';
-    return `<div class="wk-allday">${eventsOn(iso).filter((e) => !e.time).map(eventChip).join('')}${tasks}</div>`;
+    const tasks = iso === todayIso && calChores() ? calTasksToday().map(taskChip).join('') : '';
+    return `<div class="wk-allday">${calEventsOn(iso).filter((e) => !e.time).map(eventChip).join('')}${tasks}</div>`;
   }).join('');
   const cols = days.map((d) => {
     const iso = isoDay(d);
-    const timed = laneLayout(eventsOn(iso).filter((e) => e.time));
+    const timed = laneLayout(calEventsOn(iso).filter((e) => e.time));
     const nowLine = iso === todayIso && nowMin >= DAY_START * 60 && nowMin < DAY_END * 60
       ? `<div class="now-line" style="top:${((nowMin - DAY_START * 60) / 60) * HOUR_PX}px"></div>` : '';
     return `<div class="wk-col" data-action="add-event-at" data-d="${iso}">
       ${timed.map(({ e, start, end, lane, lanes }) => {
-        // Clip to the visible hours, so an event starting before 7 AM doesn't run past its end.
-        const from = Math.min(Math.max(start, DAY_START * 60), DAY_END * 60);
-        const to = Math.min(Math.max(end, DAY_START * 60), DAY_END * 60);
-        const top = Math.min(((from - DAY_START * 60) / 60) * HOUR_PX, (DAY_END - DAY_START) * HOUR_PX - 26);
-        const height = Math.max(26, ((to - from) / 60) * HOUR_PX - 3);
+        const top = ((start - DAY_START * 60) / 60) * HOUR_PX;
+        const height = Math.max(26, ((end - start) / 60) * HOUR_PX - 3);
         return `<button class="wk-ev${eventDone(e) ? ' done' : ''} ${e.who ? `c-${e.who === 'both' ? 'purple' : userOf(e.who).color}` : 'c-purple'}${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}"
           style="top:${top}px;height:${height}px;left:calc(${(lane / lanes) * 100}% + 2px);width:calc(${100 / lanes}% - 4px)">
           <span class="wk-ev-top">${eventDone(e) ? icon('check', 'ev-done') : avatar(e.who, 'xs')}<b>${timeLabel(e)}</b>${impTag(e)}</span><span class="wk-ev-title">${esc(e.title)}</span></button>`;
@@ -1396,8 +1400,8 @@ function monthView() {
   const cells = Array.from({ length: weeks * 7 }, (_, i) => {
     const d = addDays(start, i);
     const iso = isoDay(d);
-    const evs = eventsOn(iso);
-    const items = [...evs.map(eventChip), ...(iso === todayIso && calChores() ? tasksToday().map(taskChip) : [])];
+    const evs = calEventsOn(iso);
+    const items = [...evs.map(eventChip), ...(iso === todayIso && calChores() ? calTasksToday().map(taskChip) : [])];
     return `<div class="day ${d.getMonth() !== m ? 'other' : ''} ${iso === todayIso ? 'today' : ''}" data-action="open-day" data-d="${iso}">
       <span class="day-num">${d.getDate()}</span>
       <div class="day-evs">${items.slice(0, 4).join('')}${items.length > 4 ? `<span class="more">+${items.length - 4} more</span>` : ''}</div>
@@ -1412,8 +1416,8 @@ function agendaView() {
   const todayIso = isoDay(new Date());
   const days = Array.from({ length: 7 }, (_, i) => isoDay(addDays(start, i)));
   const blocks = days.map((iso) => {
-    const evs = eventsOn(iso);
-    const tasks = iso === todayIso && calChores() ? tasksToday() : [];
+    const evs = calEventsOn(iso);
+    const tasks = iso === todayIso && calChores() ? calTasksToday() : [];
     if (!evs.length && !tasks.length && iso !== todayIso) return '';
     return `<div class="ag-day${iso === todayIso ? ' today' : ''}"><div class="ag-head">${dayLabel(iso)}${iso === todayIso || iso === isoDay(addDays(new Date(), 1)) ? `<small>${new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</small>` : ''}</div>
       <div class="list">${evs.map((e) => eventRow(e)).join('')}${tasks.map((t) => taskCard(t, userOf(t.who) || members()[0], true)).join('')}
@@ -1424,6 +1428,11 @@ function agendaView() {
 // Phones start on the list; wider screens on the week grid. A choice made here sticks on this device.
 const calView = () => state.settings.calPick || (matchMedia('(max-width: 600px)').matches ? 'agenda' : 'week');
 const calChores = () => !!state.settings.calChores;
+// Whose schedule to show. One person's view keeps shared events and ones with nobody picked.
+const calWho = () => (userOf(state.settings.calWho) ? state.settings.calWho : '');
+const calShows = (who) => !calWho() || !who || who === 'both' || who === calWho();
+const calEventsOn = (iso) => eventsOn(iso).filter((e) => calShows(e.who));
+const calTasksToday = () => tasksToday().filter((t) => calShows(t.who));
 
 function calTitle() {
   if (calView() === 'month') return calCursor.toLocaleDateString([], { month: 'long', year: 'numeric' });
@@ -1445,7 +1454,8 @@ views.calendar = () => {
       <h2>${calTitle()}</h2>
       <button class="btn ghost sm" data-action="cal-today">Today</button>
       <span class="spacer"></span>
-      <button class="chip-toggle${calChores() ? ' on' : ''}" data-action="cal-chores" aria-pressed="${calChores()}">${icon('checkSquare')} Chores</button>
+      <div class="seg cal-who" role="group" aria-label="Whose schedule">${[['', 'Everyone'], ...USERS.map((u) => [u.id, u.name])].map(([id, l]) => `<button class="${calWho() === id ? 'on' : ''}" data-action="cal-who" data-who="${id}" aria-pressed="${calWho() === id}">${l}</button>`).join('')}</div>
+      <button class="chip-toggle${calChores() ? ' on' : ''}" data-action="cal-chores" aria-pressed="${calChores()}" aria-label="Chores">${icon('checkSquare')} Chores</button>
       <div class="seg">${Object.entries(CAL_VIEWS).map(([x, l]) => `<button class="${v === x ? 'on' : ''}" data-action="cal-view" data-v="${x}">${l}</button>`).join('')}</div>
     </div>
     <div class="cal-body">${v === 'month' ? monthView() : v === 'agenda' ? agendaView() : weekView()}</div>
@@ -2658,6 +2668,7 @@ const actions = {
   },
   'cal-today': () => { calCursor = new Date(); },
   'cal-view': (el) => { state.settings.calPick = el.dataset.v; save(); },
+  'cal-who': (el) => { state.settings.calWho = el.dataset.who; save(); },
   'cal-chores': () => { state.settings.calChores = !state.settings.calChores; save(); },
   'open-day': (el) => openDaySheet(el.dataset.d),
   'add-event': (el) => openEventSheet(null, el.dataset.d),
@@ -3078,7 +3089,7 @@ document.addEventListener('click', (e) => {
   if (!fn) return;
   fn(el, e);
   save();
-  if (!NO_RERENDER.has(name)) renderView(['cal-move', 'cal-today', 'cal-view', 'cal-chores'].includes(name) ? 'cal' : undefined);
+  if (!NO_RERENDER.has(name)) renderView(['cal-move', 'cal-today', 'cal-view', 'cal-chores', 'cal-who'].includes(name) ? 'cal' : undefined);
 });
 
 $('#sheet-backdrop').addEventListener('click', closeSheet);
