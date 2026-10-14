@@ -63,7 +63,7 @@ def household_state(passphrase):
     key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=SALT, iterations=ITER).derive(passphrase.encode())
     doc = json.loads(AESGCM(key).decrypt(base64.b64decode(box["iv"]), base64.b64decode(box["data"]), None))
     items = doc["items"]
-    lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge", "k": "thanks", "n": "notes"}
+    lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge", "k": "thanks", "n": "notes", "b": "bucket"}
     state = {name: [v for k, v in items.items() if k.startswith(p + ":")] for p, name in lists.items()}
     state["stars"] = items.get("stars", {}).get("value", {})
     return state
@@ -198,6 +198,11 @@ def build(state, now, energy, sky, slot="morning"):
         sections.insert(0, ("Thank-you notes", [
             f"{k.get('emoji') or '💌'} {USERS.get(k.get('from'), '')} to {USERS.get(k.get('to'), '')}: \u201c{k.get('text') or 'Thank you!'}\u201d"
             + (f" (for {k['for']})" if k.get("for") else "") for k in unread]))
+    # Bucket list items ticked off in the last two days, so the other person hears about it.
+    ticked = sorted((b for b in state.get("bucket", []) if b.get("doneAt", 0) >= recent), key=lambda b: b["doneAt"])
+    if ticked:
+        went = lambda b: "together" if b.get("doneBy") == "both" else f"by {USERS.get(b.get('doneBy'), 'someone')}"
+        sections.insert(1 if unread else 0, ("Ticked off the bucket list", [f"🎉 {b.get('text', '')} ({went(b)})" for b in ticked]))
     notes = sorted((n for n in state.get("notes", []) if not n.get("until") or n["until"] >= iso), key=lambda n: -n.get("at", 0))
     if notes and slot in ("morning", "night"):
         sections.append(("Notes on the fridge", [f"{USERS.get(n.get('by'), '')}: {' '.join(n.get('text', '').split())}" for n in notes[:8]]))

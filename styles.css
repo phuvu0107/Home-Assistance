@@ -1026,3 +1026,13 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .tab-badge { position: absolute; top: 4px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--rose-fg); color: #fff;
   font-size: 11px; font-weight: 700; font-style: normal; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--card); }
 @media (prefers-reduced-motion: reduce) { .inbox-face i, .inbox-strip, .sticky.new { animation: none; } }
+
+/* Bucket list */
+.bk-emoji { width: 40px; flex: none; text-align: center; font-size: 22px; line-height: 1; }
+.card-head button.link { border: 0; background: none; padding: 0; cursor: pointer; }
+.bk-tabs { display: flex; margin-bottom: 14px; }
+.bk-tabs button { flex: 1; }
+.bk-list { max-height: min(56vh, 520px); overflow-y: auto; padding: 2px; }
+.bk-kind { display: flex; flex-wrap: wrap; }
+.bk-kind button { padding: 10px 12px; }
+.task.bk.done .bk-emoji { opacity: .6; }

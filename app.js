@@ -50,6 +50,7 @@ function defaultState() {
     fridge: [],
     thanks: [],
     notes: [],
+    bucket: [],
     health: {},
   };
 }
@@ -877,7 +878,7 @@ function openAddMenu() {
     ? [opt('add-fridge', 'plus', 'Add an item', 'Type in one thing'), scan]
     : [opt('add-task', 'checkSquare', 'Chore', 'Something to do, with stars'), opt('add-event', 'calendar', 'Event', 'Something on the calendar'),
       opt('add-fridge', 'fridge', 'Kitchen item', 'Something in the fridge'), opt('add-expense', 'piggy', 'Expense', 'Something you paid for'),
-      opt('add-note', 'notes', 'Note', 'A sticky note on Home')];
+      opt('add-note', 'notes', 'Note', 'A sticky note on Home'), opt('add-bucket', 'sparkles', 'Bucket list', 'A trip, dinner or place to go together')];
   openSheet(`${sheetHead(currentRoute() === 'fridge' ? 'Add to kitchen' : 'Add', 'plus')}<div class="list more-list">${items.join('')}</div>`);
   $('#sheet').dataset.kind = 'add';
 }
@@ -1222,7 +1223,7 @@ views.home = () => {
   const tasks = tasksToday().sort((a, b) => isDone(a) - isDone(b) || order.indexOf(a.who) - order.indexOf(b.who));
   const lead = leadLine();
   const next = state.events.filter((e) => e.date > today).sort(byStart).slice(0, 4);
-  return `${thanksInbox()}${glanceRow()}${notesBoard()}
+  return `${thanksInbox()}${bucketInbox()}${glanceRow()}${notesBoard()}
   <div class="grid-home">
     <div class="card a-today">
       <div class="card-head">${icon('checkSquare')}<h2>Today</h2>${lead ? `<a class="link" href="#/tasks">${lead} ${icon('arrowRight')}</a>` : ''}</div>
@@ -1235,6 +1236,7 @@ views.home = () => {
         <div class="card-head">${icon('calendar')}<h2>Coming up</h2><a class="link" href="#/calendar">Calendar ${icon('arrowRight')}</a></div>
         <div class="list">${next.map((e) => eventRow(e, true)).join('') || '<p class="empty-line">Nothing else on the calendar this week.</p>'}</div>
       </div>
+      ${bucketCard()}
       ${forecastCard()}
       ${energyDays().length ? energyCard() : ''}
     </div>
@@ -1506,7 +1508,7 @@ const unreadThanks = () => (state.thanks || []).filter((k) => !k.readAt && (!me(
 const liveNotes = () => (state.notes || []).filter((n) => !n.until || n.until >= isoDay(new Date())).sort(byNewest);
 // A note from the other person is new until its reader taps it. Shared screens don't track this.
 const isNewNote = (n) => !!me() && n.by !== me() && !n.seen?.[me()] && Date.now() - n.at < 3 * 864e5;
-const unreadCount = () => unreadThanks().length + liveNotes().filter(isNewNote).length;
+const unreadCount = () => unreadThanks().length + liveNotes().filter(isNewNote).length + (me() ? newDones().length : 0);
 
 // Taken-down notes and thank-yous read more than six months ago leave the shared document.
 function tidyNotes() {
@@ -1671,10 +1673,110 @@ function openNoteSheet(n) {
 function announceArrivals(before) {
   const fresh = (state.thanks || []).filter((k) => !before.has(k.id) && !k.readAt && (!me() || k.to === me()));
   const notes = liveNotes().filter((n) => !before.has(n.id) && (!me() || n.by !== me()));
+  const ticked = newDones().filter((b) => !before.has(`${b.id}✓`));
+  const added = (state.bucket || []).filter((b) => !before.has(b.id) && !b.doneAt && (!me() || b.by !== me()));
   if (fresh.length) toast(`${userOf(fresh[0].from)?.name} sent ${me() ? 'you' : userOf(fresh[0].to)?.name} a thank-you ${fresh[0].emoji || '💌'}`);
+  else if (ticked.length) toast(`${userOf(ticked[0].from)?.name} ticked off ${ticked[0].text} 🎉`);
   else if (notes.length) toast(`${userOf(notes[0].by)?.name} left a note`);
+  else if (added.length) toast(`${userOf(added[0].by)?.name} added ${added[0].text} to the bucket list`);
 }
-const knownIds = () => new Set([...(state.thanks || []), ...(state.notes || [])].map((x) => x.id));
+// Ids seen so far, plus a ✓ mark for each bucket list item already ticked off.
+const knownIds = () => new Set([...(state.thanks || []), ...(state.notes || []), ...(state.bucket || [])].map((x) => x.id)
+  .concat((state.bucket || []).filter((b) => b.doneAt).map((b) => `${b.id}✓`)));
+
+/* =========================================================
+   Bucket list: trips, dinners and places to do together
+   ========================================================= */
+// state.bucket items: { id, text, kind, by, at, doneAt, doneBy, from, seen }, synced as b: items.
+// doneBy is who went (phu, nhi or both); from is who ticked it off, on their own phone or by picking
+// themselves on the fridge. The other person gets a strip on Home, a toast and the badge until
+// they open it, and the recap email mentions it for two days.
+const BUCKET_KINDS = { trip: ['✈️', 'Trip'], food: ['🍜', 'Food'], place: ['📍', 'Place'], do: ['✨', 'Do'] };
+const BUCKET_MAX = 100; // characters; everything shares one synced document
+const kindOf = (b) => BUCKET_KINDS[b.kind] || BUCKET_KINDS.do;
+const bucketOpen = () => (state.bucket || []).filter((b) => !b.doneAt).sort(byNewest);
+const bucketDone = () => (state.bucket || []).filter((b) => b.doneAt).sort((a, b) => b.doneAt - a.doneAt);
+// Ticked off by one person and not yet opened by the other. A shared screen shows it until the
+// other person's phone opens it, or for three days.
+const isNewDone = (b) => !!b.doneAt && !!userOf(b.from) && !b.seen && Date.now() - b.doneAt < 3 * 864e5 && (!me() || b.from !== me());
+const newDones = () => (state.bucket || []).filter(isNewDone).sort((a, b) => b.doneAt - a.doneAt);
+const wentLine = (b) => (b.doneBy === 'both' ? 'Together' : userOf(b.doneBy)?.name || 'Done');
+
+function bucketRow(b) {
+  const done = !!b.doneAt;
+  const sub = done ? `${wentLine(b)} · ${dayLabel(isoDay(new Date(b.doneAt)))}` : `${kindOf(b)[1]} · added by ${esc(userOf(b.by)?.name || 'someone')} ${ago(b.at)}`;
+  return `<div class="task bk${done ? ' done' : ''}">
+    <span class="bk-emoji" aria-hidden="true">${kindOf(b)[0]}</span>
+    <button class="task-body" data-action="edit-bucket" data-id="${b.id}"><b>${esc(b.text)}</b><small>${sub}</small></button>
+    <button class="check ${done ? 'on' : ''}" data-action="tick-bucket" data-id="${b.id}" aria-label="${done ? 'Put back on the list' : 'Tick off'}: ${esc(b.text)}" aria-pressed="${done}">${icon('check')}</button>
+  </div>`;
+}
+
+// Home: a few things still to do, newest first.
+function bucketCard() {
+  const open = bucketOpen(); const done = bucketDone().length;
+  return `<div class="card bucket">
+    <div class="card-head">${icon('sparkles')}<h2>Bucket list</h2><button class="link" data-action="open-bucket">${done ? `${done} done · ` : ''}See all ${icon('arrowRight')}</button></div>
+    <div class="task-list">${open.slice(0, 4).map(bucketRow).join('')
+      || `<p class="empty-line">${done ? 'All done. Time to dream up the next one.' : 'Add a trip, a dinner or a place you want to go together.'}</p>`}</div>
+    <button class="add-task" data-action="add-bucket">${icon('plus')} Add to the list</button>
+  </div>`;
+}
+
+// Top of Home: what the other person ticked off.
+function bucketInbox() {
+  const list = newDones();
+  if (!list.length) return '';
+  const b = list[0]; const who = userOf(b.from)?.name;
+  const head = list.length === 1 ? `${who} ticked off ${b.text}` : `${who} ticked off ${list.length} things`;
+  return `<div class="inbox"><button class="inbox-strip" data-action="open-bucket-news">
+    <span class="inbox-face">${avatar(b.from, 'sm')}<i>🎉</i></span>
+    <span><b>${esc(head)}</b><small>Bucket list${list.length === 1 && b.doneBy === 'both' ? ' · together' : ''} · Tap to see</small></span>${icon('chevron', 'chev')}</button></div>`;
+}
+
+// The whole list in a sheet, with To do and Done.
+let bucketTab = 'todo';
+let bucketListOpen = false; // reopen the list after adding, editing or ticking from it
+function openBucketList(tab = bucketTab) {
+  bucketTab = tab; bucketListOpen = true;
+  const open = bucketOpen(); const done = bucketDone();
+  const list = tab === 'done' ? done : open;
+  openSheet(`${sheetHead('Bucket list', 'sparkles')}
+    <div class="seg bk-tabs"><button class="${tab === 'todo' ? 'on' : ''}" data-action="bucket-tab" data-v="todo">To do · ${open.length}</button><button class="${tab === 'done' ? 'on' : ''}" data-action="bucket-tab" data-v="done">Done · ${done.length}</button></div>
+    <div class="task-list bk-list">${list.map(bucketRow).join('')
+      || `<p class="empty-line">${tab === 'done' ? 'Nothing ticked off yet.' : 'Nothing on the list yet.'}</p>`}</div>
+    <div class="sheet-actions"><button class="btn ghost" data-action="close-sheet">Close</button><button class="btn" data-action="add-bucket">${icon('plus')} Add</button></div>`);
+  $('#sheet').dataset.kind = 'bucket';
+}
+
+function openBucketSheet(b) {
+  const kind = b?.kind || 'trip';
+  openSheet(`${sheetHead(b ? 'Bucket list' : 'Add to the bucket list', 'sparkles')}
+    <div class="field"><label for="bk-text">What</label><input class="input" id="bk-text" maxlength="${BUCKET_MAX}" value="${esc(b?.text || '')}" placeholder="e.g. Cherry blossoms in Kyoto"${b ? ' data-nofocus' : ''}></div>
+    <div class="field"><label>Kind</label><div class="seg bk-kind" id="bk-kind">${Object.entries(BUCKET_KINDS).map(([k, [e, l]]) => `<button class="${k === kind ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${e} ${l}</button>`).join('')}</div></div>
+    ${!b && !me() ? `<div class="field"><label>From</label>${whoPicker(state.settings.lastWriter || USERS[0].id, false)}</div>` : ''}
+    ${b ? `<p class="hint">Added by ${esc(userOf(b.by)?.name || 'someone')} ${ago(b.at)}${b.doneAt ? ` · done ${dayLabel(isoDay(new Date(b.doneAt)))}, ${wentLine(b).toLowerCase()}` : ''}</p>` : ''}
+    <div class="sheet-actions">
+      ${b ? `<button class="btn danger" data-action="del-bucket" data-id="${b.id}">${icon('trash')} Remove</button><span class="spacer"></span>` : ''}
+      <button class="btn ghost" data-action="${bucketListOpen ? 'open-bucket' : 'close-sheet'}">Cancel</button>
+      <button class="btn" data-action="save-bucket" data-id="${b?.id || ''}">${b ? 'Save' : 'Add'}</button>
+    </div>`);
+  $('#sheet').dataset.kind = 'bucket-edit';
+}
+
+// Ticking off asks who went. Most things are done together, so that is picked unless this is someone's own phone.
+function openBucketTick(b) {
+  openSheet(`${sheetHead('Ticked off!', 'sparkles')}
+    <p class="thx-for"><span class="bk-emoji">${kindOf(b)[0]}</span><span><b>${esc(b.text)}</b></span></p>
+    <div class="field"><label>Who went</label>${whoPicker('both', 'both')}</div>
+    <p class="hint">${me() ? `${esc(userOf(otherOf(me()))?.name)} gets a note on their screen` : 'The other person gets a note on their screen'} unless you went together.</p>
+    <div class="sheet-actions">
+      <button class="btn ghost" data-action="${bucketListOpen ? 'open-bucket' : 'close-sheet'}">Cancel</button>
+      <button class="btn" data-action="done-bucket" data-id="${b.id}">${icon('check')} Tick it off</button>
+    </div>`);
+  $('#sheet').dataset.kind = 'bucket-tick';
+}
+const afterBucket = () => (bucketListOpen ? openBucketList() : closeSheet());
 
 /* =========================================================
    Household sync (same events, chores and expenses on every device)
@@ -2256,6 +2358,7 @@ function openSheet(html) {
 }
 // Plays the closing animation, then hides the sheet.
 function closeSheet() {
+  bucketListOpen = false;
   if ($('#sheet').hidden) return;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   $('#sheet').classList.add('closing');
@@ -2549,6 +2652,56 @@ const actions = {
     closeSheet();
     toast('Note taken down', ['Undo', () => { state.notes.splice(at, 0, n); save(); renderView(); }]);
   },
+  'open-bucket': () => openBucketList(),
+  'bucket-tab': (el) => openBucketList(el.dataset.v),
+  // Opening the news marks it seen on that person's phone. The fridge leaves it for the phone.
+  'open-bucket-news': () => {
+    if (me()) newDones().forEach((b) => { b.seen = Date.now(); });
+    openBucketList('done');
+  },
+  'add-bucket': () => openBucketSheet(null),
+  'edit-bucket': (el) => { const b = state.bucket.find((x) => x.id === el.dataset.id); if (b) openBucketSheet(b); },
+  'save-bucket': (el) => {
+    const text = $('#bk-text').value.trim().replace(/\s+/g, ' ').slice(0, BUCKET_MAX);
+    if (!text) { toast('Say what it is first'); return; }
+    const kind = $('#bk-kind .on')?.dataset.v || 'do';
+    const b = state.bucket.find((x) => x.id === el.dataset.id);
+    if (b) Object.assign(b, { text, kind });
+    else {
+      const by = me() || pickedWho() || USERS[0].id;
+      (state.bucket ||= []).push({ id: `b${Date.now()}`, text, kind, by, at: Date.now() });
+      state.settings.lastWriter = by;
+      bucketTab = 'todo';
+    }
+    afterBucket();
+  },
+  'del-bucket': (el) => {
+    const b = state.bucket.find((x) => x.id === el.dataset.id);
+    if (!b) return;
+    const at = state.bucket.indexOf(b);
+    state.bucket = state.bucket.filter((x) => x !== b);
+    afterBucket();
+    toast('Removed from the list', ['Undo', () => { state.bucket.splice(at, 0, b); save(); renderView(); if (bucketListOpen && !$('#sheet').hidden) openBucketList(); }]);
+  },
+  'tick-bucket': (el) => {
+    const b = state.bucket.find((x) => x.id === el.dataset.id);
+    if (!b) return;
+    if (!b.doneAt) { openBucketTick(b); return; }
+    const was = { ...b };
+    for (const k of ['doneAt', 'doneBy', 'from', 'seen']) delete b[k];
+    if (bucketListOpen && !$('#sheet').hidden) openBucketList();
+    toast('Back on the list', ['Undo', () => { Object.assign(b, was); save(); renderView(); if (bucketListOpen && !$('#sheet').hidden) openBucketList(); }]);
+  },
+  'done-bucket': (el) => {
+    const b = state.bucket.find((x) => x.id === el.dataset.id);
+    if (!b) return;
+    const doneBy = pickedWho() || 'both';
+    // Whoever ticked it off: this phone's owner, or on the fridge the one person who went.
+    const from = me() || (userOf(doneBy) ? doneBy : '');
+    Object.assign(b, { doneAt: Date.now(), doneBy, ...(from && { from }) });
+    afterBucket();
+    toast(`Ticked off ${b.text} 🎉`);
+  },
   'set-me': (el) => { state.settings.me = el.dataset.v; },
 
   'set-unit': (el) => { state.settings.unit = el.dataset.v; save(); fetchWeather(); },
@@ -2706,13 +2859,13 @@ const actions = {
 
   reset: () => {
     if (!confirm('Clear all events and chores on this device?')) return;
-    state = { ...defaultState(), settings: state.settings, expenses: state.expenses, fridge: state.fridge, health: state.health, thanks: state.thanks, notes: state.notes, events: [], tasks: [] };
+    state = { ...defaultState(), settings: state.settings, expenses: state.expenses, fridge: state.fridge, health: state.health, thanks: state.thanks, notes: state.notes, bucket: state.bucket, events: [], tasks: [] };
     save();
   },
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['thank', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
+const NO_RERENDER = new Set(['open-bucket', 'bucket-tab', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
