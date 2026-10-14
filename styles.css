@@ -1034,8 +1034,8 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 @media (min-width: 900px) { .bk-page { grid-template-columns: 3fr 2fr; } }
 .bk-group { margin: 18px 0 10px; font-size: 14px; font-weight: 600; color: var(--text-2); }
 .card-head + .bk-group { margin-top: 0; }
-.bk-kind { display: flex; flex-wrap: wrap; }
-.bk-kind button { padding: 10px 12px; }
+.sheet .field > .seg.bk-kind { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+.sheet .field > .seg.bk-kind button { padding: 8px 4px; white-space: normal; line-height: 1.25; text-align: center; }
 .task.bk.done .bk-emoji { opacity: .6; }
 .love { color: var(--rose-fg); font-weight: 600; white-space: nowrap; }
 .love-total { display: flex; align-items: baseline; gap: 10px; margin-bottom: 18px; padding: 14px 16px; border-radius: 14px; background: var(--muted-surface); }

@@ -1695,7 +1695,12 @@ const knownIds = () => new Set([...(state.thanks || []), ...(state.notes || []),
 // they open it, and the recap email mentions it for two days.
 // Each kind is worth a fixed number of love points, by how much it takes: eating out is easy,
 // a place is a bit more, a trip is big.
-const BUCKET_KINDS = { trip: ['✈️', 'Trip', 100], place: ['📍', 'Place', 25], do: ['✨', 'Do', 15], food: ['🍜', 'Food', 10] };
+const BUCKET_KINDS = {
+  milestone: ['🏡', 'Milestone', 200], trip: ['✈️', 'Trip', 100], learn: ['🎓', 'Learn together', 50],
+  adventure: ['🏕️', 'Adventure', 40], give: ['💛', 'Give back', 30], place: ['📍', 'Place', 25],
+  show: ['🎟️', 'Show or game', 20], do: ['✨', 'Do', 15], cook: ['🍳', 'Cook together', 10],
+  date: ['🎬', 'Date night', 10], food: ['🍜', 'Food', 10],
+};
 const BUCKET_MAX = 100; // characters; everything shares one synced document
 const kindOf = (b) => BUCKET_KINDS[b.kind] || BUCKET_KINDS.do;
 // Love points come from the kind, and the two of you earn them together when an item is ticked

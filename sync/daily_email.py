@@ -33,7 +33,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 USERS = {"phu": "Phu", "nhi": "Nhi"}
-LOVE = {"trip": 100, "place": 25, "do": 15, "food": 10}  # love points per bucket list kind, as in app.js
+LOVE = {"milestone": 200, "trip": 100, "learn": 50, "adventure": 40, "give": 30, "place": 25,
+        "show": 20, "do": 15, "cook": 10, "date": 10, "food": 10}  # love points per bucket list kind, as in app.js
 SALT = b"home-dashboard household sync v1"  # must match sync.js
 ITER = 310_000
 WMO = {0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Cloudy", 45: "Fog", 48: "Fog", 51: "Drizzle", 53: "Drizzle",
