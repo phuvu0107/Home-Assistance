@@ -88,6 +88,10 @@ def energy_yesterday(day):
     return f"{kwh:.1f} kWh" + (f", ${cost:.2f}" if cost else "")
 
 
+WMO_ICON = {0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌦️", 55: "🌦️", 61: "🌧️", 63: "🌧️",
+            65: "🌧️", 71: "🌨️", 73: "🌨️", 75: "❄️", 80: "🌦️", 81: "🌧️", 82: "⛈️", 95: "⛈️", 96: "⛈️", 99: "⛈️"}
+
+
 def clock(iso):
     return dt.datetime.fromisoformat(iso).strftime("%-I:%M %p")
 
@@ -109,7 +113,7 @@ def weather(tz, day=0):
     hot, cold = max(hours, key=lambda x: x[1]), min(hours, key=lambda x: x[1])
     hour = lambda t: dt.datetime.fromisoformat(t).strftime("%-I %p")
     code = d["weather_code"][day]
-    return {"when": "Tomorrow" if day else "Today", "sky": WMO.get(code, "Mixed"),
+    return {"when": "Tomorrow" if day else "Today", "icon": WMO_ICON.get(code, "🌡️"), "sky": WMO.get(code, "Mixed"),
             "hi": round(hot[1]), "hi_at": hour(hot[0]), "lo": round(cold[1]), "lo_at": hour(cold[0]),
             "sunrise": clock(d["sunrise"][day]), "sunset": clock(d["sunset"][day]),
             "rain": d.get("precipitation_probability_max", [None, None])[day]}
@@ -226,40 +230,52 @@ def build(state, now, energy, sky, slot="morning"):
 
 
 # Email clients ignore stylesheets and most layout CSS, so everything is inline and laid out with tables.
-FONT = "-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
-INK, MUTED, RULE = "#1f2328", "#6e7781", "#e6e8eb"
+THEMES = {  # header colors (start, end of the gradient), accent, emoji
+    "morning": ("#fb923c", "#f43f5e", "#ea580c", "🌅"),
+    "midday": ("#38bdf8", "#6366f1", "#0284c7", "☀️"),
+    "evening": ("#f472b6", "#8b5cf6", "#9333ea", "🌇"),
+    "night": ("#4338ca", "#1e1b4b", "#4f46e5", "🌙"),
+}
+ICONS = {"Today": "📅", "Still to come today": "⏳", "Tomorrow": "📅", "Tasks": "✅", "Tasks still open": "✅", "Stars": "⭐",
+         "Today's stars": "⭐", "Use soon from the fridge": "🥬", "Piggy Bank": "🐷", "Energy": "⚡", "Coming up this week": "🗓️"}
+FONT = "-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
 
 
 def page(slot, now, hello, sign, sky, sections):
+    start, end, accent, emoji = THEMES[slot]
     esc = html.escape
-    label = lambda t: (f'<div style="font-size:11px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:{MUTED};'
-                       f'padding-bottom:8px">{esc(t)}</div>')
-    rows = ""
+    header = (f'<td style="background:{end};background-image:linear-gradient(135deg,{start},{end});padding:28px 28px 24px;'
+              f'border-radius:18px 18px 0 0;color:#fff"><div style="font-size:40px;line-height:1">{emoji}</div>'
+              f'<div style="font-size:24px;font-weight:700;margin-top:10px">{esc(hello)}</div>'
+              f'<div style="font-size:14px;opacity:.9;margin-top:4px">{now.strftime("%A, %B %-d")}</div></td>')
+    cards = ""
     if sky:
-        rain = f" · {sky['rain']}% chance of rain" if sky.get("rain") else ""
-        stat = lambda name, value, note: (f'<td width="25%" style="padding:12px 0 0;vertical-align:top">'
-                                          f'<div style="font-size:12px;color:{MUTED}">{name}</div>'
-                                          f'<div style="font-size:17px;color:{INK};margin-top:2px">{value}'
-                                          f'<span style="font-size:12px;color:{MUTED}"> {note}</span></div></td>')
-        rows += (f'<tr><td style="padding:24px 0;border-bottom:1px solid {RULE}">{label("Weather " + sky["when"].lower())}'
-                 f'<div style="font-size:17px;color:{INK}">{esc(sky["sky"])}, {sky["hi"]}° / {sky["lo"]}°'
-                 f'<span style="color:{MUTED}">{rain}</span></div>'
-                 f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
-                 + stat("Warmest", f"{sky['hi']}°", sky["hi_at"]) + stat("Coolest", f"{sky['lo']}°", sky["lo_at"])
-                 + stat("Sunrise", *sky["sunrise"].split(" ")) + stat("Sunset", *sky["sunset"].split(" "))
-                 + '</tr></table></td></tr>')
+        rain = f" · 💧 {sky['rain']}% rain" if sky.get("rain") else ""
+        stat = lambda icon, label, value, note: (
+            f'<td width="25%" style="padding:10px 4px;text-align:center;background:#fff;border-radius:12px">'
+            f'<div style="font-size:20px">{icon}</div><div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">{label}</div>'
+            f'<div style="font-size:16px;font-weight:700;color:#1c2333">{value}</div><div style="font-size:12px;color:#6b7280">{note}</div></td>')
+        gap = '<td width="6" style="font-size:0">&nbsp;</td>'
+        cards += (f'<tr><td style="padding:20px 20px 0"><div style="background:#f0f9ff;border-radius:16px;padding:16px">'
+                  f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
+                  f'<td style="font-size:44px;width:56px;vertical-align:middle">{sky["icon"]}</td>'
+                  f'<td style="vertical-align:middle"><div style="font-size:12px;color:#0369a1;font-weight:700;text-transform:uppercase;letter-spacing:.6px">Weather {esc(sky["when"].lower())}</div>'
+                  f'<div style="font-size:20px;font-weight:700;color:#1c2333">{esc(sky["sky"])} · {sky["hi"]}° / {sky["lo"]}°</div>'
+                  f'<div style="font-size:13px;color:#475569">{rain.lstrip(" ·")}</div></td></tr></table>'
+                  f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px"><tr>'
+                  + stat("🔥", "Warmest", f"{sky['hi']}°", sky["hi_at"]) + gap + stat("🧊", "Coolest", f"{sky['lo']}°", sky["lo_at"]) + gap
+                  + stat("🌅", "Sunrise", sky["sunrise"].replace(" AM", ""), "AM") + gap + stat("🌇", "Sunset", sky["sunset"].replace(" PM", ""), "PM")
+                  + '</tr></table></div></td></tr>')
     for title, lines in sections:
-        items = "".join(f'<div style="font-size:15px;color:{INK};padding:3px 0">{esc(l)}</div>' for l in lines)
-        rows += f'<tr><td style="padding:22px 0;border-bottom:1px solid {RULE}">{label(title)}{items}</td></tr>'
-    return (f'<div style="background:#f6f7f8;padding:24px 12px;font-family:{FONT};line-height:1.55">'
-            f'<table role="presentation" align="center" width="100%" cellpadding="0" cellspacing="0" '
-            f'style="max-width:560px;background:#ffffff;border-radius:6px"><tr><td style="padding:32px 32px 8px">'
-            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0">'
-            f'<tr><td style="padding-bottom:20px;border-bottom:1px solid {INK}">'
-            f'<div style="font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:{MUTED}">{now.strftime("%A, %B %-d")}</div>'
-            f'<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:26px;color:{INK};margin-top:6px">{esc(hello)}</div></td></tr>'
-            f'{rows}<tr><td style="padding:22px 0 24px;font-size:14px;color:{MUTED}">{esc(sign)}<br>— Your fridge</td></tr>'
-            f'</table></td></tr></table></div>')
+        items = "".join(f'<tr><td style="padding:5px 0;border-top:1px solid #f1f5f9;font-size:15px;color:#1c2333">{esc(l)}</td></tr>' for l in lines)
+        cards += (f'<tr><td style="padding:16px 20px 0"><div style="border:1px solid #eef0f4;border-radius:16px;padding:14px 16px">'
+                  f'<div style="font-size:13px;font-weight:700;color:{accent};text-transform:uppercase;letter-spacing:.6px;padding-bottom:6px">'
+                  f'{ICONS.get(title, "•")}&nbsp; {esc(title)}</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0">{items}</table></div></td></tr>')
+    return (f'<div style="background:#f3f4f6;padding:20px 8px;font-family:{FONT};line-height:1.45">'
+            f'<table role="presentation" align="center" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:18px">'
+            f'<tr>{header}</tr>{cards}'
+            f'<tr><td style="padding:22px 20px 26px;text-align:center;color:#6b7280;font-size:14px">{esc(sign)}<br>— Your fridge 🧊</td></tr>'
+            f'</table></div>')
 
 
 def pick_slot(now, tz):
