@@ -230,11 +230,11 @@ def build(state, now, energy, sky, slot="morning"):
 
 
 # Email clients ignore stylesheets and most layout CSS, so everything is inline and laid out with tables.
-THEMES = {  # header colors (start, end of the gradient), accent, emoji
-    "morning": ("#fb923c", "#f43f5e", "#ea580c", "🌅"),
-    "midday": ("#38bdf8", "#6366f1", "#0284c7", "☀️"),
-    "evening": ("#f472b6", "#8b5cf6", "#9333ea", "🌇"),
-    "night": ("#4338ca", "#1e1b4b", "#4f46e5", "🌙"),
+THEMES = {  # soft background tint, accent, small label above the greeting
+    "morning": ("#fdf6ee", "#c2410c", "Morning briefing"),
+    "midday": ("#f1f7fb", "#0369a1", "Midday check-in"),
+    "evening": ("#f8f4fb", "#7e22ce", "Evening check-in"),
+    "night": ("#f2f3f9", "#4338ca", "Tonight's recap"),
 }
 ICONS = {"Today": "📅", "Still to come today": "⏳", "Tomorrow": "📅", "Tasks": "✅", "Tasks still open": "✅", "Stars": "⭐",
          "Today's stars": "⭐", "Use soon from the fridge": "🥬", "Piggy Bank": "🐷", "Energy": "⚡", "Coming up this week": "🗓️"}
@@ -242,12 +242,12 @@ FONT = "-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
 
 
 def page(slot, now, hello, sign, sky, sections):
-    start, end, accent, emoji = THEMES[slot]
+    tint, accent, kicker = THEMES[slot]
     esc = html.escape
-    header = (f'<td style="background:{end};background-image:linear-gradient(135deg,{start},{end});padding:28px 28px 24px;'
-              f'border-radius:18px 18px 0 0;color:#fff"><div style="font-size:40px;line-height:1">{emoji}</div>'
-              f'<div style="font-size:24px;font-weight:700;margin-top:10px">{esc(hello)}</div>'
-              f'<div style="font-size:14px;opacity:.9;margin-top:4px">{now.strftime("%A, %B %-d")}</div></td>')
+    header = (f'<td style="background:{tint};padding:30px 28px 26px;border-radius:18px 18px 0 0;border-bottom:3px solid {accent}">'
+              f'<div style="font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:{accent}">{kicker}</div>'
+              f'<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:27px;line-height:1.25;color:#1c2333;margin-top:8px">{esc(hello)}</div>'
+              f'<div style="font-size:14px;color:#6b7280;margin-top:6px">{now.strftime("%A, %B %-d")}</div></td>')
     cards = ""
     if sky:
         rain = f" · 💧 {sky['rain']}% rain" if sky.get("rain") else ""
