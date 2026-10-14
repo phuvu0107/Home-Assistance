@@ -1037,3 +1037,9 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .bk-kind { display: flex; flex-wrap: wrap; }
 .bk-kind button { padding: 10px 12px; }
 .task.bk.done .bk-emoji { opacity: .6; }
+.love { color: var(--rose-fg); font-weight: 600; white-space: nowrap; }
+.love-total { display: flex; align-items: baseline; gap: 10px; margin-bottom: 18px; padding: 14px 16px; border-radius: 14px; background: var(--muted-surface); }
+.love-total b { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.love-total span { color: var(--text-2); font-size: 14px; }
+.bk-love { display: flex; flex-wrap: wrap; }
+.bk-love button { padding: 10px 12px; }

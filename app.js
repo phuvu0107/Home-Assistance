@@ -1696,6 +1696,12 @@ const knownIds = () => new Set([...(state.thanks || []), ...(state.notes || []),
 const BUCKET_KINDS = { trip: ['✈️', 'Trip'], food: ['🍜', 'Food'], place: ['📍', 'Place'], do: ['✨', 'Do'] };
 const BUCKET_MAX = 100; // characters; everything shares one synced document
 const kindOf = (b) => BUCKET_KINDS[b.kind] || BUCKET_KINDS.do;
+// Love points: each item is worth some, picked when it is added, and the two of you earn them
+// together when it is ticked off. The total is worked out from the list, so nothing extra is synced.
+const LOVE_CHOICES = [10, 25, 50, 100];
+const loveOf = (b) => (b.love > 0 ? b.love : 25);
+const loveTag = (b) => `<span class="love">❤️ ${loveOf(b)}</span>`;
+const lovePoints = () => bucketDone().reduce((n, b) => n + loveOf(b), 0);
 const bucketOpen = () => (state.bucket || []).filter((b) => !b.doneAt).sort(byNewest);
 const bucketDone = () => (state.bucket || []).filter((b) => b.doneAt).sort((a, b) => b.doneAt - a.doneAt);
 // Ticked off by one person and not yet opened by the other. A shared screen shows it until the
@@ -1709,7 +1715,7 @@ function bucketRow(b) {
   const sub = done ? `${wentLine(b)} · ${dayLabel(isoDay(new Date(b.doneAt)))}` : `Added by ${esc(userOf(b.by)?.name || 'someone')} ${ago(b.at)}`;
   return `<div class="task bk${done ? ' done' : ''}">
     <span class="bk-emoji" aria-hidden="true">${kindOf(b)[0]}</span>
-    <button class="task-body" data-action="edit-bucket" data-id="${b.id}"><b>${esc(b.text)}</b><small>${sub}</small></button>
+    <button class="task-body" data-action="edit-bucket" data-id="${b.id}"><b>${esc(b.text)}</b><small>${sub}${loveTag(b)}</small></button>
     <button class="check ${done ? 'on' : ''}" data-action="tick-bucket" data-id="${b.id}" aria-label="${done ? 'Put back on the list' : 'Tick off'}: ${esc(b.text)}" aria-pressed="${done}">${icon('check')}</button>
   </div>`;
 }
@@ -1718,7 +1724,7 @@ function bucketRow(b) {
 function bucketCard() {
   const open = bucketOpen(); const done = bucketDone().length;
   return `<div class="card bucket">
-    <div class="card-head">${icon('sparkles')}<h2>Bucket list</h2><a class="link" href="#/bucket">${done ? `${done} done · ` : ''}See all ${icon('arrowRight')}</a></div>
+    <div class="card-head">${icon('sparkles')}<h2>Bucket list</h2><a class="link" href="#/bucket">${done ? `❤️ ${lovePoints()} · ` : ''}See all ${icon('arrowRight')}</a></div>
     <div class="task-list">${open.slice(0, 4).map(bucketRow).join('')
       || `<p class="empty-line">${done ? 'All done. Time to dream up the next one.' : 'Add a trip, a dinner or a place you want to go together.'}</p>`}</div>
     <button class="add-task" data-action="add-bucket">${icon('plus')} Add to the list</button>
@@ -1733,22 +1739,24 @@ function bucketInbox() {
   const head = list.length === 1 ? `${who} ticked off ${b.text}` : `${who} ticked off ${list.length} things`;
   return `<div class="inbox"><button class="inbox-strip" data-action="open-bucket-news">
     <span class="inbox-face">${avatar(b.from, 'sm')}<i>🎉</i></span>
-    <span><b>${esc(head)}</b><small>Bucket list${list.length === 1 && b.doneBy === 'both' ? ' · together' : ''} · Tap to see</small></span>${icon('chevron', 'chev')}</button></div>`;
+    <span><b>${esc(head)}</b><small>Bucket list${list.length === 1 ? ` · +${loveOf(b)} love points${b.doneBy === 'both' ? ' together' : ''}` : ''} · Tap to see</small></span>${icon('chevron', 'chev')}</button></div>`;
 }
 
 // The Bucket list page: everything still to do, kind by kind, then everything done.
 views.bucket = () => {
   const open = bucketOpen(); const done = bucketDone();
   const groups = Object.entries(BUCKET_KINDS).map(([k, [e, l]]) => [e, l, open.filter((b) => kindOf(b) === BUCKET_KINDS[k])]).filter(([, , list]) => list.length);
+  const toEarn = open.reduce((n, b) => n + loveOf(b), 0);
   return `<div class="section-title">Bucket list<span class="spacer"></span><span class="hint">${open.length} to do · ${done.length} done</span></div>
   <div class="bk-page">
     <div class="card">
-      <div class="card-head">${icon('sparkles')}<h2>To do</h2></div>
+      <div class="card-head">${icon('sparkles')}<h2>To do</h2>${toEarn ? `<span class="hint">❤️ ${toEarn} to earn</span>` : ''}</div>
       ${groups.map(([e, l, list]) => `<h3 class="bk-group">${e} ${l}</h3><div class="task-list">${list.map(bucketRow).join('')}</div>`).join('')
         || '<p class="empty-line">Nothing on the list yet. Add a trip, a dinner or a place you want to go together.</p>'}
       <button class="add-task" data-action="add-bucket">${icon('plus')} Add to the list</button>
     </div>
     <div class="card">
+      <div class="love-total"><b>❤️ ${lovePoints()}</b><span>love points earned together</span></div>
       <div class="card-head">${icon('check')}<h2>Done</h2></div>
       <div class="task-list">${done.map(bucketRow).join('') || '<p class="empty-line">Nothing ticked off yet.</p>'}</div>
     </div>
@@ -1760,6 +1768,7 @@ function openBucketSheet(b) {
   openSheet(`${sheetHead(b ? 'Bucket list' : 'Add to the bucket list', 'sparkles')}
     <div class="field"><label for="bk-text">What</label><input class="input" id="bk-text" maxlength="${BUCKET_MAX}" value="${esc(b?.text || '')}" placeholder="e.g. Cherry blossoms in Kyoto"${b ? ' data-nofocus' : ''}></div>
     <div class="field"><label>Kind</label><div class="seg bk-kind" id="bk-kind">${Object.entries(BUCKET_KINDS).map(([k, [e, l]]) => `<button class="${k === kind ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${e} ${l}</button>`).join('')}</div></div>
+    <div class="field"><label>Love points</label><div class="seg bk-love" id="bk-love">${LOVE_CHOICES.map((n) => `<button class="${n === loveOf(b || {}) ? 'on' : ''}" data-action="pick-seg" data-v="${n}">❤️ ${n}</button>`).join('')}</div></div>
     ${!b && !me() ? `<div class="field"><label>From</label>${whoPicker(state.settings.lastWriter || USERS[0].id, false)}</div>` : ''}
     ${b ? `<p class="hint">Added by ${esc(userOf(b.by)?.name || 'someone')} ${ago(b.at)}${b.doneAt ? ` · done ${dayLabel(isoDay(new Date(b.doneAt)))}, ${wentLine(b).toLowerCase()}` : ''}</p>` : ''}
     <div class="sheet-actions">
@@ -1773,7 +1782,7 @@ function openBucketSheet(b) {
 // Ticking off asks who went. Most things are done together, so that is picked unless this is someone's own phone.
 function openBucketTick(b) {
   openSheet(`${sheetHead('Ticked off!', 'sparkles')}
-    <p class="thx-for"><span class="bk-emoji">${kindOf(b)[0]}</span><span><b>${esc(b.text)}</b></span></p>
+    <p class="thx-for"><span class="bk-emoji">${kindOf(b)[0]}</span><span><b>${esc(b.text)}</b> · +${loveOf(b)} love points</span></p>
     <div class="field"><label>Who went</label>${whoPicker('both', 'both')}</div>
     <p class="hint">${me() ? `${esc(userOf(otherOf(me()))?.name)} gets a note on their screen` : 'The other person gets a note on their screen'} unless you went together.</p>
     <div class="sheet-actions">
@@ -2667,11 +2676,12 @@ const actions = {
     const text = $('#bk-text').value.trim().replace(/\s+/g, ' ').slice(0, BUCKET_MAX);
     if (!text) { toast('Say what it is first'); return; }
     const kind = $('#bk-kind .on')?.dataset.v || 'do';
+    const love = Number($('#bk-love .on')?.dataset.v) || 25;
     const b = state.bucket.find((x) => x.id === el.dataset.id);
-    if (b) Object.assign(b, { text, kind });
+    if (b) Object.assign(b, { text, kind, love });
     else {
       const by = me() || pickedWho() || USERS[0].id;
-      (state.bucket ||= []).push({ id: `b${Date.now()}`, text, kind, by, at: Date.now() });
+      (state.bucket ||= []).push({ id: `b${Date.now()}`, text, kind, love, by, at: Date.now() });
       state.settings.lastWriter = by;
     }
     closeSheet();
@@ -2700,7 +2710,7 @@ const actions = {
     const from = me() || (userOf(doneBy) ? doneBy : '');
     Object.assign(b, { doneAt: Date.now(), doneBy, ...(from && { from }) });
     closeSheet();
-    toast(`Ticked off ${b.text} 🎉`);
+    toast(`Ticked off ${b.text} · +${loveOf(b)} love points ❤️`);
   },
   'set-me': (el) => { state.settings.me = el.dataset.v; },
 
