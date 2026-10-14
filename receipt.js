@@ -1,4 +1,5 @@
-// Fridge helpers: categories, and turning a photo of a grocery receipt into fridge items.
+// Fridge helpers: categories, and turning a photo of a grocery receipt into fridge items or,
+// for Money, into an expense.
 // Text recognition runs in the browser with Tesseract.js, so the photo never leaves the device.
 
 // Days an item usually keeps, used for the suggested use-by date. Blank means no suggestion.
@@ -183,11 +184,48 @@ export function receiptText(data, width) {
   }).join('\n');
 }
 
-export async function readReceipt(file, onProgress = () => {}) {
+async function scanText(file, onProgress) {
   const T = await loadTesseract();
   const image = await prepare(file).catch(() => file);
   const { data } = await T.recognize(image, 'eng', {
     logger: (m) => { if (m.status === 'recognizing text') onProgress(m.progress); },
   });
-  return parseReceipt(receiptText(data, image.width));
+  return receiptText(data, image.width);
+}
+
+export async function readReceipt(file, onProgress = () => {}) {
+  return parseReceipt(await scanText(file, onProgress));
+}
+
+// For Money: the store, what was paid and the day, from a receipt's text. Any of them can be
+// missing; the person checks them in the expense form before saving.
+const PAID = /\b(total|balance due|amount due|grand total)\b/i;
+const NOT_PAID = /\b(sub ?total|tax|sav(ed|ings?)|discount|items?|change|tip)\b/i;
+const CARD = /\b(visa|master ?card|amex|discover|debit|credit|amount|charged|paid)\b/i;
+const money = (line) => { const m = line.match(/\$?\s*(\d{1,5}[.,]\d{2})\b(?!.*\d[.,]\d{2})/); return m ? Number(m[1].replace(',', '.')) : null; };
+export function parseExpense(text, today = new Date()) {
+  const lines = String(text).split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const most = (test) => Math.max(0, ...lines.filter(test).map(money).filter((n) => n !== null));
+  const amount = most((l) => PAID.test(l) && !NOT_PAID.test(l)) || most((l) => CARD.test(l)) || null;
+
+  // The first line that reads as a name, before any address, phone or item.
+  const top = lines.slice(0, 4).find((l) => /^[^\d]*[A-Za-z]{3}/.test(l) && !HEADER.test(l) && !NOT_ITEM.test(l) && !PRICE_END.test(l));
+  const store = top ? tidy(top.replace(/[^A-Za-z&' ]+/g, ' ').trim()) : '';
+
+  // Dates like 10/12/2026, 10-12-26 or 2026-10-12; one in the future or over a year old is a misread.
+  let date = '';
+  for (const l of lines) {
+    const m = l.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4}|\d{2})\b/) || l.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+    if (!m) continue;
+    const [y, mo, d] = m[1].length === 4 ? [m[1], m[2], m[3]] : [m[3].length === 2 ? `20${m[3]}` : m[3], m[1], m[2]];
+    const when = new Date(Number(y), Number(mo) - 1, Number(d));
+    if (when.getMonth() !== Number(mo) - 1 || when > today || today - when > 366 * 864e5) continue;
+    date = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    break;
+  }
+  return { store, amount, date };
+}
+
+export async function readExpense(file, onProgress = () => {}) {
+  return parseExpense(await scanText(file, onProgress));
 }
