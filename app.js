@@ -2,6 +2,7 @@ import { icon, hydrateIcons } from './icons.js';
 import { createSync, syncAvailable } from './sync.js';
 import { FRIDGE_CATS, guessCat, readExpense, readReceipt } from './receipt.js';
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
+import { cleanName, expenseStats as moneyStats, joinNames, legacyMembersFor, MAX_MEMBERS, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -10,18 +11,17 @@ const STORE_KEY = 'home-dashboard.v2';
 const WEATHER_KEY = 'home-dashboard.weather.v1';
 const ENERGY_KEY = 'home-dashboard.energy.v1';
 
-// The two people in the household. `color` picks one of the existing c-* color families.
-const USERS = [
-  { id: 'phu', name: 'Phu', color: 'blue', avatar: 'avatars/phu.svg' },
-  { id: 'nhi', name: 'Nhi', color: 'rose', avatar: 'avatars/nhi.svg' },
-];
-const userOf = (id) => USERS.find((u) => u.id === id);
+// The people in the household: state.members, synced like everything else, so each household
+// names its own (see people.js). `color` picks one of the c-* color families; `avatar` is an
+// image, or empty to show the person's initial.
+const members = () => sortMembers(state.members);
+const userOf = (id) => members().find((u) => u.id === id);
 
 const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
+// A new household starts empty: the first-run screen asks who lives here.
 function defaultState() {
-  const today = new Date();
   return {
     settings: {
       place: { name: 'Palo Alto', lat: 37.4419, lon: -122.143 },
@@ -30,21 +30,10 @@ function defaultState() {
       wakeLock: true,
       clock24: false,
     },
-    events: [
-      { id: 'e1', title: 'Soccer practice', date: isoDay(today), time: '17:30', end: '19:00', who: 'phu' },
-      { id: 'e2', title: 'Grocery run', date: isoDay(addDays(today, 1)), time: '10:00', end: '11:00', who: 'both' },
-      { id: 'e3', title: 'Dentist', date: isoDay(addDays(today, 3)), time: '16:30', end: '17:30', who: 'nhi' },
-      { id: 'e4', title: 'Date night', date: isoDay(addDays(today, 4)), time: '19:00', end: '21:00', who: 'both' },
-    ],
-    tasks: [
-      { id: 't1', title: 'Take out trash', who: 'phu', repeat: 'daily', stars: 5, doneOn: '' },
-      { id: 't2', title: 'Load dishwasher', who: 'phu', repeat: 'daily', stars: 5, doneOn: '' },
-      { id: 't3', title: 'Mow the lawn', who: 'phu', repeat: 'weekly', stars: 10, doneOn: '' },
-      { id: 't4', title: 'Water plants', who: 'nhi', repeat: 'daily', stars: 5, doneOn: '' },
-      { id: 't5', title: 'Laundry', who: 'nhi', repeat: 'weekly', stars: 10, doneOn: '' },
-      { id: 't6', title: 'Book dentist follow-up', who: 'nhi', repeat: 'once', stars: 3, doneOn: '' },
-    ],
-    stars: { phu: 0, nhi: 0 },
+    members: [],
+    events: [],
+    tasks: [],
+    stars: {},
     log: [],
     expenses: [],
     fridge: [],
@@ -67,6 +56,15 @@ function loadState() {
 }
 
 let state = loadState();
+// A household from before people were data gets Phu and Nhi back as its members, with the same
+// ids its chores, stars and expenses already use. Runs on load and whenever synced data arrives.
+function ensureMembers() {
+  const legacy = legacyMembersFor(state);
+  if (!legacy) return false;
+  state.members = legacy;
+  return true;
+}
+const carriedOver = ensureMembers();
 let onSaved = () => {}; // household sync hooks in here
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
@@ -147,11 +145,16 @@ function greeting(now) {
 function tickClock() {
   const now = new Date();
   const h = now.getHours();
-  const line = greeting(now), names = USERS.map((u) => u.name).join(' and ');
+  const line = greeting(now), names = joinNames(members().map((u) => esc(u.name)));
   const g = $('#greeting');
-  if (g.dataset.line !== line) {
-    g.dataset.line = line;
-    g.innerHTML = `<span class="punch">${line}, <span class="nowrap">${names}</span></span>`;
+  if (g.dataset.line !== line + names) {
+    g.dataset.line = line + names;
+    // The household's faces next to the greeting (the first three).
+    const faces = $('.hero-people');
+    faces.hidden = !members().length;
+    faces.setAttribute('aria-label', joinNames(members().map((u) => u.name)));
+    faces.innerHTML = members().slice(0, 3).map((u) => avatarImg(u, 'lg')).join('');
+    g.innerHTML = `<span class="punch">${line}${names ? `, <span class="nowrap">${names}</span>` : ''}</span>`;
   }
   $('#date').textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   $('#clock').textContent = fmtTime(now);
@@ -644,7 +647,7 @@ function connectHealth(who, again) {
 }
 // While someone's sign-in pass is still good in this tab, keep their numbers fresh without asking.
 function refreshHealthQuietly() {
-  for (const u of USERS) {
+  for (const u of members()) {
     const t = passFor(u.id);
     // Only people still connected: data removed on another screen stays removed.
     if (t && state.health[u.id] && !healthBusy[u.id] && Date.now() - state.health[u.id].at > 20 * 6e4) pullHealth(u.id, t);
@@ -654,7 +657,7 @@ function refreshHealthViews() {
   if (['health', 'settings', 'home'].includes(currentRoute()) && $('#sheet').hidden && !document.activeElement?.matches('input, textarea')) renderView();
 }
 
-const healthPeople = () => USERS.filter((u) => state.health[u.id]);
+const healthPeople = () => members().filter((u) => state.health[u.id]);
 const healthDays = (who) => state.health[who]?.days || {};
 const fmtMins = (m) => (m < 60 ? `${Math.round(m)}m` : `${Math.floor(m / 60)}h ${String(Math.round(m % 60)).padStart(2, '0')}m`);
 const avgOf = (list) => (list.length ? list.reduce((a, b) => a + b, 0) / list.length : 0);
@@ -1081,14 +1084,19 @@ view.addEventListener('click', (e) => { if (swipe.done) { swipe.done = false; e.
 const views = {};
 
 /* ---------- People ---------- */
-// One avatar for a person, or an overlapping pair for 'both'. Unassigned returns ''.
+// 'both' on an event, chore, expense or bucket list item means everyone in the household.
+const everyoneLabel = () => (members().length === 2 ? 'Both' : 'Everyone');
+// One avatar for a person, or overlapping faces for 'both'. Unassigned returns ''.
 function avatar(who, size = 'md') {
-  if (who === 'both') return `<span class="av-pair">${USERS.map((u) => avatarImg(u, size)).join('')}</span>`;
+  if (who === 'both') return `<span class="av-pair">${members().slice(0, 3).map((u) => avatarImg(u, size)).join('')}</span>`;
   const u = userOf(who);
   return u ? avatarImg(u, size) : '';
 }
-const avatarImg = (u, size) => `<img class="av av-${size} av-${u.color}" src="${u.avatar}" alt="${u.name}" title="${u.name}">`;
-const whoName = (who) => (who === 'both' ? `${USERS[0].name} & ${USERS[1].name}` : userOf(who)?.name || 'Everyone');
+// A picture when the person has one, otherwise their initial on their color.
+const avatarImg = (u, size) => (u.avatar
+  ? `<img class="av av-${size} av-${u.color}" src="${u.avatar}" alt="${esc(u.name)}" title="${esc(u.name)}">`
+  : `<span class="av av-${size} av-${u.color} av-initial" role="img" aria-label="${esc(u.name)}" title="${esc(u.name)}">${esc([...u.name.trim()][0]?.toUpperCase() || '?')}</span>`);
+const whoName = (who) => (who === 'both' ? (members().length === 2 ? `${members()[0].name} & ${members()[1].name}` : 'Everyone') : userOf(who)?.name || 'Everyone');
 
 /* ---------- Events ---------- */
 const byStart = (a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''));
@@ -1145,7 +1153,7 @@ const tasksFor = (id) => state.tasks.filter((t) => t.who === id);
 /* ---------- Stars ---------- */
 // Events earn stars too (5 unless set). An event for both, or for no one, gives each person the stars.
 const eventStars = (e) => e.stars ?? 5;
-const earners = (who) => (USERS.some((u) => u.id === who) ? [who] : USERS.map((u) => u.id));
+const earners = (who) => (members().some((u) => u.id === who) ? [who] : members().map((u) => u.id));
 const eventDone = (e) => !!e.doneOn;
 
 // Ticks a task or event on or off: moves the stars and keeps a dated log for the Leaderboard.
@@ -1191,7 +1199,7 @@ function repairLog() {
 // plus any ticked off today (struck through), each person's together.
 const tasksToday = () => {
   const today = isoDay(new Date());
-  const order = USERS.map((u) => u.id);
+  const order = members().map((u) => u.id);
   return state.tasks.filter((t) => !isDone(t) || t.doneOn === today)
     .sort((a, b) => order.indexOf(a.who) - order.indexOf(b.who) || isDone(a) - isDone(b));
 };
@@ -1245,7 +1253,7 @@ function todayEvent(e) {
 // Home answers "what needs us today?" at a glance: how many chores each person has left,
 // what to use up in the kitchen, then today's list and what's coming.
 function glanceRow() {
-  const people = USERS.map((u) => {
+  const people = members().map((u) => {
     const left = tasksFor(u.id).filter((t) => !isDone(t)).length;
     return `<a class="glance" href="#/tasks">${avatar(u.id, 'sm')}<span><b>${left || icon('check')}</b><small>${u.name} · ${left ? `${left === 1 ? 'chore' : 'chores'} left` : 'all done'}</small></span></a>`;
   });
@@ -1259,8 +1267,8 @@ function glanceRow() {
 function leadLine() {
   const from = weekStartIso();
   const score = (u) => (state.log || []).filter((l) => l.who === u.id && l.date >= from).reduce((a, l) => a + l.stars, 0);
-  const [a, b] = USERS.map((u) => ({ u, n: score(u) })).sort((x, y) => y.n - x.n);
-  if (!a.n) return '';
+  const [a, b] = members().map((u) => ({ u, n: score(u) })).sort((x, y) => y.n - x.n);
+  if (!b || !a.n) return '';
   return a.n === b.n ? `All square at ${a.n} ★` : `${a.u.name} leads by ${a.n - b.n} ★`;
 }
 
@@ -1282,7 +1290,7 @@ views.home = () => {
   const today = isoDay(new Date());
   const evs = eventsOn(today);
   // Both people's chores in one list, each row with a face; ticked ones sink to the bottom.
-  const order = USERS.map((u) => u.id);
+  const order = members().map((u) => u.id);
   const tasks = tasksToday().sort((a, b) => isDone(a) - isDone(b) || order.indexOf(a.who) - order.indexOf(b.who));
   const lead = leadLine();
   const next = state.events.filter((e) => e.date > today).sort(byStart).slice(0, 4);
@@ -1291,7 +1299,7 @@ views.home = () => {
     <div class="card a-today">
       <div class="card-head">${icon('checkSquare')}<h2>Today</h2>${lead ? `<a class="link" href="#/tasks">${lead} ${icon('arrowRight')}</a>` : ''}</div>
       ${evs.length ? `<div class="today-evs">${evs.map(todayEvent).join('')}</div>` : ''}
-      <div class="task-list">${tasks.map((t) => taskCard(t, userOf(t.who) || USERS[0], true)).join('')
+      <div class="task-list">${tasks.map((t) => taskCard(t, userOf(t.who) || members()[0], true)).join('')
         || `<p class="empty-line">${icon('check')} Nothing left today.${lead ? ` ${lead}.` : ''}</p>`}</div>
     </div>
     <div class="home-side">
@@ -1408,7 +1416,7 @@ function agendaView() {
     const tasks = iso === todayIso && calChores() ? tasksToday() : [];
     if (!evs.length && !tasks.length && iso !== todayIso) return '';
     return `<div class="ag-day${iso === todayIso ? ' today' : ''}"><div class="ag-head">${dayLabel(iso)}${iso === todayIso || iso === isoDay(addDays(new Date(), 1)) ? `<small>${new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</small>` : ''}</div>
-      <div class="list">${evs.map((e) => eventRow(e)).join('')}${tasks.map((t) => taskCard(t, userOf(t.who) || USERS[0], true)).join('')}
+      <div class="list">${evs.map((e) => eventRow(e)).join('')}${tasks.map((t) => taskCard(t, userOf(t.who) || members()[0], true)).join('')}
       ${!evs.length && !tasks.length ? '<p class="empty-line">Nothing planned today.</p>' : ''}</div></div>`;
   }).join('');
   return `<div class="agenda">${blocks || '<p class="empty-line">Nothing planned this week.</p>'}</div>`;
@@ -1452,7 +1460,7 @@ views.tasks = () => {
   <div class="lb-cards">${b.cards}</div>
   ${b.note}
   <div class="board">
-    ${USERS.map((u) => `
+    ${members().map((u) => `
       <div class="card board-col">
         ${personHead(u, 'md')}
         <div class="task-list">${tasksFor(u.id).map((t) => taskCard(t, u)).join('') || `<button class="empty-line as-btn" data-action="add-task" data-who="${u.id}">${icon('plus')} Add ${u.name}'s first chore</button>`}</div>
@@ -1500,16 +1508,16 @@ function boardChart(period, entries) {
       return { label: d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }), short: period === 'week' ? d.toLocaleDateString([], { weekday: 'short' }) : String(d.getDate()), match: (x) => x === key };
     });
   }
-  const rows = buckets.map((b) => ({ ...b, vals: USERS.map((u) => entries.filter((l) => l.who === u.id && b.match(l.date)).reduce((a, l) => a + l.stars, 0)) }));
+  const rows = buckets.map((b) => ({ ...b, vals: members().map((u) => entries.filter((l) => l.who === u.id && b.match(l.date)).reduce((a, l) => a + l.stars, 0)) }));
   const max = Math.max(...rows.flatMap((r) => r.vals), 1);
-  const w = 300 / rows.length; const gw = w * 0.74; const bw = gw / USERS.length;
+  const w = 300 / rows.length; const gw = w * 0.74; const bw = gw / members().length;
   const bars = rows.map((r, i) => r.vals.map((v, j) => {
     const h = (v / max) * 100;
-    return v ? `<rect class="bar-${USERS[j].color}" x="${(i * w + (w - gw) / 2 + j * bw).toFixed(2)}" y="${(100 - h).toFixed(2)}" width="${(bw * 0.9).toFixed(2)}" height="${h.toFixed(2)}"><title>${r.label}: ${USERS[j].name} ${v} stars</title></rect>` : '';
+    return v ? `<rect class="bar-${members()[j].color}" x="${(i * w + (w - gw) / 2 + j * bw).toFixed(2)}" y="${(100 - h).toFixed(2)}" width="${(bw * 0.9).toFixed(2)}" height="${h.toFixed(2)}"><title>${r.label}: ${members()[j].name} ${v} stars</title></rect>` : '';
   }).join('')).join('');
   const title = period === 'all' ? 'Stars per week, last 12 weeks' : period === 'week' ? 'Stars per day this week' : 'Stars per day this month';
   return `<div class="energy-chart">
-    <div class="chart-top"><span>${title}</span><span>${USERS.map((u) => `<i class="key bar-${u.color}"></i>${u.name}`).join(' ')} · top ${max}</span></div>
+    <div class="chart-top"><span>${title}</span><span>${members().map((u) => `<i class="key bar-${u.color}"></i>${u.name}`).join(' ')} · top ${max}</span></div>
     <svg viewBox="0 0 300 100" preserveAspectRatio="none" style="height:170px" role="img" aria-label="${title}">${bars}</svg>
     <div class="chart-axis"><span>${rows[0].short}</span><span>${rows[rows.length - 1].short}</span></div>
   </div>`;
@@ -1521,7 +1529,7 @@ function boardParts() {
   const entries = (state.log || []).filter((l) => l.date >= from);
   // All time uses the running totals, which also count stars earned before the log began.
   const score = (u) => (period === 'all' ? state.stars[u.id] || 0 : entries.filter((l) => l.who === u.id).reduce((a, l) => a + l.stars, 0));
-  const ranked = USERS.map((u) => ({ u, stars: score(u) })).sort((a, b) => b.stars - a.stars);
+  const ranked = members().map((u) => ({ u, stars: score(u) })).sort((a, b) => b.stars - a.stars);
   const tied = ranked.length > 1 && ranked[0].stars === ranked[1].stars;
   const gap = ranked.length > 1 ? ranked[0].stars - ranked[1].stars : 0;
   const seg = `<div class="seg">${Object.entries(BOARD_PERIODS).map(([k, l]) => `<button class="${period === k ? 'on' : ''}" data-action="board-period" data-v="${k}">${l}</button>`).join('')}</div>`;
@@ -1556,7 +1564,8 @@ function boardParts() {
 // only shows thank-yous sent to Nhi and marks them read when she opens them; the shared fridge
 // screen (nobody picked) shows everyone's, each with who it is for.
 const me = () => (userOf(state.settings.me) ? state.settings.me : '');
-const otherOf = (id) => USERS.find((u) => u.id !== id)?.id || '';
+// The other person, when there is exactly one other. Bigger households pick who instead.
+const otherOf = (id) => (members().length === 2 ? members().find((u) => u.id !== id)?.id || '' : '');
 const THANKS_EMOJI = ['❤️', '🙏', '🎉', '⭐', '💪', '☕'];
 const THANKS_LINES = ['Thank you!', "You're the best", 'Saw that. Legend.', "Couldn't do it without you"];
 const THANKS_MAX = 140; // characters; everything shares one synced document
@@ -1607,13 +1616,14 @@ function thankBtn(winId, who, title) {
     aria-label="${sent ? `Thanked ${userOf(who).name}` : `Thank ${userOf(who).name}`} for ${esc(title)}">${icon('heart')}</button>`;
 }
 
-// A finished event: one person's is like a chore. A shared one thanks whoever this device isn't;
-// on the shared screen the sheet asks who's saying thanks, and is done once both have.
+// A finished event: one person's is like a chore. A shared one thanks whoever this device isn't
+// (in a bigger household the sheet asks who); on the shared screen the sheet asks who's saying
+// thanks, and the heart fills once everyone has been thanked.
 function eventThankBtn(e) {
   const base = `${e.id}@${e.doneOn}`;
   if (userOf(e.who)) return thankBtn(`${base}@${e.who}`, e.who, e.title);
-  if (me()) return thankBtn(`${base}@${otherOf(me())}`, otherOf(me()), e.title);
-  const sent = USERS.every((u) => thanksFor(`${base}@${u.id}`).length);
+  if (me() && otherOf(me())) return thankBtn(`${base}@${otherOf(me())}`, otherOf(me()), e.title);
+  const sent = members().every((u) => thanksFor(`${base}@${u.id}`).length);
   return `<button class="heart-btn${sent ? ' on' : ''}" data-action="thank" data-base="${esc(base)}" data-title="${esc(e.title)}" aria-label="Say thanks for ${esc(e.title)}">${icon('heart')}</button>`;
 }
 
@@ -1650,35 +1660,46 @@ function openThanks(to) {
   if (!list.length) return;
   const now = Date.now();
   list.forEach((k) => { k.readAt = now; });
-  const back = otherOf(to);
+  const back = list[0].from;
   openSheet(`${sheetHead(list.length === 1 ? 'A thank-you for you' : `${list.length} thank-yous`, 'heart')}
     <div class="thx-list">${list.map((k) => thanksCard(k, true)).join('')}</div>
     <div class="sheet-actions">
       <button class="btn ghost" data-action="close-sheet">Close</button>
-      <button class="btn" data-action="thank" data-to="${back}">${icon('heart')} Thank ${esc(userOf(back)?.name)} back</button>
+      ${userOf(back) && back !== to ? `<button class="btn" data-action="thank" data-to="${back}" data-from="${to}">${icon('heart')} Thank ${esc(userOf(back).name)} back</button>` : ''}
     </div>`);
   $('#sheet').dataset.kind = 'thanks';
 }
 
-// Writing one. From is always the other person, since a two-person household only has one choice.
-// Who it's for is worked out, never picked: on someone's own chore it's them, and otherwise it's
-// whoever isn't sending. The only question ever asked is who's sending, and only on the shared
-// screen for something both of you did (or a thank-you for nothing in particular).
-function openThankSheet({ win = '', to = '', title = '', base = '' }) {
-  if (!userOf(to) && me()) { to = otherOf(me()); if (base) win = `${base}@${to}`; }
-  const pickFrom = !userOf(to);
-  const from = pickFrom ? state.settings.lastWriter || USERS[0].id : otherOf(to);
-  if (pickFrom) to = otherOf(from);
-  openSheet(`${sheetHead(pickFrom ? 'Say thanks' : `Thank ${esc(userOf(to).name)}`, 'heart')}
-    ${title ? `<p class="thx-for">${avatar(pickFrom ? 'both' : to, 'sm')}<span>for <b>${esc(title)}</b></span></p>` : ''}
-    ${pickFrom ? `<div class="field"><label>Who's saying thanks?</label>${whoPicker(from, false)}<p class="hint" id="thx-dir">To ${esc(userOf(to).name)}</p></div>` : ''}
+// Writing one. Who it's for is worked out where it can be: on someone's own chore it's them, and
+// in a two-person household it's whoever isn't sending. The sender is this device's person, or
+// the other one of two. Whatever is left is asked: who's sending on the shared screen, and in a
+// bigger household who it's for.
+function openThankSheet({ win = '', to = '', from = '', title = '', base = '' }) {
+  const toKnown = !!userOf(to);
+  if (!userOf(from) && me() && me() !== to) from = me();
+  if (!userOf(to) && userOf(from) && otherOf(from)) { to = otherOf(from); if (base) win = `${base}@${to}`; }
+  if (!userOf(from) && userOf(to) && otherOf(to)) from = otherOf(to);
+  const pickFrom = !userOf(from);
+  const pickTo = !userOf(to) && members().length > 2;
+  const firstOther = (not) => members().find((u) => u.id !== not)?.id || '';
+  if (pickFrom) from = userOf(state.settings.lastWriter) && state.settings.lastWriter !== to ? state.settings.lastWriter : firstOther(to);
+  if (pickTo) to = firstOther(from);
+  else if (!userOf(to)) to = otherOf(from);
+  if (!userOf(to) || !userOf(from)) { toast('Add someone else to the household first'); return; }
+  const toPicker = `<div class="who-pick" id="thx-to">${members().map((u) => `<button class="who-opt ${u.id === to ? 'on' : ''}" data-action="pick-to" data-who="${u.id}" ${u.id === from ? 'hidden' : ''}>${avatar(u.id, 'sm')}${esc(u.name)}</button>`).join('')}</div>`;
+  // The recipient can follow the sender (two people) or be picked (three or more).
+  const toFollows = pickTo || (pickFrom && !toKnown);
+  openSheet(`${sheetHead(toFollows ? 'Say thanks' : `Thank ${esc(userOf(to).name)}`, 'heart')}
+    ${title ? `<p class="thx-for">${avatar(toFollows ? 'both' : to, 'sm')}<span>for <b>${esc(title)}</b></span></p>` : ''}
+    ${pickFrom ? `<div class="field"><label>Who's saying thanks?</label>${whoPicker(from, false, 'who-pick', toKnown ? to : '')}${toFollows && !pickTo ? `<p class="hint" id="thx-dir">To ${esc(userOf(to).name)}</p>` : ''}</div>` : ''}
+    ${pickTo ? `<div class="field"><label>Who's it for?</label>${toPicker}</div>` : ''}
     <div class="field"><label>Pick one</label><div class="emoji-pick" id="thx-emoji">${THANKS_EMOJI.map((e, i) => `<button class="${i ? '' : 'on'}" data-action="pick-seg" data-v="${e}">${e}</button>`).join('')}</div></div>
     <div class="field"><label for="thx-text">Say something <span class="muted">(optional)</span></label>
       <textarea class="input" id="thx-text" rows="2" maxlength="${THANKS_MAX}" placeholder="Thank you!"></textarea>
       <div class="chips">${THANKS_LINES.map((l) => `<button class="chip" data-action="thanks-line" data-v="${esc(l)}">${esc(l)}</button>`).join('')}</div></div>
     <div class="sheet-actions">
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
-      <button class="btn" data-action="send-thanks" data-win="${esc(win)}" data-base="${esc(base)}" data-to="${to}" data-title="${esc(title)}">${icon('heart')} Send</button>
+      <button class="btn" data-action="send-thanks" data-win="${esc(win)}" data-base="${esc(base)}" data-to="${toFollows ? '' : to}" data-from="${pickFrom ? '' : from}" data-title="${esc(title)}">${icon('heart')} Send</button>
     </div>`);
   $('#sheet').dataset.kind = 'thank';
 }
@@ -1729,8 +1750,8 @@ function notesBoard() {
 }
 
 function openNoteSheet(n) {
-  const writer = n?.by || me() || state.settings.lastWriter || USERS[0].id;
-  const color = n?.color || NOTE_COLORS[USERS.findIndex((u) => u.id === writer) % NOTE_COLORS.length] || 'butter';
+  const writer = n?.by || me() || state.settings.lastWriter || members()[0].id;
+  const color = n?.color || NOTE_COLORS[members().findIndex((u) => u.id === writer) % NOTE_COLORS.length] || 'butter';
   const keep = !n?.until ? '' : n.until === isoDay(new Date()) ? 'today' : 'week';
   openSheet(`${sheetHead(n ? 'Note' : 'New note', 'notes')}
     <div class="note-edit p-${color}" id="note-paper"${n ? ' data-nofocus' : ''}>${avatar(writer, 'sm')}
@@ -1850,7 +1871,7 @@ function openBucketSheet(b) {
   openSheet(`${sheetHead(b ? 'Bucket list' : 'Add to the bucket list', 'sparkles')}
     <div class="field"><label for="bk-text">What</label><input class="input" id="bk-text" maxlength="${BUCKET_MAX}" value="${esc(b?.text || '')}" placeholder="e.g. Cherry blossoms in Kyoto"${b ? ' data-nofocus' : ''}></div>
     <div class="field"><label>Kind</label><div class="seg bk-kind" id="bk-kind">${Object.entries(BUCKET_KINDS).map(([k, [e, l, n]]) => `<button class="${k === kind ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${e} ${l}<small>❤️ ${n}</small></button>`).join('')}</div></div>
-    ${!b && !me() ? `<div class="field"><label>From</label>${whoPicker(state.settings.lastWriter || USERS[0].id, false)}</div>` : ''}
+    ${!b && !me() ? `<div class="field"><label>From</label>${whoPicker(state.settings.lastWriter || members()[0].id, false)}</div>` : ''}
     ${b ? `<p class="hint">Added by ${esc(userOf(b.by)?.name || 'someone')} ${ago(b.at)}${b.doneAt ? ` · done ${dayLabel(isoDay(new Date(b.doneAt)))}, ${wentLine(b).toLowerCase()}` : ''}</p>` : ''}
     <div class="sheet-actions">
       ${b ? `<button class="btn danger" data-action="del-bucket" data-id="${b.id}">${icon('trash')} Remove</button><span class="spacer"></span>` : ''}
@@ -1865,7 +1886,7 @@ function openBucketTick(b) {
   openSheet(`${sheetHead('Ticked off!', 'sparkles')}
     <p class="thx-for"><span class="bk-emoji">${kindOf(b)[0]}</span><span><b>${esc(b.text)}</b> · +${loveOf(b)} love points</span></p>
     <div class="field"><label>Who went</label>${whoPicker('both', 'both')}</div>
-    <p class="hint">${me() ? `${esc(userOf(otherOf(me()))?.name)} gets a note on their screen` : 'The other person gets a note on their screen'} unless you went together.</p>
+    ${members().length > 1 ? `<p class="hint">${me() && otherOf(me()) ? `${esc(userOf(otherOf(me())).name)} gets a note on their screen` : members().length === 2 ? 'The other person gets a note on their screen' : 'Everyone else gets a note on their screen'} unless you went together.</p>` : ''}
     <div class="sheet-actions">
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
       <button class="btn" data-action="done-bucket" data-id="${b.id}">${icon('check')} Tick it off</button>
@@ -1889,8 +1910,9 @@ const house = createSync({
     const before = knownIds();
     apply(state);
     announceArrivals(before);
-    // Rebuilt Leaderboard entries are sent back to the household; otherwise just keep a copy here.
-    if (repairLog()) save();
+    // Rebuilt Leaderboard entries and carried-over members are sent back to the household;
+    // otherwise just keep a copy here.
+    if (ensureMembers() | repairLog()) save();
     else try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
     if (calmToRender()) renderView(); // an open sheet re-renders the page when it closes
   },
@@ -1916,9 +1938,10 @@ function houseMessage() {
   }
 }
 function houseCard() {
-  const head = `<div class="profiles">${USERS.map((u) => `<div class="profile">${avatar(u.id, 'lg')}<b>${u.name}</b></div>`).join('')}</div>
+  const head = `<div class="profiles">${members().map((u) => `<button class="profile" data-action="edit-member" data-id="${u.id}" aria-label="Edit ${esc(u.name)}">${avatar(u.id, 'lg')}<b>${esc(u.name)}</b></button>`).join('')}
+      ${members().length < MAX_MEMBERS ? `<button class="profile add-member" data-action="add-member"><span class="av av-lg av-none-lg">${icon('plus')}</span><b>Add</b></button>` : ''}</div>
     <div class="setting-row"><div><b>Who uses this device</b><div class="hint">Thank-yous for this person show here and are marked read when opened. Pick Shared for the fridge.</div></div>
-      <div class="seg">${[...USERS.map((u) => [u.id, u.name]), ['', 'Shared']].map(([id, l]) => `<button class="${me() === id ? 'on' : ''}" data-action="set-me" data-v="${id}">${l}</button>`).join('')}</div></div>
+      <div class="seg wrap">${[...members().map((u) => [u.id, esc(u.name)]), ['', 'Shared']].map(([id, l]) => `<button class="${me() === id ? 'on' : ''}" data-action="set-me" data-v="${id}">${l}</button>`).join('')}</div></div>
     <h3 class="set-sub">Sync across devices</h3>`;
   if (!syncAvailable()) {
     return `<div class="card">${head}
@@ -1963,6 +1986,36 @@ function openHouseSheet() {
 // The passphrase box next to the button that was tapped (Settings card or the pop-up).
 const houseInput = (el) => (el?.closest('.sheet, .card') || document).querySelector('[data-house-pass]');
 
+/* ---------- Who lives here: first run and Settings ---------- */
+// A new household names its people before anything else, since chores, stars and money all
+// belong to someone. A screen joining an existing household gets them from there instead.
+views.setup = () => `<div class="section-title">Welcome</div>
+  <div class="card setup">
+    <div class="card-head">${icon('users')}<h2>Who lives here?</h2></div>
+    <p class="hint">Add everyone who shares the chores, the calendar and the money. You can change names and colors later in Settings.</p>
+    <div class="setup-names" id="setup-names">${[0, 1].map((i) => setupRow(i)).join('')}</div>
+    <div class="setup-actions">
+      <button class="btn ghost" data-action="setup-add-row">${icon('plus')} Add someone</button>
+      <button class="btn" data-action="setup-start">Start</button>
+    </div>
+    ${syncAvailable() ? `<p class="hint setup-join">Already using this on another screen? <button class="link" data-action="open-join">Join your household</button></p>` : ''}
+  </div>`;
+const setupRow = (i) => `<input class="input" data-setup-name maxlength="24" autocomplete="off" placeholder="${i ? 'Another name' : 'Your name'}" aria-label="Name ${i + 1}">`;
+
+function openMemberSheet(u) {
+  const all = members();
+  const color = u?.color || newMember('', all).color;
+  openSheet(`${sheetHead(u ? `Edit ${esc(u.name)}` : 'Add someone', 'users')}
+    <div class="field"><label for="mem-name">Name</label><input class="input" id="mem-name" maxlength="24" autocomplete="off" value="${esc(u?.name || '')}" placeholder="e.g. Alex"${u ? ' data-nofocus' : ''}></div>
+    <div class="field"><label>Color</label><div class="swatches" id="mem-color">${PERSON_COLORS.map((c) => `<button class="swatch${c === color ? ' on' : ''}" style="background:var(--${c}-fg)" data-action="pick-member-color" data-v="${c}" aria-label="${c}"></button>`).join('')}</div></div>
+    <div class="sheet-actions">
+      ${u && all.length > 1 ? `<button class="btn danger" data-action="del-member" data-id="${u.id}">${icon('trash')} Remove</button><span class="spacer"></span>` : ''}
+      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="save-member" data-id="${u?.id || ''}">${u ? 'Save' : 'Add'}</button>
+    </div>`);
+  $('#sheet').dataset.kind = 'member';
+}
+
 /* ---------- Piggy Bank (shared expenses) ---------- */
 const fmtCash = (n) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const monthKey = (d) => isoDay(d).slice(0, 7);
@@ -1972,26 +2025,12 @@ const monthName = (key) => monthBounds(key)[0].toLocaleDateString([], { month: '
 const monthRange = (key) => monthBounds(key).map((d) => d.toLocaleDateString([], { month: 'short', day: 'numeric' })).join(' – ');
 const expensesIn = (key) => state.expenses.filter((x) => x.date.startsWith(key)).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
 
-// Who paid what, and who owes whom for the shared (split 50/50) expenses.
-// Paid by 'both' means each paid half, so nobody owes on it. A settle-up entry
-// ({ kind: 'settle', paidBy, to }) is money between the two of you, not spending.
+// Who paid what, and who owes whom for the shared (split evenly) expenses: see people.js.
+// A settle-up entry ({ kind: 'settle', paidBy, to }) is money between two people, not spending.
 const isSettle = (x) => x.kind === 'settle';
 const spending = (list) => list.filter((x) => !isSettle(x));
-function expenseStats(list) {
-  const paid = Object.fromEntries(USERS.map((u) => [u.id, 0]));
-  const sharedPaid = { ...paid };
-  let total = 0; let shared = 0;
-  const [a, b] = USERS;
-  const add = (to, who, n) => { for (const id of who === 'both' ? USERS.map((u) => u.id) : [who]) to[id] = (to[id] || 0) + (who === 'both' ? n / 2 : n); };
-  let settled = 0; // paid from b to a, minus a to b
-  list.forEach((x) => {
-    if (isSettle(x)) { settled += x.paidBy === b.id ? x.amount : -x.amount; return; }
-    total += x.amount; add(paid, x.paidBy, x.amount);
-    if (x.split) { shared += x.amount; add(sharedPaid, x.paidBy, x.amount); }
-  });
-  const net = sharedPaid[a.id] - shared / 2 - settled; // > 0 means b owes a
-  return { total, paid, shared, each: shared / 2, owed: Math.abs(net), from: net > 0 ? b : a, to: net > 0 ? a : b };
-}
+const expenseStats = (list) => moneyStats(list, members().map((u) => u.id));
+const splitWord = () => (members().length === 2 ? '50/50' : 'evenly');
 
 function expenseRow(x, showSplit) {
   const u = userOf(x.paidBy);
@@ -2002,10 +2041,10 @@ function expenseRow(x, showSplit) {
       <span class="ex-amt">${fmtCash(x.amount)}</span></button>`;
   }
   const both = x.paidBy === 'both';
-  const note = both ? 'Each paid half' : x.split ? (showSplit ? `Split · ${fmtCash(x.amount / 2)} each` : 'Split') : `Just ${u?.name}`;
+  const note = both ? `Each paid ${members().length === 2 ? 'half' : 'a share'}` : x.split ? (showSplit ? `Split · ${fmtCash(x.amount / Math.max(1, members().length))} each` : 'Split') : `Just ${u?.name}`;
   return `<button class="row expense" data-action="edit-expense" data-id="${x.id}">
     ${avatar(x.paidBy, 'md')}
-    <span class="ex-main"><b>${esc(x.title)}</b><small>${both ? 'Both paid' : `${u?.name} paid`} · ${note}</small></span>
+    <span class="ex-main"><b>${esc(x.title)}</b><small>${both ? `${everyoneLabel()} paid` : `${u?.name} paid`} · ${note}</small></span>
     <span class="ex-amt">${fmtCash(x.amount)}</span></button>`;
 }
 
@@ -2023,10 +2062,15 @@ views.piggy = () => {
   const months = [...new Set(state.expenses.map((x) => x.date.slice(0, 7)))].sort().reverse();
 
   // What people come here for first: who owes whom. Then where the month's money went.
-  const balance = showSplit ? `<div class="card balance${st.owed < 0.005 ? ' even' : ''}">
-    ${st.owed < 0.005 ? `<span class="bal-icon">${icon('check')}</span><div><b>All square</b><small>${fmtCash(st.shared)} shared in ${monthName(key).split(' ')[0]}, ${fmtCash(st.each)} each</small></div>`
-      : `${avatar(st.from.id, 'md')}<div><small>${st.from.name} owes ${st.to.name}</small><b class="bal-amt">${fmtCash(st.owed)}</b></div>
-      <button class="btn" data-action="settle-up">${icon('check')} Settle up</button>`}
+  // A household of one has nobody to owe.
+  const owes = st.transfers;
+  const balance = showSplit && members().length > 1 ? `<div class="card balance${owes.length ? '' : ' even'}${owes.length > 1 ? ' many' : ''}">
+    ${!owes.length ? `<span class="bal-icon">${icon('check')}</span><div><b>All square</b><small>${fmtCash(st.shared)} shared in ${monthName(key).split(' ')[0]}, ${fmtCash(st.each)} each</small></div>`
+      : owes.map((t, i) => {
+        const line = `${avatar(t.from, 'md')}<div><small>${userOf(t.from)?.name} owes ${userOf(t.to)?.name}</small><b class="bal-amt">${fmtCash(t.amount)}</b></div>
+      <button class="btn" data-action="settle-up" data-i="${i}">${icon('check')} Settle up</button>`;
+        return owes.length === 1 ? line : `<div class="bal-line">${line}</div>`;
+      }).join('')}
   </div>` : '';
   const share = (u) => (st.total ? (st.paid[u.id] / st.total) * 100 : 0);
   return `<div class="section-title">Money</div>
@@ -2039,8 +2083,8 @@ views.piggy = () => {
   ${balance}
   <div class="card spend">
     <div class="spend-top"><b>${fmtCash(st.total)}</b><span>spent · ${list.length} expense${list.length === 1 ? '' : 's'} · ${fmtCash(st.total / daysSoFar)} a day</span></div>
-    ${st.total ? `<div class="spend-bar">${USERS.map((u) => `<i class="bar-${u.color}" style="width:${share(u).toFixed(1)}%"></i>`).join('')}</div>
-    <div class="spend-key">${USERS.map((u) => `<span>${avatarImg(u, 'xs')}${u.name} paid <b>${fmtCash(st.paid[u.id])}</b> · ${Math.round(share(u))}%</span>`).join('')}</div>` : ''}
+    ${st.total ? `<div class="spend-bar">${members().map((u) => `<i class="bar-${u.color}" style="width:${share(u).toFixed(1)}%"></i>`).join('')}</div>
+    <div class="spend-key">${members().map((u) => `<span>${avatarImg(u, 'xs')}${u.name} paid <b>${fmtCash(st.paid[u.id])}</b> · ${Math.round(share(u))}%</span>`).join('')}</div>` : ''}
   </div>
   <div class="card">
     <div class="card-head">${icon('calendar')}<h2>Log</h2></div>
@@ -2051,7 +2095,7 @@ views.piggy = () => {
   ${months.length > 1 ? `<div class="card">
     <div class="card-head">${icon('piggy')}<h2>By month</h2></div>
     <div class="list">${months.map((m) => { const s2 = expenseStats(expensesIn(m)); return `<button class="row month-row${m === key ? ' on' : ''}" data-action="piggy-goto" data-m="${m}">
-      <span class="ex-main"><b>${monthName(m)}</b><small>${USERS.map((u) => `${u.name} ${fmtCash(s2.paid[u.id])}`).join(' · ')}</small></span><span class="ex-amt">${fmtCash(s2.total)}</span></button>`; }).join('')}</div>
+      <span class="ex-main"><b>${monthName(m)}</b><small>${members().map((u) => `${u.name} ${fmtCash(s2.paid[u.id])}`).join(' · ')}</small></span><span class="ex-amt">${fmtCash(s2.total)}</span></button>`; }).join('')}</div>
   </div>` : ''}`;
 };
 
@@ -2059,7 +2103,7 @@ views.piggy = () => {
 function openExpenseSheet(ex, scan) {
   const today = isoDay(new Date());
   const inMonth = piggyMonth === monthKey(new Date()) ? today : isoDay(monthBounds(piggyMonth)[0]);
-  const x = ex || { id: '', title: scan?.store || '', amount: scan?.amount ?? '', date: scan ? scan.date || today : inMonth, paidBy: USERS[0].id, split: true };
+  const x = ex || { id: '', title: scan?.store || '', amount: scan?.amount ?? '', date: scan ? scan.date || today : inMonth, paidBy: members()[0].id, split: true };
   openSheet(`${sheetHead(ex ? 'Edit expense' : scan ? 'From your receipt' : 'New expense', 'piggy')}
     ${scan ? `<p class="hint">${scan.amount ? 'Check what the reader got, then pick who paid.' : "The total wasn't readable, so type it in."}</p>` : ''}
     <div class="field"><label for="ex-title">What was it?</label><input class="input" id="ex-title" value="${esc(x.title)}" placeholder="e.g. Groceries"></div>
@@ -2067,8 +2111,8 @@ function openExpenseSheet(ex, scan) {
       <div class="field"><label for="ex-amount">Amount</label><input class="input" id="ex-amount" type="number" inputmode="decimal" step="0.01" min="0" value="${x.amount}" placeholder="0.00"></div>
       <div class="field"><label for="ex-date">Day</label><input class="input" type="date" id="ex-date" value="${x.date}"></div>
     </div>
-    <div class="field"><label>Who paid?</label>${whoPicker(x.paidBy, 'both')}<div class="hint">Both means each of you paid half, so nobody owes anything on it.</div></div>
-    <div class="setting-row imp-row"><div><b>Split 50/50</b><div class="hint">Counts toward what each of you owes. Turn off for a personal expense.</div></div>
+    <div class="field"><label>Who paid?</label>${whoPicker(x.paidBy, members().length > 1 ? 'both' : false)}${members().length > 1 ? `<div class="hint">${everyoneLabel()} means ${members().length === 2 ? 'each of you paid half' : 'everyone paid an equal share'}, so nobody owes anything on it.</div>` : ''}</div>
+    <div class="setting-row imp-row"><div><b>Split ${splitWord()}</b><div class="hint">Counts toward what each of you owes. Turn off for a personal expense.</div></div>
       <button class="switch" id="ex-split" role="switch" aria-checked="${!!x.split}" data-action="toggle-important"></button></div>
     <div class="sheet-actions">
       ${ex ? `<button class="btn danger" data-action="del-expense" data-id="${x.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
@@ -2268,8 +2312,8 @@ views.health = () => {
   preloadGoogle().catch(() => {});
   refreshHealthQuietly();
   const people = healthPeople();
-  const who = USERS.some((u) => u.id === state.settings.healthWho) ? state.settings.healthWho : (people[0]?.id || USERS[0].id);
-  const pick = `<div class="seg">${USERS.map((u) => `<button class="${who === u.id ? 'on' : ''}" data-action="health-who" data-v="${u.id}">${u.name}</button>`).join('')}</div>`;
+  const who = members().some((u) => u.id === state.settings.healthWho) ? state.settings.healthWho : (people[0]?.id || members()[0].id);
+  const pick = `<div class="seg">${members().map((u) => `<button class="${who === u.id ? 'on' : ''}" data-action="health-who" data-v="${u.id}">${u.name}</button>`).join('')}</div>`;
   const days = healthDays(who);
   const keys = Object.keys(days).sort();
   if (!healthAvailable()) {
@@ -2330,7 +2374,7 @@ function healthBody() {
         <li>Save its client ID as the GitHub secret <code>GOOGLE_HEALTH_CLIENT_ID</code> and run <b>Deploy to GitHub Pages</b>.</li>
       </ol></details>`;
   }
-  return `${USERS.map((u) => healthRow(u.id)).join('')}
+  return `${members().map((u) => healthRow(u.id)).join('')}
     <p class="hint">Each person signs in with the Google account their Fitbit uses. Google's pass lasts about an hour and stays on this screen only; the daily numbers are shared with the household when sync is on.</p>
     ${healthPeople().length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${healthPeople().map((u) => `<button class="btn ghost" data-action="health-disconnect" data-v="${u.id}">${icon('trash')} Remove ${u.name}'s data</button>`).join('')}</div>` : ''}`;
 }
@@ -2362,7 +2406,7 @@ views.settings = () => {
         <button class="switch" role="switch" aria-checked="${s.clock24}" data-action="set-clock24" aria-label="24-hour clock"></button></div>
       <div class="setting-row"><div><b>Keep screen on</b><div class="hint">Stops the screen from sleeping while the dashboard is open.</div></div>
         <button class="switch" role="switch" aria-checked="${s.wakeLock}" data-action="set-wake" aria-label="Keep screen on"></button></div>
-      <div class="setting-row"><div><b>Show who owes whom</b><div class="hint">The 50/50 balance and Settle up on the Money tab.</div></div>
+      <div class="setting-row"><div><b>Show who owes whom</b><div class="hint">The ${splitWord()} balance and Settle up on the Money tab.</div></div>
         <button class="switch" role="switch" aria-checked="${s.showSplit !== false}" data-action="toggle-split" aria-label="Show who owes whom"></button></div>
     </div>
     <h3 class="set-group">Household</h3>
@@ -2423,7 +2467,7 @@ function renderView(anim) {
   const y = window.scrollY;
   const prev = $('#wk-scroll');
   if (prev) wkScroll = prev.scrollTop;
-  view.innerHTML = views[r]();
+  view.innerHTML = members().length ? views[r]() : views.setup();
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
   window.scrollTo(0, y);
@@ -2482,11 +2526,13 @@ function closeSheet() {
 }
 const sheetHead = (title, ic) => `<h3>${icon(ic)}${title}<button class="btn-round close" data-action="close-sheet" aria-label="Close">${icon('x')}</button></h3>`;
 
-// Person picker shared by the event and task sheets. `allowBoth` adds "Both" and "Anyone".
-// allowBoth: true adds Both and Anyone; 'both' adds only Both.
-function whoPicker(selected, allowBoth) {
-  const opts = [...USERS.map((u) => ({ id: u.id, label: u.name })), ...(allowBoth ? [{ id: 'both', label: 'Both' }] : []), ...(allowBoth === true ? [{ id: '', label: 'Anyone' }] : [])];
-  return `<div class="who-pick" id="who-pick">${opts.map((o) => `
+// Person picker shared by the sheets. allowBoth: true adds Both (Everyone, past two people) and
+// Anyone; 'both' adds only Both. A household of one has no Both. `id` names the picker when a
+// sheet has two.
+function whoPicker(selected, allowBoth, id = 'who-pick', skip = '') {
+  const both = allowBoth && members().length > 1;
+  const opts = [...members().filter((u) => u.id !== skip).map((u) => ({ id: u.id, label: esc(u.name) })), ...(both ? [{ id: 'both', label: everyoneLabel() }] : []), ...(allowBoth === true ? [{ id: '', label: 'Anyone' }] : [])];
+  return `<div class="who-pick" id="${id}">${opts.map((o) => `
     <button class="who-opt ${o.id === selected ? 'on' : ''}" data-action="pick-who" data-who="${o.id}">${avatar(o.id, 'sm') || `<span class="av-none">${icon('calendar')}</span>`}${o.label}</button>`).join('')}</div>`;
 }
 const pickedWho = () => $('#who-pick .who-opt.on')?.dataset.who ?? '';
@@ -2562,7 +2608,7 @@ function openDaySheet(iso) {
   $('#sheet').dataset.d = iso;
 }
 
-function openTaskSheet(task, who = USERS[0].id) {
+function openTaskSheet(task, who = members()[0].id) {
   const t = task || { id: '', title: '', who, repeat: 'daily', stars: 5 };
   openSheet(`${sheetHead(task ? 'Edit chore' : 'New chore', 'checkSquare')}
     <div class="field"><label for="task-title">Chore</label><input class="input" id="task-title" value="${esc(t.title)}" placeholder="e.g. Take out trash"></div>
@@ -2590,6 +2636,12 @@ const actions = {
     // The note being written shows the face of whoever it is from.
     const dir = $('#thx-dir');
     if (dir) dir.textContent = `To ${userOf(otherOf(el.dataset.who))?.name}`;
+    // Saying thanks in a bigger household: the sender drops out of who it can be for.
+    const toPick = $('#thx-to');
+    if (toPick && el.closest('#who-pick')) {
+      toPick.querySelectorAll('.who-opt').forEach((b) => { b.hidden = b.dataset.who === el.dataset.who; });
+      if (!toPick.querySelector('.who-opt.on:not([hidden])')) toPick.querySelectorAll('.who-opt').forEach((b) => b.classList.toggle('on', b === toPick.querySelector('.who-opt:not([hidden])')));
+    }
     const face = $('#note-paper > .av');
     if (face && userOf(el.dataset.who)) face.outerHTML = avatar(el.dataset.who, 'sm');
   },
@@ -2683,7 +2735,7 @@ const actions = {
     if (!title) { toast('Name the chore first'); return; }
     const data = {
       title,
-      who: pickedWho() || USERS[0].id,
+      who: pickedWho() || members()[0].id,
       repeat: $('#task-repeat .on')?.dataset.v || 'daily',
       stars: Number($('#task-stars .on')?.dataset.v || 5),
       important: pickedImportant(),
@@ -2704,16 +2756,19 @@ const actions = {
     redrawDaySheet();
   },
 
-  thank: (el) => openThankSheet({ win: el.dataset.win, to: el.dataset.to, title: el.dataset.title, base: el.dataset.base }),
+  thank: (el) => openThankSheet({ win: el.dataset.win, to: el.dataset.to, from: el.dataset.from, title: el.dataset.title, base: el.dataset.base }),
+  // Who a thank-you is for, in a household of three or more. The sender can't pick themselves.
+  'pick-to': (el) => { el.parentElement.querySelectorAll('.who-opt').forEach((b) => b.classList.toggle('on', b === el)); },
   'thanks-line': (el) => { $('#thx-text').value = el.dataset.v; },
   'send-thanks': (el) => {
-    const to = $('#who-pick') ? otherOf(pickedWho()) : el.dataset.to;
-    if (!userOf(to)) return;
+    const from = el.dataset.from || pickedWho();
+    const to = el.dataset.to || $('#thx-to .who-opt.on:not([hidden])')?.dataset.who || otherOf(from);
+    if (!userOf(to) || !userOf(from) || to === from) { toast('Pick who it is for'); return; }
     if (el.dataset.base) el.dataset.win = `${el.dataset.base}@${to}`;
-    if ($('#who-pick')) state.settings.lastWriter = pickedWho();
+    if ($('#who-pick')) state.settings.lastWriter = from;
     const text = $('#thx-text').value.trim().slice(0, THANKS_MAX);
     const emoji = $('#thx-emoji .on')?.dataset.v || THANKS_EMOJI[0];
-    (state.thanks ||= []).push({ id: `k${Date.now()}`, from: otherOf(to), to, emoji, text, ...(el.dataset.win && { win: el.dataset.win, for: el.dataset.title }), at: Date.now(), readAt: 0 });
+    (state.thanks ||= []).push({ id: `k${Date.now()}`, from, to, emoji, text, ...(el.dataset.win && { win: el.dataset.win, for: el.dataset.title }), at: Date.now(), readAt: 0 });
     closeSheet();
     toast(`Sent to ${userOf(to).name} ${emoji}`);
   },
@@ -2746,7 +2801,7 @@ const actions = {
     if (!text) { toast('Write something first'); return; }
     const keep = $('#note-keep .on')?.dataset.v || '';
     const until = keep === 'today' ? isoDay(new Date()) : keep === 'week' ? isoDay(addDays(new Date(), 6)) : '';
-    const by = pickedWho() || USERS[0].id;
+    const by = pickedWho() || members()[0].id;
     const data = { text, by, color: $('#note-color .on')?.dataset.v || 'butter' };
     const n = state.notes.find((x) => x.id === el.dataset.id);
     if (n) {
@@ -2779,7 +2834,7 @@ const actions = {
     const b = state.bucket.find((x) => x.id === el.dataset.id);
     if (b) Object.assign(b, { text, kind });
     else {
-      const by = me() || pickedWho() || USERS[0].id;
+      const by = me() || pickedWho() || members()[0].id;
       (state.bucket ||= []).push({ id: `b${Date.now()}`, text, kind, by, at: Date.now() });
       state.settings.lastWriter = by;
     }
@@ -2812,6 +2867,44 @@ const actions = {
     toast(`Ticked off ${b.text} · +${loveOf(b)} love points ❤️`);
   },
   'set-me': (el) => { state.settings.me = el.dataset.v; },
+  'setup-add-row': () => {
+    const box = $('#setup-names');
+    if (!box || box.children.length >= MAX_MEMBERS) return;
+    box.insertAdjacentHTML('beforeend', setupRow(box.children.length));
+    box.lastElementChild.focus();
+  },
+  'setup-start': () => {
+    const names = [...document.querySelectorAll('[data-setup-name]')].map((i) => cleanName(i.value)).filter(Boolean);
+    if (!names.length) { toast('Type at least one name'); return; }
+    state.members = names.reduce((list, n) => [...list, newMember(n, list)], []);
+    render();
+  },
+  'open-join': () => openHouseSheet(),
+  'add-member': () => openMemberSheet(null),
+  'edit-member': (el) => { const u = userOf(el.dataset.id); if (u) openMemberSheet(u); },
+  'pick-member-color': (el) => { el.parentElement.querySelectorAll('.swatch').forEach((b) => b.classList.toggle('on', b === el)); },
+  'save-member': (el) => {
+    const name = cleanName($('#mem-name').value);
+    if (!name) { toast('Type a name first'); return; }
+    const color = $('#mem-color .on')?.dataset.v;
+    const m = (state.members ||= []).find((x) => x.id === el.dataset.id);
+    if (m) Object.assign(m, { name, ...(color && { color }) });
+    else if (members().length < MAX_MEMBERS) state.members.push({ ...newMember(name, members()), ...(color && { color }) });
+    closeSheet();
+    tickClock();
+  },
+  // Their history (stars, the Leaderboard, past expenses) stays; only chores still on their list
+  // need a new owner first, so nothing is left with nobody to do it.
+  'del-member': (el) => {
+    const u = userOf(el.dataset.id);
+    if (!u) return;
+    if (state.tasks.some((t) => t.who === u.id)) { toast(`Move or delete ${u.name}'s chores first`); return; }
+    if (!confirm(`Remove ${u.name} from the household? Their past stars and expenses stay in the history.`)) return;
+    state.members = state.members.filter((x) => x.id !== u.id);
+    if (state.settings.me === u.id) state.settings.me = '';
+    closeSheet();
+    tickClock();
+  },
 
   'set-unit': (el) => { state.settings.unit = el.dataset.v; save(); fetchWeather(); },
   'set-theme': (el) => { state.settings.theme = el.dataset.v; save(); applyTheme(); tickClock(); },
@@ -2938,21 +3031,22 @@ const actions = {
     const amount = Math.round(Number($('#ex-amount').value) * 100) / 100;
     const date = $('#ex-date').value;
     if (!title || !(amount > 0) || !date) { toast('Add what it was, the amount and the day'); return; }
-    const data = { title, amount, date, paidBy: pickedWho() || USERS[0].id, split: $('#ex-split').getAttribute('aria-checked') === 'true' };
+    const data = { title, amount, date, paidBy: pickedWho() || members()[0].id, split: $('#ex-split').getAttribute('aria-checked') === 'true' };
     const existing = state.expenses.find((x) => x.id === el.dataset.id);
     if (existing) Object.assign(existing, data);
     else state.expenses.push({ id: `x${Date.now()}`, ...data });
     piggyMonth = date.slice(0, 7);
     closeSheet();
   },
-  'settle-up': () => {
-    const st = expenseStats(expensesIn(piggyMonth));
-    if (st.owed < 0.005) return;
-    if (!confirm(`Mark that ${st.from.name} paid ${st.to.name} ${fmtCash(st.owed)}?`)) return;
+  'settle-up': (el) => {
+    const t = expenseStats(expensesIn(piggyMonth)).transfers[Number(el.dataset.i) || 0];
+    if (!t) return;
+    const from = userOf(t.from); const to = userOf(t.to);
+    if (!confirm(`Mark that ${from.name} paid ${to.name} ${fmtCash(t.amount)}?`)) return;
     const today = isoDay(new Date());
     const date = piggyMonth === monthKey(new Date()) ? today : isoDay(monthBounds(piggyMonth)[1]);
-    state.expenses.push({ id: `x${Date.now()}`, kind: 'settle', title: 'Settled up', amount: Math.round(st.owed * 100) / 100, date, paidBy: st.from.id, to: st.to.id, split: false });
-    toast('All square');
+    state.expenses.push({ id: `x${Date.now()}`, kind: 'settle', title: 'Settled up', amount: t.amount, date, paidBy: t.from, to: t.to, split: false });
+    toast(expenseStats(expensesIn(piggyMonth)).transfers.length ? `${from.name} is square with ${to.name}` : 'All square');
   },
   'del-expense': (el) => {
     state.expenses = state.expenses.filter((x) => x.id !== el.dataset.id);
@@ -2968,13 +3062,13 @@ const actions = {
 
   reset: () => {
     if (!confirm('Clear all events and chores on this device?')) return;
-    state = { ...defaultState(), settings: state.settings, expenses: state.expenses, fridge: state.fridge, health: state.health, thanks: state.thanks, notes: state.notes, bucket: state.bucket, events: [], tasks: [] };
+    state = { ...defaultState(), settings: state.settings, members: state.members, stars: state.stars, log: state.log, expenses: state.expenses, fridge: state.fridge, health: state.health, thanks: state.thanks, notes: state.notes, bucket: state.bucket, events: [], tasks: [] };
     save();
   },
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
+const NO_RERENDER = new Set(['setup-add-row', 'open-join', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -3066,7 +3160,7 @@ hydrateIcons();
 applyTheme();
 tickClock();
 setTimeout(() => { skyReady = true; tickClock(); }, 400);
-if (repairLog() | tidyNotes()) save();
+if (carriedOver | repairLog() | tidyNotes()) save();
 render();
 fetchWeather();
 syncEnergy();
@@ -3094,7 +3188,7 @@ setInterval(() => {
     lastMinute = m;
     applyTheme();
     // Refresh relative times ("2 minutes ago") without disturbing open dialogs or typing.
-    if ($('#sheet').hidden && !document.activeElement?.matches('input, textarea')) renderView();
+    if ($('#sheet').hidden && !document.activeElement?.matches('input, textarea') && members().length) renderView();
   }
 }, 1000);
 setInterval(fetchWeather, 15 * 60 * 1000);
