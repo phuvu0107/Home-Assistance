@@ -1026,4 +1026,21 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .tab-badge { position: absolute; top: 4px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--rose-fg); color: #fff;
   font-size: 11px; font-weight: 700; font-style: normal; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--card); }
 @media (prefers-reduced-motion: reduce) { .inbox-face i, .inbox-strip, .sticky.new { animation: none; } }
+
+/* Bucket list */
+.bk-emoji { width: 40px; flex: none; text-align: center; font-size: 22px; line-height: 1; }
+.card-head button.link { border: 0; background: none; padding: 0; cursor: pointer; }
+.bk-page { display: grid; gap: 16px; align-items: start; }
+@media (min-width: 900px) { .bk-page { grid-template-columns: 3fr 2fr; } }
+.bk-group { margin: 18px 0 10px; font-size: 14px; font-weight: 600; color: var(--text-2); }
+.card-head + .bk-group { margin-top: 0; }
+.sheet .field > .seg.bk-kind { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+.sheet .field > .seg.bk-kind button { padding: 8px 4px; white-space: normal; line-height: 1.25; text-align: center; }
+.task.bk.done .bk-emoji { opacity: .6; }
+.love { color: var(--rose-fg); font-weight: 600; white-space: nowrap; }
+.love-total { display: flex; align-items: baseline; gap: 10px; margin-bottom: 18px; padding: 14px 16px; border-radius: 14px; background: var(--muted-surface); }
+.love-total b { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.love-total span { color: var(--text-2); font-size: 14px; }
+.bk-kind button small { display: block; font-size: 11px; color: var(--rose-fg); font-weight: 600; }
+
 #thx-dir { margin: 8px 0 0; }

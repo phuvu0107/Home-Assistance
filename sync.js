@@ -39,7 +39,7 @@ async function open(key, box) {
 }
 
 /* ---------- State <-> items ---------- */
-const LISTS = { e: 'events', t: 'tasks', x: 'expenses', l: 'log', f: 'fridge', k: 'thanks', n: 'notes' };
+const LISTS = { e: 'events', t: 'tasks', x: 'expenses', l: 'log', f: 'fridge', k: 'thanks', n: 'notes', b: 'bucket' };
 const strip = ({ u, ...rest }) => rest;
 // Items this version of the app reads and writes. Anything else in the household doc came from a
 // newer version (a screen that hasn't reloaded since an update is still on the old one), so it is
