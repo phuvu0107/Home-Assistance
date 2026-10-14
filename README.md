@@ -27,7 +27,7 @@ Events earn stars like chores (5 unless you pick another amount in the event's s
 | ![Calendar week view](docs/screenshots/calendar-week.png) | ![Calendar month view](docs/screenshots/calendar-month.png) |
 
 ### Chores
-Who's earned the most stars this week, this month or all time sits at the top, then a card each for Phu and Nhi with their chores and how many are done. Chores repeat daily, weekly or once, and daily and weekly chores reset on their own. Tap a chore to edit who it's for, how often it repeats and how many stars it's worth, or mark it **Important** for a red dot. Below the cards, a chart shows stars by day once there are a few active days, and Recent lists what was ticked off. Unticking something takes its stars back.
+Who's earned the most stars this week, this month or all time sits at the top, then a card for each person with their chores and how many are done. Chores repeat daily, weekly or once, and daily and weekly chores reset on their own. Tap a chore to edit who it's for, how often it repeats and how many stars it's worth, or mark it **Important** for a red dot. Below the cards, a chart shows stars by day once there are a few active days, and Recent lists what was ticked off. Unticking something takes its stars back.
 
 | Chores | Editing a chore |
 | --- | --- |
@@ -49,7 +49,7 @@ PG&E use and cost for the current bill, from the day the billing cycle started t
 ![Energy page](docs/screenshots/energy.png)
 
 ### Health
-Fitbit data for each of you: steps today, last night's sleep with deep and REM time, resting heart rate and weight, with 14-day charts and a table of the week. Switch between Phu and Nhi at the top. Each person connects their own Fitbit with Google sign-in (see [Fitbit health sync](#fitbit-health-sync)), and their numbers then show on every screen in the household.
+Fitbit data for each of you: steps today, last night's sleep with deep and REM time, resting heart rate and weight, with 14-day charts and a table of the week. Switch between people at the top. Each person connects their own Fitbit with Google sign-in (see [Fitbit health sync](#fitbit-health-sync)), and their numbers then show on every screen in the household.
 
 ![Health page](docs/screenshots/health.png)
 
@@ -57,7 +57,7 @@ Fitbit data for each of you: steps today, last night's sleep with deep and REM t
 A GitHub job emails the household at 7 AM, noon, 5 PM and 9 PM Pacific: the morning one has the day's events, weather, tasks, yesterday's stars, the Money balance and yesterday's energy; noon and 5 PM cover what's left of the day; 9 PM recaps today's stars and shows tomorrow. See [Summary email](#summary-email-setup).
 
 ### Settings
-Grouped into Display (weather city, °F/°C, light/dark/auto theme, 24-hour clock, keep screen on, show who owes whom), Household (sync across devices) and Connections, where PG&E, Fitbit and the summary email each open into their own row with a status and setup steps. Energy, Health and Settings live under **More**.
+Grouped into Display (weather city, °F/°C, light/dark/auto theme, 24-hour clock, keep screen on, show who owes whom), Household (who lives here, who uses this device, sync across devices) and Connections, where PG&E, Fitbit and the summary email each open into their own row with a status and setup steps. Energy, Health and Settings live under **More**.
 
 ![Settings page](docs/screenshots/settings.png)
 
@@ -66,7 +66,7 @@ The layout adapts from a wide display down to a phone. Every screen gets a see-t
 
 <img src="docs/screenshots/phone.png" alt="Dashboard on a phone" width="320">
 
-Phu's and Nhi's avatars live in `avatars/` as SVG files. Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). Display settings are saved in the browser on each device; events, chores, kitchen items and expenses are shared across devices once [sync](#sync-across-devices) is on.
+The household's people are set up the first time the app opens (**Who lives here?**) and edited in **Settings › Household**: tap a face to rename someone or change their color, or **Add** for someone new. They sync like everything else, and a household that used the app before this keeps Phu and Nhi with their own avatars from `avatars/`; anyone added later shows their initial. Splitting money, Both (Everyone with three or more people) and thank-yous all work for any number of people. Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). Display settings are saved in the browser on each device; events, chores, kitchen items and expenses are shared across devices once [sync](#sync-across-devices) is on.
 
 ## Set up on your device
 
@@ -178,6 +178,7 @@ python3 -m http.server 8000
 - `icons.js` – inline SVG icon set
 - `receipt.js` – fridge kinds and the receipt reader
 - `sync.js`, `sync-config.js` – encrypted household sync (Firebase Firestore)
+- `people.js` – the household's people and who owes whom (tested in `tests/people.test.mjs`)
 - `avatars/` – Phu's and Nhi's avatars
 - `sw.js`, `manifest.webmanifest`, `icons/` – installable PWA and offline cache
 - `health.js`, `health-config.js` – Fitbit data through Google sign-in and the Google Health API

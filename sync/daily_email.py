@@ -32,7 +32,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-USERS = {"phu": "Phu", "nhi": "Nhi"}
+# Households from before people were data (see people.js). Newer ones keep their people as p: items.
+LEGACY_USERS = {"phu": "Phu", "nhi": "Nhi"}
 LOVE = {"milestone": 200, "trip": 100, "learn": 50, "adventure": 40, "give": 30, "place": 25,
         "show": 20, "do": 15, "cook": 10, "date": 10, "food": 10}  # love points per bucket list kind, as in app.js
 SALT = b"home-dashboard household sync v1"  # must match sync.js
@@ -65,10 +66,47 @@ def household_state(passphrase):
     key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=SALT, iterations=ITER).derive(passphrase.encode())
     doc = json.loads(AESGCM(key).decrypt(base64.b64decode(box["iv"]), base64.b64decode(box["data"]), None))
     items = doc["items"]
-    lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge", "k": "thanks", "n": "notes", "b": "bucket"}
+    lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge", "k": "thanks", "n": "notes", "b": "bucket", "p": "members"}
     state = {name: [v for k, v in items.items() if k.startswith(p + ":")] for p, name in lists.items()}
     state["stars"] = items.get("stars", {}).get("value", {})
     return state
+
+
+def people(state):
+    """{id: name} for the household's people, in the app's order."""
+    members = sorted(state.get("members") or [], key=lambda u: (u.get("order", 0), str(u.get("id"))))
+    return {u["id"]: u.get("name") or "?" for u in members if u.get("id")} or dict(LEGACY_USERS)
+
+
+def transfers(month, ids):
+    """Who owes whom for a month of expenses, as in people.js: split expenses are shared evenly,
+    paid by 'both' means everyone paid an equal share, and settle-ups move money between two people."""
+    balance = dict.fromkeys(ids, 0.0)
+    for x in month:
+        if x.get("kind") == "settle":
+            if x.get("paidBy") in balance:
+                balance[x["paidBy"]] += x["amount"]
+            if x.get("to") in balance:
+                balance[x["to"]] -= x["amount"]
+        elif x.get("split"):
+            payers = ids if x.get("paidBy") == "both" else [x.get("paidBy")]
+            for p in payers:
+                if p in balance:
+                    balance[p] += x["amount"] / len(payers)
+            for p in ids:
+                balance[p] -= x["amount"] / len(ids)
+    rank = lambda side: sorted(([p, v] for p, v in side if v >= 0.005), key=lambda pv: (-pv[1], ids.index(pv[0])))
+    owed, owes = rank(balance.items()), rank((p, -v) for p, v in balance.items())
+    out, i, j = [], 0, 0
+    while i < len(owes) and j < len(owed):
+        v = min(owes[i][1], owed[j][1])
+        if v >= 0.005:
+            out.append((owes[i][0], owed[j][0], round(v, 2)))
+        owes[i][1] -= v
+        owed[j][1] -= v
+        i += owes[i][1] < 0.005
+        j += owed[j][1] < 0.005
+    return out
 
 
 def energy_yesterday(day):
@@ -132,8 +170,8 @@ def fmt_time(hhmm):
     return dt.datetime.strptime(hhmm, "%H:%M").strftime("%-I:%M %p")
 
 
-def who_label(who):
-    return "both" if who == "both" else USERS.get(who, "")
+def who_label(who, users):
+    return ("both" if len(users) == 2 else "everyone") if who == "both" else users.get(who, "")
 
 
 SLOTS = {7: "morning", 12: "midday", 17: "evening", 21: "night"}
@@ -143,6 +181,7 @@ MAX_LATE = dt.timedelta(minutes=90)  # a scheduled run later than this sends not
 def build(state, now, energy, sky, slot="morning"):
     """One email. Morning is the full day ahead; midday and evening cover what's left of
     today; night recaps today's stars and looks at tomorrow."""
+    USERS = people(state)
     today = now.date()
     iso = today.isoformat()
     yday = (today - dt.timedelta(days=1)).isoformat()
@@ -153,7 +192,7 @@ def build(state, now, energy, sky, slot="morning"):
     def event_line(e, day=False):
         when = dt.date.fromisoformat(e["date"]).strftime("%a") + " · " if day else ""
         return (f"{when}{fmt_time(e['time']) if e.get('time') else 'All day'} · {e['title']}"
-                + (f" ({who_label(e.get('who'))})" if e.get("who") else "") + (" · IMPORTANT" if e.get("important") else ""))
+                + (f" ({who_label(e.get('who'), USERS)})" if e.get("who") else "") + (" · IMPORTANT" if e.get("important") else ""))
     on = lambda day: sorted((e for e in state["events"] if e.get("date") == day), key=lambda e: e.get("time") or "")
     events = on(iso)
     if slot in ("midday", "evening"):  # only what hasn't started yet
@@ -198,14 +237,10 @@ def build(state, now, energy, sky, slot="morning"):
 
     month = [x for x in state["expenses"] if x.get("date", "").startswith(iso[:7])]
     if month and slot == "morning":
-        a, b = list(USERS)
         spent = [x for x in month if x.get("kind") != "settle"]
-        shared = [x for x in spent if x.get("split")]
-        paid_a = sum(x["amount"] / 2 if x.get("paidBy") == "both" else x["amount"] for x in shared if x.get("paidBy") in (a, "both"))
-        settled = sum(x["amount"] if x.get("paidBy") == b else -x["amount"] for x in month if x.get("kind") == "settle")
-        net = paid_a - sum(x["amount"] for x in shared) / 2 - settled  # > 0 means b owes a
-        owe = "All square." if abs(net) < 0.005 else f"{USERS[b] if net > 0 else USERS[a]} owes {USERS[a] if net > 0 else USERS[b]} ${abs(net):.2f}."
-        sections.append(("Piggy Bank", [f"{now.strftime('%B')} so far: ${sum(x['amount'] for x in spent):.2f}. {owe}"]))
+        owing = transfers(month, list(USERS))
+        owe = "" if len(USERS) < 2 else " ".join(f"{USERS[f]} owes {USERS[t]} ${v:.2f}." for f, t, v in owing) or "All square."
+        sections.append(("Piggy Bank", [f"{now.strftime('%B')} so far: ${sum(x['amount'] for x in spent):.2f}. {owe}".strip()]))
 
     if energy and slot == "morning":
         sections.append(("Energy", [f"Yesterday: {energy}"]))
@@ -243,7 +278,8 @@ def build(state, now, energy, sky, slot="morning"):
         subject = f"💌 {subject}"
     greet = {"morning": "Good morning", "midday": "Good afternoon", "evening": "Good evening", "night": "Good night"}[slot]
     sign = {"morning": "Have a great day!", "midday": "Keep it up!", "evening": "Enjoy your evening!", "night": "Sleep well!"}[slot]
-    hello = f"{greet}, {' and '.join(USERS.values())}!"
+    names = list(USERS.values())
+    hello = f"{greet}, {', '.join(names[:-1]) + ' and ' + names[-1] if len(names) > 1 else names[0]}!"
     if sky:
         sections.insert(0, (f"Weather {sky['when'].lower()}", weather_lines(sky)))
     text = hello + "\n\n" + "\n\n".join(t + "\n" + "\n".join(f"- {l}" for l in lines) for t, lines in sections) + f"\n\n{sign}\n— Your fridge\n"
