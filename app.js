@@ -1314,13 +1314,20 @@ const DAY_END = 22; // 10 PM
 
 const minutesOf = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
 
-// Lay out one day's timed events in side-by-side lanes when they overlap.
+// Lay out one day's timed events in side-by-side lanes when they overlap. Times are clipped to the
+// visible hours first, so events before 7 AM or after 10 PM, which all sit at the edge, get lanes
+// instead of stacking on top of each other. Every event takes at least 30 minutes of space.
 function laneLayout(events) {
+  const lo = DAY_START * 60;
+  const hi = DAY_END * 60;
   const items = events.map((e) => {
-    const start = minutesOf(e.time);
-    const end = Math.max(start + 30, e.end ? minutesOf(e.end) : start + 60);
+    const t = minutesOf(e.time);
+    const t2 = Math.max(t + 30, e.end ? minutesOf(e.end) : t + 60);
+    const start = Math.min(Math.max(t, lo), hi - 30);
+    const end = Math.max(start + 30, Math.min(t2, hi));
     return { e, start, end, lane: 0, lanes: 1 };
   });
+  items.sort((a, b) => a.start - b.start);
   let group = [];
   let groupEnd = -1;
   const flush = () => { const n = Math.max(...group.map((g) => g.lane)) + 1; group.forEach((g) => { g.lanes = n; }); group = []; };
@@ -1356,11 +1363,8 @@ function weekView() {
       ? `<div class="now-line" style="top:${((nowMin - DAY_START * 60) / 60) * HOUR_PX}px"></div>` : '';
     return `<div class="wk-col" data-action="add-event-at" data-d="${iso}">
       ${timed.map(({ e, start, end, lane, lanes }) => {
-        // Clip to the visible hours, so an event starting before 7 AM doesn't run past its end.
-        const from = Math.min(Math.max(start, DAY_START * 60), DAY_END * 60);
-        const to = Math.min(Math.max(end, DAY_START * 60), DAY_END * 60);
-        const top = Math.min(((from - DAY_START * 60) / 60) * HOUR_PX, (DAY_END - DAY_START) * HOUR_PX - 26);
-        const height = Math.max(26, ((to - from) / 60) * HOUR_PX - 3);
+        const top = ((start - DAY_START * 60) / 60) * HOUR_PX;
+        const height = Math.max(26, ((end - start) / 60) * HOUR_PX - 3);
         return `<button class="wk-ev${eventDone(e) ? ' done' : ''} ${e.who ? `c-${e.who === 'both' ? 'purple' : userOf(e.who).color}` : 'c-purple'}${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}"
           style="top:${top}px;height:${height}px;left:calc(${(lane / lanes) * 100}% + 2px);width:calc(${100 / lanes}% - 4px)">
           <span class="wk-ev-top">${eventDone(e) ? icon('check', 'ev-done') : avatar(e.who, 'xs')}<b>${timeLabel(e)}</b>${impTag(e)}</span><span class="wk-ev-title">${esc(e.title)}</span></button>`;
