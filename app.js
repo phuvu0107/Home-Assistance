@@ -48,6 +48,8 @@ function defaultState() {
     log: [],
     expenses: [],
     fridge: [],
+    thanks: [],
+    notes: [],
     health: {},
   };
 }
@@ -874,7 +876,8 @@ function openAddMenu() {
   const items = currentRoute() === 'fridge'
     ? [opt('add-fridge', 'plus', 'Add an item', 'Type in one thing'), scan]
     : [opt('add-task', 'checkSquare', 'Chore', 'Something to do, with stars'), opt('add-event', 'calendar', 'Event', 'Something on the calendar'),
-      opt('add-fridge', 'fridge', 'Kitchen item', 'Something in the fridge'), opt('add-expense', 'piggy', 'Expense', 'Something you paid for')];
+      opt('add-fridge', 'fridge', 'Kitchen item', 'Something in the fridge'), opt('add-expense', 'piggy', 'Expense', 'Something you paid for'),
+      opt('add-note', 'notes', 'Note', 'A sticky note on Home')];
   openSheet(`${sheetHead(currentRoute() === 'fridge' ? 'Add to kitchen' : 'Add', 'plus')}<div class="list more-list">${items.join('')}</div>`);
   $('#sheet').dataset.kind = 'add';
 }
@@ -1149,6 +1152,7 @@ function taskCard(t, u, face = false) {
       <b>${esc(t.title)}${impTag(t)}</b>
       <small>${face ? `${u.name} · ` : ''}${REPEAT_LABEL[t.repeat]} <span class="stars">${icon('star')}${t.stars}</span></small>
     </button>
+    ${face && done ? thankBtn(`${t.id}@${t.doneOn}@${t.who}`, t.who, t.title) : ''}
     <button class="check ${done ? 'on' : ''}${done && justTicked === t.id ? ' pop' : ''}" data-action="toggle-task" data-id="${t.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}" aria-pressed="${done}">${icon('check')}</button>
   </div>`;
 }
@@ -1218,7 +1222,7 @@ views.home = () => {
   const tasks = tasksToday().sort((a, b) => isDone(a) - isDone(b) || order.indexOf(a.who) - order.indexOf(b.who));
   const lead = leadLine();
   const next = state.events.filter((e) => e.date > today).sort(byStart).slice(0, 4);
-  return `${glanceRow()}
+  return `${thanksInbox()}${glanceRow()}${notesBoard()}
   <div class="grid-home">
     <div class="card a-today">
       <div class="card-head">${icon('checkSquare')}<h2>Today</h2>${lead ? `<a class="link" href="#/tasks">${lead} ${icon('arrowRight')}</a>` : ''}</div>
@@ -1389,7 +1393,8 @@ views.tasks = () => {
         <div class="task-list">${tasksFor(u.id).map((t) => taskCard(t, u)).join('') || `<button class="empty-line as-btn" data-action="add-task" data-who="${u.id}">${icon('plus')} Add ${u.name}'s first chore</button>`}</div>
       </div>`).join('')}
   </div>
-  ${b.history}`;
+  ${b.history}
+  ${winsJar()}`;
 };
 
 /* ---------- Leaderboard ---------- */
@@ -1472,12 +1477,204 @@ function boardParts() {
       ${activeDays >= 3 ? `<div class="card">${boardChart(period, state.log || [])}</div>` : ''}
       <div class="card">
         <div class="card-head">${icon('star')}<h2>Recent stars</h2></div>
-        <div class="list lb-recent">${recent.map((l) => `<div class="lb-row">${avatar(l.who, 'sm')}<span><b>${esc(l.title)}</b><small>${l.kind === 'event' ? 'Event' : 'Chore'} · ${dayLabel(l.date)}</small></span><em>+${l.stars}</em></div>`).join('')}</div>
+        <div class="list lb-recent">${recent.map((l) => `<div class="lb-row">${avatar(l.who, 'sm')}<span><b>${esc(l.title)}</b><small>${l.kind === 'event' ? 'Event' : 'Chore'} · ${dayLabel(l.date)}</small></span><em>+${l.stars}</em>${thankBtn(l.id, l.who, l.title)}</div>`).join('')}</div>
       </div>
     </div>` : '';
   const note = tied && ranked[0].stars > 0 ? '<p class="hint lb-note">All square. The next tick takes the lead.</p>' : '';
   return { seg, cards, note, history };
 }
+
+/* =========================================================
+   Thank-you notes (the wins jar) and sticky notes on Home
+   ========================================================= */
+// There are no logins, so each device says who uses it (Settings › Household). A phone set to Nhi
+// only shows thank-yous sent to Nhi and marks them read when she opens them; the shared fridge
+// screen (nobody picked) shows everyone's, each with who it is for.
+const me = () => (userOf(state.settings.me) ? state.settings.me : '');
+const otherOf = (id) => USERS.find((u) => u.id !== id)?.id || '';
+const THANKS_EMOJI = ['❤️', '🙏', '🎉', '⭐', '💪', '☕'];
+const THANKS_LINES = ['Thank you!', "You're the best", 'Saw that. Legend.', "Couldn't do it without you"];
+const THANKS_MAX = 140; // characters; everything shares one synced document
+const NOTE_MAX = 200;
+const NOTE_COLORS = ['butter', 'sage', 'blush', 'sky', 'lilac'];
+const NOTE_KEEP = { '': 'Always', today: 'Today', week: 'This week' };
+
+const byNewest = (a, b) => (b.at || 0) - (a.at || 0);
+const thanksFor = (winId) => (state.thanks || []).filter((k) => k.win === winId);
+// Unread thank-yous this device should show: the owner's, or everyone's on a shared screen.
+const unreadThanks = () => (state.thanks || []).filter((k) => !k.readAt && (!me() || k.to === me())).sort(byNewest);
+const liveNotes = () => (state.notes || []).filter((n) => !n.until || n.until >= isoDay(new Date())).sort(byNewest);
+// A note from the other person is new until its reader taps it. Shared screens don't track this.
+const isNewNote = (n) => !!me() && n.by !== me() && !n.seen?.[me()] && Date.now() - n.at < 3 * 864e5;
+const unreadCount = () => unreadThanks().length + liveNotes().filter(isNewNote).length;
+
+// Taken-down notes and thank-yous read more than six months ago leave the shared document.
+function tidyNotes() {
+  const today = isoDay(new Date());
+  const old = Date.now() - 182 * 864e5;
+  const notes = (state.notes ||= []).filter((n) => !n.until || n.until >= today);
+  const thanks = (state.thanks ||= []).filter((k) => !k.readAt || k.at >= old);
+  const changed = notes.length !== state.notes.length || thanks.length !== state.thanks.length;
+  state.notes = notes; state.thanks = thanks;
+  return changed;
+}
+
+// The Home tab (and the installed app's icon, where the system supports it) shows how many are waiting.
+function updateBadge() {
+  const n = unreadCount();
+  const home = $('#tabs [data-page="home"]');
+  if (home) {
+    let b = home.querySelector('.tab-badge');
+    if (!n) b?.remove();
+    else {
+      if (!b) { b = Object.assign(document.createElement('i'), { className: 'tab-badge' }); home.append(b); }
+      b.textContent = n > 9 ? '9+' : n;
+    }
+  }
+  try { if (n) navigator.setAppBadge?.(n).catch(() => {}); else navigator.clearAppBadge?.().catch(() => {}); } catch { /* not supported */ }
+}
+
+// The heart next to a win. Your own wins have none; a win you already thanked shows a filled heart.
+function thankBtn(winId, who, title) {
+  if (!userOf(who) || who === me()) return '';
+  const sent = thanksFor(winId).some((k) => k.to === who);
+  return `<button class="heart-btn${sent ? ' on' : ''}" data-action="${sent ? 'view-thanks' : 'thank'}" data-win="${esc(winId)}" data-to="${who}" data-title="${esc(title)}"
+    aria-label="${sent ? `Thanked ${userOf(who).name}` : `Thank ${userOf(who).name}`} for ${esc(title)}">${icon('heart')}</button>`;
+}
+
+// Top of Home: who has a thank-you waiting. One strip per person on a shared screen.
+function thanksInbox() {
+  const list = unreadThanks();
+  if (!list.length) return '';
+  const people = [...new Set(list.map((k) => k.to))];
+  return `<div class="inbox">${people.map((to) => {
+    const mine = list.filter((k) => k.to === to);
+    const froms = [...new Set(mine.map((k) => k.from))];
+    const who = me() ? 'you' : userOf(to)?.name;
+    const head = mine.length === 1 ? `${userOf(mine[0].from)?.name} sent ${who} a thank-you` : `${mine.length} thank-yous for ${who}`;
+    return `<button class="inbox-strip" data-action="open-thanks" data-to="${to}">
+      <span class="inbox-face">${froms.map((f) => avatar(f, 'sm')).join('')}<i>${mine[0].emoji || '💌'}</i></span>
+      <span><b>${esc(head)}</b><small>Tap to open${me() ? '' : ` · for ${esc(userOf(to)?.name)}`}</small></span>${icon('chevron', 'chev')}</button>`;
+  }).join('')}</div>`;
+}
+
+function thanksCard(k, big = false) {
+  const from = userOf(k.from); const to = userOf(k.to);
+  const seen = k.readAt ? `Seen ${ago(k.readAt)}` : 'Not opened yet';
+  return `<div class="thx${big ? ' big' : ''}">
+    <span class="thx-emoji">${k.emoji || '💌'}</span>
+    <div class="thx-body">
+      <p>${esc(k.text || 'Thank you!')}</p>
+      <small>${avatar(k.from, 'xs')}${esc(from?.name || '')} to ${esc(to?.name || '')}${k.for ? ` · for ${esc(k.for)}` : ''} · ${ago(k.at)}${big ? '' : ` · ${seen}`}</small>
+    </div></div>`;
+}
+
+// Opening the strip shows every unread note for that person and marks them read.
+function openThanks(to) {
+  const list = (state.thanks || []).filter((k) => k.to === to && !k.readAt).sort(byNewest);
+  if (!list.length) return;
+  const now = Date.now();
+  list.forEach((k) => { k.readAt = now; });
+  const back = otherOf(to);
+  openSheet(`${sheetHead(list.length === 1 ? 'A thank-you for you' : `${list.length} thank-yous`, 'heart')}
+    <div class="thx-list">${list.map((k) => thanksCard(k, true)).join('')}</div>
+    <div class="sheet-actions">
+      <button class="btn ghost" data-action="close-sheet">Close</button>
+      <button class="btn" data-action="thank" data-to="${back}">${icon('heart')} Thank ${esc(userOf(back)?.name)} back</button>
+    </div>`);
+  $('#sheet').dataset.kind = 'thanks';
+}
+
+// Writing one. From is always the other person, since a two-person household only has one choice.
+function openThankSheet({ win = '', to = '', title = '' }) {
+  const pickTo = !userOf(to) && !me(); // a general thank-you on the shared screen: say who it is for
+  if (!userOf(to)) to = otherOf(me()) || USERS[1].id;
+  openSheet(`${sheetHead(`Thank ${esc(userOf(to).name)}`, 'heart')}
+    ${title ? `<p class="thx-for">${avatar(to, 'sm')}<span>for <b>${esc(title)}</b></span></p>` : ''}
+    ${pickTo ? `<div class="field"><label>For</label>${whoPicker(to, false)}</div>` : ''}
+    <div class="field"><label>Pick one</label><div class="emoji-pick" id="thx-emoji">${THANKS_EMOJI.map((e, i) => `<button class="${i ? '' : 'on'}" data-action="pick-seg" data-v="${e}">${e}</button>`).join('')}</div></div>
+    <div class="field"><label for="thx-text">Say something <span class="muted">(optional)</span></label>
+      <textarea class="input" id="thx-text" rows="2" maxlength="${THANKS_MAX}" placeholder="Thank you!"></textarea>
+      <div class="chips">${THANKS_LINES.map((l) => `<button class="chip" data-action="thanks-line" data-v="${esc(l)}">${esc(l)}</button>`).join('')}</div></div>
+    <div class="sheet-actions">
+      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="send-thanks" data-win="${esc(win)}" data-to="${to}" data-title="${esc(title)}">${icon('heart')} Send</button>
+    </div>`);
+  $('#sheet').dataset.kind = 'thank';
+}
+
+// One sent thank-you: what it said, whether it has been seen, and a way to take it back.
+function openThanksDetail(k) {
+  openSheet(`${sheetHead('Thank-you', 'heart')}
+    <div class="thx-list">${thanksCard(k)}</div>
+    <div class="sheet-actions">
+      <button class="btn danger" data-action="del-thanks" data-id="${k.id}">${icon('trash')} Take back</button><span class="spacer"></span>
+      <button class="btn ghost" data-action="close-sheet">Close</button>
+    </div>`);
+}
+
+// Chores: every thank-you from one week, newest first, with arrows to flip back through older weeks.
+let jarWeek = 0; // 0 = this week, 1 = last week, ...
+function winsJar() {
+  const start = addDays(new Date(`${weekStartIso()}T12:00`), -7 * jarWeek);
+  const from = isoDay(start); const to = isoDay(addDays(start, 6));
+  const list = (state.thanks || []).filter((k) => { const d = isoDay(new Date(k.at)); return d >= from && d <= to; }).sort(byNewest);
+  const label = jarWeek === 0 ? 'This week' : jarWeek === 1 ? 'Last week' : `${fmtShort(from)} – ${fmtShort(to)}`;
+  const more = (state.thanks || []).some((k) => isoDay(new Date(k.at)) < from);
+  return `<div class="card jar">
+    <div class="card-head">${icon('heart')}<h2>Wins jar</h2>
+      <span class="jar-nav"><button class="btn-round sm" data-action="jar-week" data-d="1" aria-label="Earlier week" ${more ? '' : 'disabled'}>${icon('chevronLeft')}</button>
+      <span>${label}</span><button class="btn-round sm" data-action="jar-week" data-d="-1" aria-label="Later week" ${jarWeek ? '' : 'disabled'}>${icon('chevron')}</button></span></div>
+    <div class="thx-list">${list.map((k) => `<button class="thx-open" data-action="view-thanks" data-id="${k.id}">${thanksCard(k)}</button>`).join('')
+      || `<p class="empty-line">${jarWeek ? 'No thank-yous that week.' : 'Nothing in the jar yet this week. Tap the heart next to a win to say thanks.'}</p>`}</div>
+    <button class="add-task" data-action="thank">${icon('heart')} Send a thank-you</button>
+  </div>`;
+}
+
+// A sticky note. The writer's face sits in the top-left corner, holding it up like a magnet.
+const TILTS = [-1.4, 1, -0.5, 1.5, -1, 0.6];
+const tiltOf = (id) => TILTS[[...String(id)].reduce((a, c) => a + c.charCodeAt(0), 0) % TILTS.length];
+function stickyNote(n) {
+  const until = !n.until ? '' : n.until === isoDay(new Date()) ? ' · today only' : ` · until ${dayLabel(n.until)}`;
+  return `<button class="sticky p-${NOTE_COLORS.includes(n.color) ? n.color : 'butter'}${isNewNote(n) ? ' new' : ''}" style="--tilt:${tiltOf(n.id)}deg" data-action="edit-note" data-id="${n.id}">
+    ${avatar(n.by, 'sm')}${isNewNote(n) ? '<span class="sticky-new">New</span>' : ''}
+    <span class="sticky-text">${esc(n.text)}</span>
+    <small>${esc(userOf(n.by)?.name || '')} · ${ago(n.at)}${until}</small></button>`;
+}
+function notesBoard() {
+  const list = liveNotes();
+  if (!list.length) return `<button class="note-add solo" data-action="add-note">${icon('notes')} Leave a note</button>`;
+  return `<div class="notes-board" aria-label="Notes">${list.map(stickyNote).join('')}
+    <button class="note-add" data-action="add-note" aria-label="Leave a note">${icon('plus')}<span>Note</span></button></div>`;
+}
+
+function openNoteSheet(n) {
+  const writer = n?.by || me() || state.settings.lastWriter || USERS[0].id;
+  const color = n?.color || NOTE_COLORS[USERS.findIndex((u) => u.id === writer) % NOTE_COLORS.length] || 'butter';
+  const keep = !n?.until ? '' : n.until === isoDay(new Date()) ? 'today' : 'week';
+  openSheet(`${sheetHead(n ? 'Note' : 'New note', 'notes')}
+    <div class="note-edit p-${color}" id="note-paper"${n ? ' data-nofocus' : ''}>${avatar(writer, 'sm')}
+      <textarea id="note-text" rows="4" maxlength="${NOTE_MAX}" placeholder="Write something for the fridge…">${esc(n?.text || '')}</textarea>
+      <small id="note-count">${(n?.text || '').length}/${NOTE_MAX}</small></div>
+    <div class="field"><label>From</label>${whoPicker(writer, false)}</div>
+    <div class="field"><label>Color</label><div class="swatches" id="note-color">${NOTE_COLORS.map((c) => `<button class="swatch p-${c}${c === color ? ' on' : ''}" data-action="pick-color" data-v="${c}" aria-label="${c}"></button>`).join('')}</div></div>
+    <div class="field"><label>Keep it up</label><div class="seg" id="note-keep">${Object.entries(NOTE_KEEP).map(([k, l]) => `<button class="${k === keep ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${l}</button>`).join('')}</div></div>
+    <div class="sheet-actions">
+      ${n ? `<button class="btn danger" data-action="del-note" data-id="${n.id}">${icon('trash')} Take down</button><span class="spacer"></span>` : ''}
+      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="save-note" data-id="${n?.id || ''}">${n ? 'Save' : 'Stick it up'}</button>
+    </div>`);
+  $('#sheet').dataset.kind = 'note';
+}
+
+// When the other device sends something, say so even if this screen is on another page.
+function announceArrivals(before) {
+  const fresh = (state.thanks || []).filter((k) => !before.has(k.id) && !k.readAt && (!me() || k.to === me()));
+  const notes = liveNotes().filter((n) => !before.has(n.id) && (!me() || n.by !== me()));
+  if (fresh.length) toast(`${userOf(fresh[0].from)?.name} sent ${me() ? 'you' : userOf(fresh[0].to)?.name} a thank-you ${fresh[0].emoji || '💌'}`);
+  else if (notes.length) toast(`${userOf(notes[0].by)?.name} left a note`);
+}
+const knownIds = () => new Set([...(state.thanks || []), ...(state.notes || [])].map((x) => x.id));
 
 /* =========================================================
    Household sync (same events, chores and expenses on every device)
@@ -1492,7 +1689,9 @@ const calmToRender = () => $('#sheet').hidden && !document.activeElement?.matche
 const house = createSync({
   getState: () => state,
   onRemote: (apply) => {
+    const before = knownIds();
     apply(state);
+    announceArrivals(before);
     // Rebuilt Leaderboard entries are sent back to the household; otherwise just keep a copy here.
     if (repairLog()) save();
     else try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
@@ -1521,6 +1720,8 @@ function houseMessage() {
 }
 function houseCard() {
   const head = `<div class="profiles">${USERS.map((u) => `<div class="profile">${avatar(u.id, 'lg')}<b>${u.name}</b></div>`).join('')}</div>
+    <div class="setting-row"><div><b>Who uses this device</b><div class="hint">Thank-yous for this person show here and are marked read when opened. Pick Shared for the fridge.</div></div>
+      <div class="seg">${[...USERS.map((u) => [u.id, u.name]), ['', 'Shared']].map(([id, l]) => `<button class="${me() === id ? 'on' : ''}" data-action="set-me" data-v="${id}">${l}</button>`).join('')}</div></div>
     <h3 class="set-sub">Sync across devices</h3>`;
   if (!syncAvailable()) {
     return `<div class="card">${head}
@@ -2021,6 +2222,7 @@ function renderView(anim) {
   }
   if (anim === 'fwd' || anim === 'back') animate(view, `enter-${anim}`);
   else if (anim === 'cal') animate($('.cal-body'), 'fade-in');
+  updateBadge();
 }
 
 let lastRoute = null;
@@ -2173,6 +2375,9 @@ const actions = {
   'add-menu': openAddMenu,
   'pick-who': (el) => {
     el.parentElement.querySelectorAll('.who-opt').forEach((b) => b.classList.toggle('on', b === el));
+    // The note being written shows the face of whoever it is from.
+    const face = $('#note-paper > .av');
+    if (face && userOf(el.dataset.who)) face.outerHTML = avatar(el.dataset.who, 'sm');
   },
   'toggle-important': (el) => el.setAttribute('aria-checked', String(el.getAttribute('aria-checked') !== 'true')),
   'pick-seg': (el) => {
@@ -2284,6 +2489,67 @@ const actions = {
     justTicked = t.id; setTimeout(() => { justTicked = null; }, 600);
     redrawDaySheet();
   },
+
+  thank: (el) => openThankSheet({ win: el.dataset.win, to: el.dataset.to, title: el.dataset.title }),
+  'thanks-line': (el) => { $('#thx-text').value = el.dataset.v; },
+  'send-thanks': (el) => {
+    const to = $('#who-pick') ? pickedWho() : el.dataset.to;
+    if (!userOf(to)) return;
+    const text = $('#thx-text').value.trim().slice(0, THANKS_MAX);
+    const emoji = $('#thx-emoji .on')?.dataset.v || THANKS_EMOJI[0];
+    (state.thanks ||= []).push({ id: `k${Date.now()}`, from: otherOf(to), to, emoji, text, ...(el.dataset.win && { win: el.dataset.win, for: el.dataset.title }), at: Date.now(), readAt: 0 });
+    closeSheet();
+    toast(`Sent to ${userOf(to).name} ${emoji}`);
+  },
+  'open-thanks': (el) => openThanks(el.dataset.to),
+  'view-thanks': (el) => {
+    const k = el.dataset.id ? state.thanks.find((x) => x.id === el.dataset.id) : thanksFor(el.dataset.win).find((x) => x.to === el.dataset.to);
+    if (k) openThanksDetail(k);
+  },
+  'del-thanks': (el) => {
+    const k = state.thanks.find((x) => x.id === el.dataset.id);
+    if (!k) return;
+    state.thanks = state.thanks.filter((x) => x !== k);
+    closeSheet();
+    toast('Taken back', ['Undo', () => { state.thanks.push(k); save(); renderView(); }]);
+  },
+  'jar-week': (el) => { jarWeek = Math.max(0, jarWeek + Number(el.dataset.d)); },
+  'add-note': () => openNoteSheet(null),
+  'edit-note': (el) => {
+    const n = state.notes.find((x) => x.id === el.dataset.id);
+    if (!n) return;
+    if (isNewNote(n)) n.seen = { ...n.seen, [me()]: Date.now() };
+    openNoteSheet(n);
+  },
+  'pick-color': (el) => {
+    el.parentElement.querySelectorAll('.swatch').forEach((b) => b.classList.toggle('on', b === el));
+    $('#note-paper').className = `note-edit p-${el.dataset.v}`;
+  },
+  'save-note': (el) => {
+    const text = $('#note-text').value.trim().slice(0, NOTE_MAX);
+    if (!text) { toast('Write something first'); return; }
+    const keep = $('#note-keep .on')?.dataset.v || '';
+    const until = keep === 'today' ? isoDay(new Date()) : keep === 'week' ? isoDay(addDays(new Date(), 6)) : '';
+    const by = pickedWho() || USERS[0].id;
+    const data = { text, by, color: $('#note-color .on')?.dataset.v || 'butter' };
+    const n = state.notes.find((x) => x.id === el.dataset.id);
+    if (n) {
+      // Changing how long it stays counts from today; leaving it alone keeps the day it was given.
+      const keepWas = !n.until ? '' : n.until === isoDay(new Date()) ? 'today' : 'week';
+      Object.assign(n, data, keep === keepWas ? {} : { until });
+    } else (state.notes ||= []).push({ id: `n${Date.now()}`, ...data, until, at: Date.now() });
+    state.settings.lastWriter = by;
+    closeSheet();
+  },
+  'del-note': (el) => {
+    const n = state.notes.find((x) => x.id === el.dataset.id);
+    if (!n) return;
+    const at = state.notes.indexOf(n);
+    state.notes = state.notes.filter((x) => x !== n);
+    closeSheet();
+    toast('Note taken down', ['Undo', () => { state.notes.splice(at, 0, n); save(); renderView(); }]);
+  },
+  'set-me': (el) => { state.settings.me = el.dataset.v; },
 
   'set-unit': (el) => { state.settings.unit = el.dataset.v; save(); fetchWeather(); },
   'set-theme': (el) => { state.settings.theme = el.dataset.v; save(); applyTheme(); tickClock(); },
@@ -2440,13 +2706,13 @@ const actions = {
 
   reset: () => {
     if (!confirm('Clear all events and chores on this device?')) return;
-    state = { ...defaultState(), settings: state.settings, expenses: state.expenses, fridge: state.fridge, health: state.health, events: [], tasks: [] };
+    state = { ...defaultState(), settings: state.settings, expenses: state.expenses, fridge: state.fridge, health: state.health, thanks: state.thanks, notes: state.notes, events: [], tasks: [] };
     save();
   },
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
+const NO_RERENDER = new Set(['thank', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -2472,6 +2738,7 @@ sheetObserver.observe($('#sheet'), { attributes: true, attributeFilter: ['hidden
 
 // A new fridge item picks its kind from the name, until the kind is chosen by hand.
 document.addEventListener('input', (e) => {
+  if (e.target.id === 'note-text') $('#note-count').textContent = `${e.target.value.length}/${NOTE_MAX}`;
   if (e.target.id === 'fr-cat') e.target.dataset.picked = '1';
   const cat = $('#fr-cat');
   if (e.target.id === 'fr-name' && cat && !cat.dataset.picked && !$('#sheet [data-action="del-fridge"]')) cat.value = guessCat(e.target.value);
@@ -2537,7 +2804,7 @@ hydrateIcons();
 applyTheme();
 tickClock();
 setTimeout(() => { skyReady = true; tickClock(); }, 400);
-if (repairLog()) save();
+if (repairLog() | tidyNotes()) save();
 render();
 fetchWeather();
 syncEnergy();
