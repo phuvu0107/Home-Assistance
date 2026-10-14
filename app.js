@@ -222,6 +222,64 @@ function updateSky(now) {
     ? `${icon(wmo(weather.code, weather.isDay).icon)}<b>${Math.round(weather.temp)}°</b><span><em>${wmo(weather.code, weather.isDay).label}</em><em>H ${Math.round(weather.hi)}° · L ${Math.round(weather.lo)}°</em></span>` : '';
   const box = $('#hero-wx');
   if (box.dataset.v !== wx) { box.innerHTML = wx; box.dataset.v = wx; }
+  setSkyWeather(hero);
+}
+
+/* ---------- Weather moving in the sky ---------- */
+// The sky shows today's weather: drifting clouds, rain, snow, mist, a storm flash, sun rays or a
+// shooting star on a clear night. Add ?wx=rain (or clear, partly, cloud, fog, drizzle, snow, storm) to the address to preview one.
+const WX_PREVIEW = new URLSearchParams(location.search).get('wx');
+function skyWeather() {
+  if (WX_PREVIEW) return WX_PREVIEW;
+  if (!weatherValid()) return '';
+  const c = weather.code;
+  if (c === 0 || c === 1) return 'clear';
+  if (c === 2) return 'partly';
+  if (c === 3) return 'cloud';
+  if (c === 45 || c === 48) return 'fog';
+  if (c >= 51 && c <= 57) return 'drizzle';
+  if ((c >= 71 && c <= 77) || c === 85 || c === 86) return 'snow';
+  if (c >= 95) return 'storm';
+  if (c >= 58) return 'rain';
+  return 'cloud';
+}
+
+function setSkyWeather(hero) {
+  const kind = skyWeather();
+  if (hero.dataset.wx === kind) return;
+  hero.dataset.wx = kind;
+  hero.classList.remove('wx-clear', 'wx-partly', 'wx-cloud', 'wx-fog', 'wx-rain', 'wx-snow', 'wx-storm');
+  // Drizzle looks like light rain; the classes only need the broad kind.
+  if (kind) hero.classList.add(`wx-${kind === 'drizzle' ? 'rain' : kind}`);
+  // Fixed "random" spots, so the sky looks the same each time it is built.
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+  const pct = (a, b) => `${(a + rnd() * (b - a)).toFixed(1)}%`;
+  const sec = (a, b) => `${(a + rnd() * (b - a)).toFixed(2)}s`;
+  const clouds = (n, top) => Array.from({ length: n }, (_, i) => {
+    const dur = 110 + rnd() * 80, at = (i + rnd() * .6) / n;
+    return `<div class="track" style="animation-duration:${dur.toFixed(0)}s;animation-delay:-${(at * dur).toFixed(0)}s;--x:${(at * 100).toFixed(0)}%">`
+      + `<i class="cloud" style="top:${pct(top[0], top[1])};transform:scale(${(.7 + rnd() * .6).toFixed(2)})"></i></div>`;
+  }).join('');
+  const drops = (n, slow) => Array.from({ length: n }, () => {
+    const d = (slow ? 1.4 : .8) + rnd() * .5;
+    return `<i class="drop" style="left:${pct(2, 104)};--y:${pct(5, 75)};animation-duration:${d.toFixed(2)}s;animation-delay:-${(rnd() * d).toFixed(2)}s"></i>`;
+  }).join('');
+  const flakes = (n) => Array.from({ length: n }, (_, i) => {
+    const d = 8 + rnd() * 6;
+    return `<i class="flake${i % 3 ? '' : ' s'}" style="left:${pct(0, 100)};--y:${pct(5, 80)};animation-duration:${d.toFixed(1)}s;animation-delay:-${(rnd() * d).toFixed(1)}s"></i>`;
+  }).join('');
+  const fx = {
+    clear: '<i class="shoot"></i>',
+    partly: clouds(2, [6, 30]),
+    cloud: clouds(4, [0, 40]),
+    fog: `<i class="mist" style="top:30%"></i><i class="mist" style="top:58%;animation-duration:34s;animation-delay:-12s"></i>${clouds(2, [10, 30])}`,
+    drizzle: clouds(2, [0, 20]) + drops(12, true),
+    rain: clouds(3, [0, 22]) + drops(24),
+    storm: `<i class="flash"></i>${clouds(3, [0, 22])}${drops(28)}`,
+    snow: clouds(2, [0, 20]) + flakes(20),
+  }[kind] || '';
+  $('#wx-fx').innerHTML = fx;
 }
 
 /* =========================================================
