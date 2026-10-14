@@ -1097,3 +1097,15 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .bk-kind button small { display: block; font-size: 11px; color: var(--rose-fg); font-weight: 600; }
 
 #thx-dir { margin: 8px 0 0; }
+
+/* Phones: arrows and title on one row; Today, whose schedule and the Chores icon on the next; then the views. */
+@media (max-width: 600px) {
+  .cal-bar { gap: 8px; }
+  .cal-bar h2 { flex: 1 0 auto; margin: 0 2px; font-size: 17px; }
+  .cal-bar .spacer { display: none; }
+  .cal-bar .seg.cal-who { order: 4; flex: 1; min-width: 0; width: auto; }
+  .cal-bar [data-action="cal-today"] { order: 4; }
+  .cal-bar .chip-toggle { order: 4; flex: none; justify-content: center; width: 42px; height: 42px; padding: 0; font-size: 0; gap: 0; }
+  .cal-bar .chip-toggle .ico { font-size: 19px; }
+  .cal-bar .seg button { padding: 8px 6px; }
+}
