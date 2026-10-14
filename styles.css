@@ -1042,3 +1042,5 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .love-total b { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .love-total span { color: var(--text-2); font-size: 14px; }
 .bk-kind button small { display: block; font-size: 11px; color: var(--rose-fg); font-weight: 600; }
+
+#thx-dir { margin: 8px 0 0; }

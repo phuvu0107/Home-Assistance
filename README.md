@@ -151,7 +151,7 @@ Changes show up on the other screens within a second or two. Edits made offline 
 | `EMAIL_SMTP_PASSWORD` | An [app password](https://myaccount.google.com/apppasswords) for that account |
 | `EMAIL_TO` | Who gets it, comma separated |
 
-It also uses the existing `FIREBASE_CONFIG` and, for the energy line, `ENERGY_PASSPHRASE`. Run **Daily summary email** from the Actions tab to send one right away. The schedule lists each hour for both summer and winter time, and the script sends only the one that matches the clock in `EMAIL_TIMEZONE` (default `America/Los_Angeles`).
+It also uses the existing `FIREBASE_CONFIG` and, for the energy line, `ENERGY_PASSPHRASE`. Each email opens with the weather (tomorrow's for the 9 PM recap): high and low with the hour each one hits, sunrise, sunset and the chance of rain, and is flagged high importance. Run **Daily summary email** from the Actions tab to send one right away. The schedule lists each hour for both summer and winter time, and the script sends only the one that matches the clock in `EMAIL_TIMEZONE` (default `America/Los_Angeles`).
 
 GitHub can start scheduled runs hours late (on 13 Oct 2026 they ran about 7 hours behind), so a run that starts more than 90 minutes after its time sends nothing rather than a stale email. To get the emails on time, start the workflow from a free outside timer such as [cron-job.org](https://cron-job.org):
 

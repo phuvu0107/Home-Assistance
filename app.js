@@ -1178,6 +1178,7 @@ function todayEvent(e) {
   const done = eventDone(e);
   return `<div class="today-ev${e.important ? ' imp' : ''}${past && !done ? ' past' : ''}${done ? ' done' : ''}">
     <button class="tev-main" data-action="edit-event" data-id="${e.id}">${icon('calendar')}<b>${e.time ? fmtTime(new Date(`${e.date}T${e.time}`)) : 'All day'}</b><span>${esc(e.title)}</span>${impTag(e)}</button>
+    ${done ? eventThankBtn(e) : ''}
     <button class="tev-check" data-action="toggle-event" data-id="${e.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(e.title)}" aria-pressed="${done}">${icon('check')}</button></div>`;
 }
 
@@ -1546,6 +1547,16 @@ function thankBtn(winId, who, title) {
     aria-label="${sent ? `Thanked ${userOf(who).name}` : `Thank ${userOf(who).name}`} for ${esc(title)}">${icon('heart')}</button>`;
 }
 
+// A finished event: one person's is like a chore. A shared one thanks whoever this device isn't;
+// on the shared screen the sheet asks who's saying thanks, and is done once both have.
+function eventThankBtn(e) {
+  const base = `${e.id}@${e.doneOn}`;
+  if (userOf(e.who)) return thankBtn(`${base}@${e.who}`, e.who, e.title);
+  if (me()) return thankBtn(`${base}@${otherOf(me())}`, otherOf(me()), e.title);
+  const sent = USERS.every((u) => thanksFor(`${base}@${u.id}`).length);
+  return `<button class="heart-btn${sent ? ' on' : ''}" data-action="thank" data-base="${esc(base)}" data-title="${esc(e.title)}" aria-label="Say thanks for ${esc(e.title)}">${icon('heart')}</button>`;
+}
+
 // Top of Home: who has a thank-you waiting. One strip per person on a shared screen.
 function thanksInbox() {
   const list = unreadThanks();
@@ -1590,19 +1601,24 @@ function openThanks(to) {
 }
 
 // Writing one. From is always the other person, since a two-person household only has one choice.
-function openThankSheet({ win = '', to = '', title = '' }) {
-  const pickTo = !userOf(to) && !me(); // a general thank-you on the shared screen: say who it is for
-  if (!userOf(to)) to = otherOf(me()) || USERS[1].id;
-  openSheet(`${sheetHead(`Thank ${esc(userOf(to).name)}`, 'heart')}
-    ${title ? `<p class="thx-for">${avatar(to, 'sm')}<span>for <b>${esc(title)}</b></span></p>` : ''}
-    ${pickTo ? `<div class="field"><label>For</label>${whoPicker(to, false)}</div>` : ''}
+// Who it's for is worked out, never picked: on someone's own chore it's them, and otherwise it's
+// whoever isn't sending. The only question ever asked is who's sending, and only on the shared
+// screen for something both of you did (or a thank-you for nothing in particular).
+function openThankSheet({ win = '', to = '', title = '', base = '' }) {
+  if (!userOf(to) && me()) { to = otherOf(me()); if (base) win = `${base}@${to}`; }
+  const pickFrom = !userOf(to);
+  const from = pickFrom ? state.settings.lastWriter || USERS[0].id : otherOf(to);
+  if (pickFrom) to = otherOf(from);
+  openSheet(`${sheetHead(pickFrom ? 'Say thanks' : `Thank ${esc(userOf(to).name)}`, 'heart')}
+    ${title ? `<p class="thx-for">${avatar(pickFrom ? 'both' : to, 'sm')}<span>for <b>${esc(title)}</b></span></p>` : ''}
+    ${pickFrom ? `<div class="field"><label>Who's saying thanks?</label>${whoPicker(from, false)}<p class="hint" id="thx-dir">To ${esc(userOf(to).name)}</p></div>` : ''}
     <div class="field"><label>Pick one</label><div class="emoji-pick" id="thx-emoji">${THANKS_EMOJI.map((e, i) => `<button class="${i ? '' : 'on'}" data-action="pick-seg" data-v="${e}">${e}</button>`).join('')}</div></div>
     <div class="field"><label for="thx-text">Say something <span class="muted">(optional)</span></label>
       <textarea class="input" id="thx-text" rows="2" maxlength="${THANKS_MAX}" placeholder="Thank you!"></textarea>
       <div class="chips">${THANKS_LINES.map((l) => `<button class="chip" data-action="thanks-line" data-v="${esc(l)}">${esc(l)}</button>`).join('')}</div></div>
     <div class="sheet-actions">
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
-      <button class="btn" data-action="send-thanks" data-win="${esc(win)}" data-to="${to}" data-title="${esc(title)}">${icon('heart')} Send</button>
+      <button class="btn" data-action="send-thanks" data-win="${esc(win)}" data-base="${esc(base)}" data-to="${to}" data-title="${esc(title)}">${icon('heart')} Send</button>
     </div>`);
   $('#sheet').dataset.kind = 'thank';
 }
@@ -2497,6 +2513,8 @@ const actions = {
   'pick-who': (el) => {
     el.parentElement.querySelectorAll('.who-opt').forEach((b) => b.classList.toggle('on', b === el));
     // The note being written shows the face of whoever it is from.
+    const dir = $('#thx-dir');
+    if (dir) dir.textContent = `To ${userOf(otherOf(el.dataset.who))?.name}`;
     const face = $('#note-paper > .av');
     if (face && userOf(el.dataset.who)) face.outerHTML = avatar(el.dataset.who, 'sm');
   },
@@ -2611,11 +2629,13 @@ const actions = {
     redrawDaySheet();
   },
 
-  thank: (el) => openThankSheet({ win: el.dataset.win, to: el.dataset.to, title: el.dataset.title }),
+  thank: (el) => openThankSheet({ win: el.dataset.win, to: el.dataset.to, title: el.dataset.title, base: el.dataset.base }),
   'thanks-line': (el) => { $('#thx-text').value = el.dataset.v; },
   'send-thanks': (el) => {
-    const to = $('#who-pick') ? pickedWho() : el.dataset.to;
+    const to = $('#who-pick') ? otherOf(pickedWho()) : el.dataset.to;
     if (!userOf(to)) return;
+    if (el.dataset.base) el.dataset.win = `${el.dataset.base}@${to}`;
+    if ($('#who-pick')) state.settings.lastWriter = pickedWho();
     const text = $('#thx-text').value.trim().slice(0, THANKS_MAX);
     const emoji = $('#thx-emoji .on')?.dataset.v || THANKS_EMOJI[0];
     (state.thanks ||= []).push({ id: `k${Date.now()}`, from: otherOf(to), to, emoji, text, ...(el.dataset.win && { win: el.dataset.win, for: el.dataset.title }), at: Date.now(), readAt: 0 });
