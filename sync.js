@@ -1,4 +1,5 @@
-// Shared household sync: events, tasks, stars (and who earned them when), expenses, fridge items and Fitbit numbers stay the same on every device.
+// Shared household sync: events, tasks, stars (and who earned them when), expenses, fridge items,
+// thank-you notes, sticky notes and Fitbit numbers stay the same on every device.
 //
 // Everything is encrypted in the browser with the household passphrase before it leaves
 // the device, so the database (Firebase Firestore) only ever holds scrambled data. The
@@ -38,7 +39,7 @@ async function open(key, box) {
 }
 
 /* ---------- State <-> items ---------- */
-const LISTS = { e: 'events', t: 'tasks', x: 'expenses', l: 'log', f: 'fridge' };
+const LISTS = { e: 'events', t: 'tasks', x: 'expenses', l: 'log', f: 'fridge', k: 'thanks', n: 'notes', b: 'bucket' };
 const strip = ({ u, ...rest }) => rest;
 // Items this version of the app reads and writes. Anything else in the household doc came from a
 // newer version (a screen that hasn't reloaded since an update is still on the old one), so it is

@@ -12,7 +12,7 @@ Needs these environment variables (GitHub secrets):
   EMAIL_TO              where to send, comma separated
 Optional: ENERGY_PASSPHRASE and ENERGY_URL for yesterday's PG&E numbers,
 EMAIL_SMTP_HOST / EMAIL_SMTP_PORT (default smtp.gmail.com:465), EMAIL_TIMEZONE,
-WEATHER_LAT / WEATHER_LON, SLOT (morning, midday, evening or night) to force one, and DRY_RUN=1 to print instead of send.
+WEATHER_LAT / WEATHER_LON (for the forecast at the top of every email), SLOT (morning, midday, evening or night) to force one, and DRY_RUN=1 to print instead of send.
 """
 
 import base64
@@ -33,6 +33,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 USERS = {"phu": "Phu", "nhi": "Nhi"}
+LOVE = {"milestone": 200, "trip": 100, "learn": 50, "adventure": 40, "give": 30, "place": 25,
+        "show": 20, "do": 15, "cook": 10, "date": 10, "food": 10}  # love points per bucket list kind, as in app.js
 SALT = b"home-dashboard household sync v1"  # must match sync.js
 ITER = 310_000
 WMO = {0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Cloudy", 45: "Fog", 48: "Fog", 51: "Drizzle", 53: "Drizzle",
@@ -63,7 +65,7 @@ def household_state(passphrase):
     key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=SALT, iterations=ITER).derive(passphrase.encode())
     doc = json.loads(AESGCM(key).decrypt(base64.b64decode(box["iv"]), base64.b64decode(box["data"]), None))
     items = doc["items"]
-    lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge"}
+    lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge", "k": "thanks", "n": "notes", "b": "bucket"}
     state = {name: [v for k, v in items.items() if k.startswith(p + ":")] for p, name in lists.items()}
     state["stars"] = items.get("stars", {}).get("value", {})
     return state
@@ -88,17 +90,42 @@ def energy_yesterday(day):
     return f"{kwh:.1f} kWh" + (f", ${cost:.2f}" if cost else "")
 
 
-def weather(tz):
+WMO_ICON = {0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 48: "🌫️", 51: "🌦️", 53: "🌦️", 55: "🌦️", 61: "🌧️", 63: "🌧️",
+            65: "🌧️", 71: "🌨️", 73: "🌨️", 75: "❄️", 80: "🌦️", 81: "🌧️", 82: "⛈️", 95: "⛈️", 96: "⛈️", 99: "⛈️"}
+
+
+def clock(iso):
+    return dt.datetime.fromisoformat(iso).strftime("%-I:%M %p")
+
+
+def weather(tz, day=0):
+    """The forecast for today (day=0) or tomorrow (day=1): sky, high and low with the hour
+    each one happens, sunrise, sunset and the chance of rain."""
     lat, lon = os.environ.get("WEATHER_LAT", "37.4419"), os.environ.get("WEATHER_LON", "-122.143")
     try:
-        w = get_json(f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weather_code,"
-                     f"temperature_2m_max,temperature_2m_min,sunset&temperature_unit=fahrenheit&timezone={tz}&forecast_days=1")["daily"]
+        f = get_json(f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weather_code,"
+                     f"temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max&hourly=temperature_2m"
+                     f"&temperature_unit=fahrenheit&timezone={tz}&forecast_days=2")
     except Exception as e:
         print(f"Weather skipped: {e}")
         return None
-    sunset = dt.datetime.fromisoformat(w["sunset"][0]).strftime("%-I:%M %p")
-    return (f"{WMO.get(w['weather_code'][0], 'Mixed')}, {round(w['temperature_2m_max'][0])}° / "
-            f"{round(w['temperature_2m_min'][0])}°. Sunset at {sunset}.")
+    d, h = f["daily"], f["hourly"]
+    date = d["time"][day]
+    hours = [(t, v) for t, v in zip(h["time"], h["temperature_2m"]) if t.startswith(date) and v is not None]
+    hot, cold = max(hours, key=lambda x: x[1]), min(hours, key=lambda x: x[1])
+    hour = lambda t: dt.datetime.fromisoformat(t).strftime("%-I %p")
+    code = d["weather_code"][day]
+    return {"when": "Tomorrow" if day else "Today", "icon": WMO_ICON.get(code, "🌡️"), "sky": WMO.get(code, "Mixed"),
+            "hi": round(hot[1]), "hi_at": hour(hot[0]), "lo": round(cold[1]), "lo_at": hour(cold[0]),
+            "sunrise": clock(d["sunrise"][day]), "sunset": clock(d["sunset"][day]),
+            "rain": d.get("precipitation_probability_max", [None, None])[day]}
+
+
+def weather_lines(w):
+    rain = f" · {w['rain']}% chance of rain" if w.get("rain") else ""
+    return [f"{w['sky']}, {w['hi']}° / {w['lo']}°{rain}",
+            f"Warmest {w['hi']}° around {w['hi_at']} · coolest {w['lo']}° around {w['lo_at']}",
+            f"Sunrise {w['sunrise']} · sunset {w['sunset']}"]
 
 
 def fmt_time(hhmm):
@@ -137,8 +164,6 @@ def build(state, now, energy, sky, slot="morning"):
     else:
         title = "Today" if slot == "morning" else "Still to come today"
         sections.append((title, [event_line(e) for e in events] or ["Nothing else on the calendar." if slot != "morning" else "Nothing on the calendar."]))
-        if sky and slot == "morning":
-            sections[-1][1].append(sky)
 
     def open_task(t):
         if t.get("repeat") == "daily":
@@ -190,6 +215,23 @@ def build(state, now, energy, sky, slot="morning"):
     if upcoming and slot in ("morning", "night"):
         sections.append(("Coming up this week", [event_line(e, day=True) for e in upcoming[:6]]))
 
+    # Thank-yous nobody has opened in the app yet go first, so they're seen even without opening it.
+    # Each shows up for two days of emails, then waits in the app.
+    recent = now.timestamp() * 1000 - 2 * 864e5
+    unread = sorted((k for k in state.get("thanks", []) if not k.get("readAt") and k.get("at", 0) >= recent), key=lambda k: k.get("at", 0))
+    if unread:
+        sections.insert(0, ("Thank-you notes", [
+            f"{k.get('emoji') or '💌'} {USERS.get(k.get('from'), '')} to {USERS.get(k.get('to'), '')}: \u201c{k.get('text') or 'Thank you!'}\u201d"
+            + (f" (for {k['for']})" if k.get("for") else "") for k in unread]))
+    # Bucket list items ticked off in the last two days, so the other person hears about it.
+    ticked = sorted((b for b in state.get("bucket", []) if b.get("doneAt", 0) >= recent), key=lambda b: b["doneAt"])
+    if ticked:
+        went = lambda b: "together" if b.get("doneBy") == "both" else f"by {USERS.get(b.get('doneBy'), 'someone')}"
+        sections.insert(1 if unread else 0, ("Ticked off the bucket list", [f"🎉 {b.get('text', '')} ({went(b)}, +{LOVE.get(b.get('kind'), 15)} love points)" for b in ticked]))
+    notes = sorted((n for n in state.get("notes", []) if not n.get("until") or n["until"] >= iso), key=lambda n: -n.get("at", 0))
+    if notes and slot in ("morning", "night"):
+        sections.append(("Notes on the fridge", [f"{USERS.get(n.get('by'), '')}: {' '.join(n.get('text', '').split())}" for n in notes[:8]]))
+
     plural = lambda n, w: f"{n} {w}{'s' if n != 1 else ''}"
     subject = {
         "morning": f"{now.strftime('%A, %b %-d')} · {plural(len(events), 'event')}, {plural(task_count, 'task')}",
@@ -197,16 +239,64 @@ def build(state, now, energy, sky, slot="morning"):
         "evening": f"Evening check-in · {plural(task_count, 'task')} open",
         "night": f"Tonight's recap · tomorrow has {plural(len(events), 'event')}",
     }[slot]
+    if unread:
+        subject = f"💌 {subject}"
     greet = {"morning": "Good morning", "midday": "Good afternoon", "evening": "Good evening", "night": "Good night"}[slot]
     sign = {"morning": "Have a great day!", "midday": "Keep it up!", "evening": "Enjoy your evening!", "night": "Sleep well!"}[slot]
     hello = f"{greet}, {' and '.join(USERS.values())}!"
+    if sky:
+        sections.insert(0, (f"Weather {sky['when'].lower()}", weather_lines(sky)))
     text = hello + "\n\n" + "\n\n".join(t + "\n" + "\n".join(f"- {l}" for l in lines) for t, lines in sections) + f"\n\n{sign}\n— Your fridge\n"
-    body = "".join(f'<h3 style="margin:22px 0 6px;font-size:15px">{html.escape(t)}</h3><ul style="margin:0;padding-left:20px">'
-                   + "".join(f'<li style="margin:3px 0">{html.escape(l)}</li>' for l in lines) + "</ul>" for t, lines in sections)
-    page = (f'<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.45;color:#1c2333;max-width:560px">'
-            f'<p style="font-size:17px;margin:0">{html.escape(hello)}</p>{body}'
-            f'<p style="margin-top:24px;color:#6b7280">{sign}<br>— Your fridge</p></div>')
-    return subject, text, page
+    return subject, text, page(slot, now, hello, sign, sky, sections[1:] if sky else sections)
+
+
+# Email clients ignore stylesheets and most layout CSS, so everything is inline and laid out with tables.
+THEMES = {  # soft background tint, accent, small label above the greeting
+    "morning": ("#fdf6ee", "#c2410c", "Morning briefing"),
+    "midday": ("#f1f7fb", "#0369a1", "Midday check-in"),
+    "evening": ("#f8f4fb", "#7e22ce", "Evening check-in"),
+    "night": ("#f2f3f9", "#4338ca", "Tonight's recap"),
+}
+ICONS = {"Today": "📅", "Still to come today": "⏳", "Tomorrow": "📅", "Tasks": "✅", "Tasks still open": "✅", "Stars": "⭐",
+         "Today's stars": "⭐", "Use soon from the fridge": "🥬", "Piggy Bank": "🐷", "Energy": "⚡", "Coming up this week": "🗓️"}
+FONT = "-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
+
+
+def page(slot, now, hello, sign, sky, sections):
+    tint, accent, kicker = THEMES[slot]
+    esc = html.escape
+    header = (f'<td style="background:{tint};padding:30px 28px 26px;border-radius:18px 18px 0 0;border-bottom:3px solid {accent}">'
+              f'<div style="font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:{accent}">{kicker}</div>'
+              f'<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:27px;line-height:1.25;color:#1c2333;margin-top:8px">{esc(hello)}</div>'
+              f'<div style="font-size:14px;color:#6b7280;margin-top:6px">{now.strftime("%A, %B %-d")}</div></td>')
+    cards = ""
+    if sky:
+        rain = f" · 💧 {sky['rain']}% rain" if sky.get("rain") else ""
+        stat = lambda icon, label, value, note: (
+            f'<td width="25%" style="padding:10px 4px;text-align:center;background:#fff;border-radius:12px">'
+            f'<div style="font-size:20px">{icon}</div><div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-top:2px">{label}</div>'
+            f'<div style="font-size:16px;font-weight:700;color:#1c2333">{value}</div><div style="font-size:12px;color:#6b7280">{note}</div></td>')
+        gap = '<td width="6" style="font-size:0">&nbsp;</td>'
+        cards += (f'<tr><td style="padding:20px 20px 0"><div style="background:#f0f9ff;border-radius:16px;padding:16px">'
+                  f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
+                  f'<td style="font-size:44px;width:56px;vertical-align:middle">{sky["icon"]}</td>'
+                  f'<td style="vertical-align:middle"><div style="font-size:12px;color:#0369a1;font-weight:700;text-transform:uppercase;letter-spacing:.6px">Weather {esc(sky["when"].lower())}</div>'
+                  f'<div style="font-size:20px;font-weight:700;color:#1c2333">{esc(sky["sky"])} · {sky["hi"]}° / {sky["lo"]}°</div>'
+                  f'<div style="font-size:13px;color:#475569">{rain.lstrip(" ·")}</div></td></tr></table>'
+                  f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px"><tr>'
+                  + stat("🔥", "Warmest", f"{sky['hi']}°", sky["hi_at"]) + gap + stat("🧊", "Coolest", f"{sky['lo']}°", sky["lo_at"]) + gap
+                  + stat("🌅", "Sunrise", sky["sunrise"].replace(" AM", ""), "AM") + gap + stat("🌇", "Sunset", sky["sunset"].replace(" PM", ""), "PM")
+                  + '</tr></table></div></td></tr>')
+    for title, lines in sections:
+        items = "".join(f'<tr><td style="padding:5px 0;border-top:1px solid #f1f5f9;font-size:15px;color:#1c2333">{esc(l)}</td></tr>' for l in lines)
+        cards += (f'<tr><td style="padding:16px 20px 0"><div style="border:1px solid #eef0f4;border-radius:16px;padding:14px 16px">'
+                  f'<div style="font-size:13px;font-weight:700;color:{accent};text-transform:uppercase;letter-spacing:.6px;padding-bottom:6px">'
+                  f'{ICONS.get(title, "•")}&nbsp; {esc(title)}</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0">{items}</table></div></td></tr>')
+    return (f'<div style="background:#f3f4f6;padding:20px 8px;font-family:{FONT};line-height:1.45">'
+            f'<table role="presentation" align="center" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:18px">'
+            f'<tr>{header}</tr>{cards}'
+            f'<tr><td style="padding:22px 20px 26px;text-align:center;color:#6b7280;font-size:14px">{esc(sign)}<br>— Your fridge 🧊</td></tr>'
+            f'</table></div>')
 
 
 def pick_slot(now, tz):
@@ -246,12 +336,13 @@ def main():
     state = household_state(os.environ["HOUSEHOLD_PASSPHRASE"].strip())
     morning = slot == "morning"
     energy = energy_yesterday((now.date() - dt.timedelta(days=1)).isoformat()) if morning else None
-    subject, text, page = build(state, now, energy, weather(tz) if morning else None, slot)
+    subject, text, page = build(state, now, energy, weather(tz, 1 if slot == "night" else 0), slot)
 
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = f"Home dashboard <{os.environ.get('EMAIL_SMTP_USER', 'dry-run')}>"
     msg["To"] = os.environ["EMAIL_TO"]
+    msg["Importance"], msg["X-Priority"], msg["X-MSMail-Priority"] = "High", "1", "High"  # the red "!" in Outlook and Apple Mail
     msg.set_content(text)
     msg.add_alternative(page, subtype="html")
     if os.environ.get("DRY_RUN"):
