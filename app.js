@@ -1693,13 +1693,14 @@ const knownIds = () => new Set([...(state.thanks || []), ...(state.notes || []),
 // doneBy is who went (phu, nhi or both); from is who ticked it off, on their own phone or by picking
 // themselves on the fridge. The other person gets a strip on Home, a toast and the badge until
 // they open it, and the recap email mentions it for two days.
-const BUCKET_KINDS = { trip: ['✈️', 'Trip'], food: ['🍜', 'Food'], place: ['📍', 'Place'], do: ['✨', 'Do'] };
+// Each kind is worth a fixed number of love points, by how much it takes: eating out is easy,
+// a place is a bit more, a trip is big.
+const BUCKET_KINDS = { trip: ['✈️', 'Trip', 100], place: ['📍', 'Place', 25], do: ['✨', 'Do', 15], food: ['🍜', 'Food', 10] };
 const BUCKET_MAX = 100; // characters; everything shares one synced document
 const kindOf = (b) => BUCKET_KINDS[b.kind] || BUCKET_KINDS.do;
-// Love points: each item is worth some, picked when it is added, and the two of you earn them
-// together when it is ticked off. The total is worked out from the list, so nothing extra is synced.
-const LOVE_CHOICES = [10, 25, 50, 100];
-const loveOf = (b) => (b.love > 0 ? b.love : 25);
+// Love points come from the kind, and the two of you earn them together when an item is ticked
+// off. The total is worked out from the list, so nothing extra is synced.
+const loveOf = (b) => kindOf(b)[2];
 const loveTag = (b) => `<span class="love">❤️ ${loveOf(b)}</span>`;
 const lovePoints = () => bucketDone().reduce((n, b) => n + loveOf(b), 0);
 const bucketOpen = () => (state.bucket || []).filter((b) => !b.doneAt).sort(byNewest);
@@ -1745,7 +1746,7 @@ function bucketInbox() {
 // The Bucket list page: everything still to do, kind by kind, then everything done.
 views.bucket = () => {
   const open = bucketOpen(); const done = bucketDone();
-  const groups = Object.entries(BUCKET_KINDS).map(([k, [e, l]]) => [e, l, open.filter((b) => kindOf(b) === BUCKET_KINDS[k])]).filter(([, , list]) => list.length);
+  const groups = Object.entries(BUCKET_KINDS).map(([k, [e, l, n]]) => [e, `${l} · ❤️ ${n} each`, open.filter((b) => kindOf(b) === BUCKET_KINDS[k])]).filter(([, , list]) => list.length);
   const toEarn = open.reduce((n, b) => n + loveOf(b), 0);
   return `<div class="section-title">Bucket list<span class="spacer"></span><span class="hint">${open.length} to do · ${done.length} done</span></div>
   <div class="bk-page">
@@ -1767,8 +1768,7 @@ function openBucketSheet(b) {
   const kind = b?.kind || 'trip';
   openSheet(`${sheetHead(b ? 'Bucket list' : 'Add to the bucket list', 'sparkles')}
     <div class="field"><label for="bk-text">What</label><input class="input" id="bk-text" maxlength="${BUCKET_MAX}" value="${esc(b?.text || '')}" placeholder="e.g. Cherry blossoms in Kyoto"${b ? ' data-nofocus' : ''}></div>
-    <div class="field"><label>Kind</label><div class="seg bk-kind" id="bk-kind">${Object.entries(BUCKET_KINDS).map(([k, [e, l]]) => `<button class="${k === kind ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${e} ${l}</button>`).join('')}</div></div>
-    <div class="field"><label>Love points</label><div class="seg bk-love" id="bk-love">${LOVE_CHOICES.map((n) => `<button class="${n === loveOf(b || {}) ? 'on' : ''}" data-action="pick-seg" data-v="${n}">❤️ ${n}</button>`).join('')}</div></div>
+    <div class="field"><label>Kind</label><div class="seg bk-kind" id="bk-kind">${Object.entries(BUCKET_KINDS).map(([k, [e, l, n]]) => `<button class="${k === kind ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${e} ${l}<small>❤️ ${n}</small></button>`).join('')}</div></div>
     ${!b && !me() ? `<div class="field"><label>From</label>${whoPicker(state.settings.lastWriter || USERS[0].id, false)}</div>` : ''}
     ${b ? `<p class="hint">Added by ${esc(userOf(b.by)?.name || 'someone')} ${ago(b.at)}${b.doneAt ? ` · done ${dayLabel(isoDay(new Date(b.doneAt)))}, ${wentLine(b).toLowerCase()}` : ''}</p>` : ''}
     <div class="sheet-actions">
@@ -2676,12 +2676,11 @@ const actions = {
     const text = $('#bk-text').value.trim().replace(/\s+/g, ' ').slice(0, BUCKET_MAX);
     if (!text) { toast('Say what it is first'); return; }
     const kind = $('#bk-kind .on')?.dataset.v || 'do';
-    const love = Number($('#bk-love .on')?.dataset.v) || 25;
     const b = state.bucket.find((x) => x.id === el.dataset.id);
-    if (b) Object.assign(b, { text, kind, love });
+    if (b) Object.assign(b, { text, kind });
     else {
       const by = me() || pickedWho() || USERS[0].id;
-      (state.bucket ||= []).push({ id: `b${Date.now()}`, text, kind, love, by, at: Date.now() });
+      (state.bucket ||= []).push({ id: `b${Date.now()}`, text, kind, by, at: Date.now() });
       state.settings.lastWriter = by;
     }
     closeSheet();
