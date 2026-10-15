@@ -1151,3 +1151,13 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
   .cal-bar .chip-toggle .ico { font-size: 19px; }
   .cal-bar .seg button { padding: 8px 6px; }
 }
+
+/* Private notes on events and chores: an icon in lists, the words in a bubble once tapped. */
+.note-tag { display: inline-grid; place-items: center; flex: none; width: 26px; height: 26px; margin: -4px 0 -4px 6px; border-radius: 8px; color: var(--text-3); vertical-align: middle; cursor: pointer; }
+.note-tag svg { width: 16px; height: 16px; }
+.note-tag:active { background: var(--muted-surface); }
+.ev-chip .note-tag, .wk-ev .note-tag { display: none; }
+.note-peek { position: fixed; z-index: 60; max-width: min(300px, calc(100vw - 24px)); padding: 10px 14px; border-radius: 14px; background: var(--card); color: var(--text); border: 1px solid var(--card-border); box-shadow: 0 10px 30px rgba(0, 0, 0, .18); font-size: 15px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.note-peek:not([hidden]) { animation: toast-in .2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .note-peek { animation: none !important; } }
+.note-reveal { justify-content: center; }

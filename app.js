@@ -1119,6 +1119,34 @@ const impRow = (on) => `<div class="setting-row imp-row"><div><b>Important</b><d
   <button class="switch imp-switch" id="imp-switch" role="switch" aria-checked="${!!on}" data-action="toggle-important"></button></div>`;
 const pickedImportant = () => $('#imp-switch')?.getAttribute('aria-checked') === 'true';
 
+// A private note on an event or chore. Lists only show a small note icon; the words appear when
+// someone taps it, and stay out of the recap email.
+const ITEM_NOTE_MAX = 300;
+const noteTag = (item, kind) => (item.note ? `<span class="note-tag" role="button" tabindex="0" data-action="peek-note" data-kind="${kind}" data-id="${item.id}" aria-label="Show note" title="Tap to see the note">${icon('notes')}</span>` : '');
+function noteField(item) {
+  return `<div class="field"><label for="item-note">Note</label>
+    ${item.note ? `<button class="btn ghost wide note-reveal" data-action="reveal-note">${icon('lock')} Tap to see the note</button>` : ''}
+    <textarea class="input" id="item-note" rows="2" maxlength="${ITEM_NOTE_MAX}" placeholder="Stays hidden until someone taps it"${item.note ? ' hidden' : ''}>${esc(item.note || '')}</textarea></div>`;
+}
+const pickedNote = () => ($('#item-note')?.value || '').trim().slice(0, ITEM_NOTE_MAX);
+// Saving with the note cleared drops the field, so empty notes don't take room in the synced document.
+const keepNote = (item) => { if (!item.note) delete item.note; return item; };
+
+// The open note bubble. Any tap, scroll or redraw closes it again.
+function closePeek() { $('#note-peek')?.remove(); }
+function openPeek(el) {
+  const item = (el.dataset.kind === 'task' ? state.tasks : state.events).find((x) => x.id === el.dataset.id);
+  if (!item?.note) return;
+  const box = Object.assign(document.createElement('div'), { id: 'note-peek', className: 'note-peek', role: 'note', textContent: item.note });
+  box.dataset.for = `${el.dataset.kind}:${item.id}`;
+  document.body.append(box);
+  const r = el.getBoundingClientRect();
+  const w = box.offsetWidth;
+  box.style.left = `${Math.max(12, Math.min(innerWidth - w - 12, r.left + r.width / 2 - w / 2))}px`;
+  const below = r.bottom + 8;
+  box.style.top = `${below + box.offsetHeight > innerHeight - 12 ? Math.max(12, r.top - box.offsetHeight - 8) : below}px`;
+}
+
 function eventChip(e) {
   return `<button class="ev-chip${e.important ? ' imp' : ''}${eventDone(e) ? ' done' : ''}" data-action="edit-event" data-id="${e.id}">
     ${eventDone(e) ? icon('check', 'ev-done') : avatar(e.who, 'xs')}<b>${e.time ? timeLabel(e) : ''}</b>${impTag(e)}<span>${esc(e.title)}</span></button>`;
@@ -1128,7 +1156,7 @@ function eventRow(e, withDate = false) {
   const when = [withDate ? dayLabel(e.date) : '', timeLabel(e), eventDone(e) ? 'Done' : ''].filter(Boolean).join(' · ');
   return `<button class="row${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}">
     ${avatar(e.who, 'md') || `<span class="ibox c-purple-ico">${icon('calendar')}</span>`}
-    <span><b>${esc(e.title)}${impTag(e)}</b><small>${when}</small></span>${icon('chevron', 'chev')}</button>`;
+    <span><b>${esc(e.title)}${impTag(e)}${noteTag(e, 'event')}</b><small>${when}</small></span>${icon('chevron', 'chev')}</button>`;
 }
 
 function weekStrip() {
@@ -1222,7 +1250,7 @@ function taskCard(t, u, face = false) {
   return `<div class="task${done ? ' done' : ''}${t.important ? ' imp' : ''}${face ? ' with-face' : ''}">
     ${face ? avatar(u.id, 'sm') : ''}
     <button class="task-body" data-action="edit-task" data-id="${t.id}">
-      <b>${esc(t.title)}${impTag(t)}</b>
+      <b>${esc(t.title)}${impTag(t)}${noteTag(t, 'task')}</b>
       <small>${face ? `${u.name} · ` : ''}${REPEAT_LABEL[t.repeat]} <span class="stars">${icon('star')}${t.stars}</span></small>
     </button>
     ${face && done ? thankBtn(`${t.id}@${t.doneOn}@${t.who}`, t.who, t.title) : ''}
@@ -1247,7 +1275,7 @@ function todayEvent(e) {
   const past = endAt && endAt < now;
   const done = eventDone(e);
   return `<div class="today-ev${e.important ? ' imp' : ''}${past && !done ? ' past' : ''}${done ? ' done' : ''}">
-    <button class="tev-main" data-action="edit-event" data-id="${e.id}">${icon('calendar')}<b>${e.time ? fmtTime(new Date(`${e.date}T${e.time}`)) : 'All day'}</b><span>${esc(e.title)}</span>${impTag(e)}</button>
+    <button class="tev-main" data-action="edit-event" data-id="${e.id}">${icon('calendar')}<b>${e.time ? fmtTime(new Date(`${e.date}T${e.time}`)) : 'All day'}</b><span>${esc(e.title)}</span>${impTag(e)}${noteTag(e, 'event')}</button>
     ${done ? eventThankBtn(e) : ''}
     <button class="tev-check" data-action="toggle-event" data-id="${e.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(e.title)}" aria-pressed="${done}">${icon('check')}</button></div>`;
 }
@@ -2636,6 +2664,7 @@ function animate(el, cls) {
   el.animTimer = setTimeout(() => el.classList.remove(cls), 700);
 }
 function renderView(anim) {
+  closePeek();
   if ((swipe.on || swipe.busy) && !swipeNav) return; // not mid-swipe; the swipe renders when it lands
   const r = currentRoute();
   const view = $('#view');
@@ -2726,6 +2755,7 @@ function openEventSheet(ev, date, time = '') {
     ${ev ? seriesNote(e) : repeatFields(e.date)}
     <div class="field"><label>Stars when done</label><div class="seg" id="ev-stars">${[0, 1, 3, 5, 10].map((n) => `<button class="${eventStars(e) === n ? 'on' : ''}" data-action="pick-seg" data-v="${n}">${n || 'None'}</button>`).join('')}</div></div>
     ${impRow(e.important)}
+    ${noteField(e)}
     ${ev && e.date <= isoDay(new Date()) ? `<button class="btn ${eventDone(e) ? 'ghost' : 'done-btn'} wide" data-action="toggle-event" data-id="${e.id}" data-close="1">${icon('check')} ${eventDone(e) ? 'Mark not done' : 'Mark done'}</button>` : ''}
     ${ev && seriesOf(e).length > 1 ? `<button class="btn ghost wide" data-action="del-series" data-id="${e.id}">${icon('trash')} Delete all ${seriesOf(e).length} days</button>` : ''}
     <div class="sheet-actions">
@@ -2793,6 +2823,7 @@ function openTaskSheet(task, who = members()[0].id) {
       <div class="field"><label>Repeats</label><div class="seg" id="task-repeat">${Object.entries(REPEAT_LABEL).map(([k, l]) => `<button class="${t.repeat === k ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${l}</button>`).join('')}</div></div>
       <div class="field"><label>Stars</label><div class="seg" id="task-stars">${[1, 3, 5, 10].map((n) => `<button class="${t.stars === n ? 'on' : ''}" data-action="pick-seg" data-v="${n}">${n}</button>`).join('')}</div></div>
     </div>
+    ${noteField(t)}
     <div class="sheet-actions">
       ${task ? `<button class="btn danger" data-action="del-task" data-id="${t.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
@@ -2820,6 +2851,8 @@ const actions = {
     const face = $('#note-paper > .av');
     if (face && userOf(el.dataset.who)) face.outerHTML = avatar(el.dataset.who, 'sm');
   },
+  'peek-note': (el) => openPeek(el),
+  'reveal-note': (el) => { el.remove(); $('#item-note').hidden = false; $('#item-note').focus(); },
   'toggle-important': (el) => el.setAttribute('aria-checked', String(el.getAttribute('aria-checked') !== 'true')),
   'pick-seg': (el) => {
     el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
@@ -2847,13 +2880,13 @@ const actions = {
     const title = $('#ev-title').value.trim();
     const date = $('#ev-date').value;
     if (!title || !date) { toast('Add a title and a date'); return; }
-    const data = { title, date, time: $('#ev-time').value || '', end: $('#ev-end').value || '', who: pickedWho(), important: pickedImportant(), stars: Number($('#ev-stars .on')?.dataset.v ?? 5) };
+    const data = { title, date, time: $('#ev-time').value || '', end: $('#ev-end').value || '', who: pickedWho(), important: pickedImportant(), stars: Number($('#ev-stars .on')?.dataset.v ?? 5), note: pickedNote() };
     const existing = state.events.find((x) => x.id === el.dataset.id);
     if (existing) {
       // Stars already given keep their old count and people: take them back first, give the new ones after.
       const redo = eventDone(existing) && (existing.stars !== data.stars || existing.who !== data.who);
       if (redo) awardStars(existing, 'event', false);
-      Object.assign(existing, data);
+      keepNote(Object.assign(existing, data));
       if (redo) awardStars(existing, 'event', true);
     } else {
       const rep = $('#ev-repeat .on')?.dataset.v || '';
@@ -2864,7 +2897,7 @@ const actions = {
       if (dates.length > MAX_REPEATS) { toast(`That's ${dates.length} days. Pick an earlier end day (${MAX_REPEATS} at most).`); return; }
       const id = `e${Date.now()}`;
       const series = dates.length > 1 ? id : undefined;
-      dates.forEach((d, i) => state.events.push({ id: i ? `${id}-${i}` : id, ...data, date: d, ...(series && { series }) }));
+      dates.forEach((d, i) => state.events.push(keepNote({ id: i ? `${id}-${i}` : id, ...data, date: d, ...(series && { series }) })));
       if (series) toast(`Added ${dates.length} days`);
     }
     calCursor = new Date(`${date}T12:00`);
@@ -2915,10 +2948,11 @@ const actions = {
       repeat: $('#task-repeat .on')?.dataset.v || 'daily',
       stars: Number($('#task-stars .on')?.dataset.v || 5),
       important: pickedImportant(),
+      note: pickedNote(),
     };
     const existing = state.tasks.find((x) => x.id === el.dataset.id);
-    if (existing) Object.assign(existing, data);
-    else state.tasks.push({ id: `t${Date.now()}`, doneOn: '', ...data });
+    if (existing) keepNote(Object.assign(existing, data));
+    else state.tasks.push(keepNote({ id: `t${Date.now()}`, doneOn: '', ...data }));
     closeSheet();
   },
   'del-task': (el) => {
@@ -3351,10 +3385,14 @@ const actions = {
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set(['setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
+  // A second tap on the same note icon closes its bubble instead of reopening it.
+  const peeked = $('#note-peek')?.dataset.for;
+  closePeek();
+  if (el?.dataset.action === 'peek-note' && peeked === `${el.dataset.kind}:${el.dataset.id}`) return;
   if (!el) return;
   const name = el.dataset.action;
   const fn = actions[name];
@@ -3366,6 +3404,11 @@ document.addEventListener('click', (e) => {
 
 $('#sheet-backdrop').addEventListener('click', closeSheet);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closePeek();
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.classList?.contains('note-tag')) { e.preventDefault(); e.stopPropagation(); e.target.click(); }
+}, true);
+document.addEventListener('scroll', closePeek, true);
 document.addEventListener('toggle', (e) => {
   const c = e.target.closest?.('.conn');
   if (c && e.target === c) openConn = c.open ? c.dataset.conn : (openConn === c.dataset.conn ? null : openConn);
