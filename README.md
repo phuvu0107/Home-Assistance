@@ -18,7 +18,7 @@ A simple top panel with the time, the date and the weather now. Its sky changes 
 | ![Home by day](docs/screenshots/home.png) | ![Home at night](docs/screenshots/home-night.png) |
 
 ### Calendar
-List, Week (a time grid) and Month views. Phones open on List and bigger screens on Week. Each event shows who it's for, its start time and its title. The + button adds an event, tapping an event edits or deletes it, and tapping an empty slot in Week view adds one at that hour. Turn on **Important** in an event's sheet to mark it with a red dot everywhere it shows up. The **Chores** toggle adds each day's chores to the calendar.
+List, Week (a time grid) and Month views. Phones open on List and bigger screens on Week. Each event shows who it's for, its start time and its title. The + button adds an event, tapping an event edits or deletes it, and tapping an empty slot in Week view adds one at that hour. Turn on **Important** in an event's sheet to mark it with a red dot everywhere it shows up. Add a **Note** for details only the person who taps it should see, like a gate code: lists show a small note icon, the words appear in a bubble when someone taps the icon, and the recap email leaves them out. The **Chores** toggle adds each day's chores to the calendar.
 
 Events earn stars like chores (5 unless you pick another amount in the event's sheet). Tick an event off on Home or with **Mark done** in its sheet once it has happened. An event for both of you, or for anyone, gives each of you the stars.
 
@@ -27,7 +27,7 @@ Events earn stars like chores (5 unless you pick another amount in the event's s
 | ![Calendar week view](docs/screenshots/calendar-week.png) | ![Calendar month view](docs/screenshots/calendar-month.png) |
 
 ### Chores
-Who's earned the most stars this week, this month or all time sits at the top, then a card for each person with their chores and how many are done. Chores repeat daily, weekly or once, and daily and weekly chores reset on their own. Tap a chore to edit who it's for, how often it repeats and how many stars it's worth, or mark it **Important** for a red dot. Below the cards, a chart shows stars by day once there are a few active days, and Recent lists what was ticked off. Unticking something takes its stars back.
+Who's earned the most stars this week, this month or all time sits at the top, then a card for each person with their chores and how many are done. Chores repeat daily, weekly or once, and daily and weekly chores reset on their own. Tap a chore to edit who it's for, how often it repeats and how many stars it's worth, or mark it **Important** for a red dot. Chores take a hidden **Note** the same way events do. Below the cards, a chart shows stars by day once there are a few active days, and Recent lists what was ticked off. Unticking something takes its stars back.
 
 | Chores | Editing a chore |
 | --- | --- |
