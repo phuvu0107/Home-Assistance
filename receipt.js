@@ -13,7 +13,7 @@ export const FRIDGE_CATS = [
 ];
 
 const CAT_WORDS = {
-  produce: 'apple banana berry berries strawberry blueberry raspberry grape lemon lime orange mandarin avocado tomato potato onion garlic ginger carrot celery lettuce romaine spinach arugula kale cabbage broccoli cauliflower cucumber pepper zucchini squash mushroom herb cilantro basil parsley scallion mango pear peach plum cherry melon watermelon pineapple kiwi corn bean sprout bok choy yuchoy cai bac salad fruit veg produce rau hanh',
+  produce: 'apple banana berry berries strawberry blueberry raspberry grape lemon lime orange mandarin avocado tomato potato onion garlic ginger carrot celery lettuce romaine spinach arugula kale cabbage broccoli cauliflower cucumber pepper chive zucchini squash mushroom herb cilantro basil parsley scallion mango pear peach plum cherry melon watermelon pineapple kiwi corn bean sprout bok choy yuchoy cai bac salad fruit veg produce rau hanh',
   dairy: 'milk egg eggs cheese yogurt yoghurt butter cream creamer kefir mozzarella cheddar parmesan sour half tofu',
   meat: 'chicken beef pork lamb turkey steak bacon sausage ham salmon tuna shrimp fish prawn squid crab ground thigh breast wing rib meat seafood muc octopus',
   leftovers: 'deli rotisserie soup dumpling sushi meal kit pizza pasta',
@@ -44,7 +44,7 @@ const PRICE_END = /[-$]?\s*(\d{1,4}[.,]\d{2})\s*-?\s*[A-Z*]{0,2}\s*$/;
 // Weight lines like "1.43 lb @ $1.69/lb 2.42" belong to the name on the line above.
 // OCR often reads "lb" as "1b" or "1h" and "@" as "®".
 const WEIGHT = /\d+[.,]\d+\s*\S{0,3}\s*[@®]\s*\$?\s*\d/;
-const TOTAL = /\b(sub ?total|total|balance due)\b/i;
+const TOTAL = /\b(sub ?total|total|balance due|net sales)\b/i;
 // The store's own lines: phone numbers, the city line with a ZIP, the greeting.
 const HEADER = /\bthank|\bwelcome|\(?\d{3}\)?[-. ]?\d{3}-\d{4}|\b[A-Z]{2},? \d{5}\b/i;
 
@@ -74,14 +74,17 @@ function itemName(line) {
 // Receipt text in, a list of { name, qty, cat } out. A line counts when it ends in a price, or
 // when it names an item sold by weight (the weight line below carries the price). Between the
 // store's header and the subtotal a line also counts without a price, since glare on a photo
-// often hides the price column. Totals and payment lines are skipped. The person checks the
-// list before anything is added.
+// often hides the price column; but when prices were read, a line without one is noise, like
+// the garbled line some stores print under each item for its Chinese name. Totals and payment
+// lines are skipped. The person checks the list before anything is added.
 export function parseReceipt(text) {
   const lines = String(text).split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
   const end = lines.findIndex((l) => TOTAL.test(l));
   let start = -1;
   for (let i = 0; i < end; i++) if (HEADER.test(lines[i])) start = i;
-  const inBlock = (i) => start >= 0 && i > start && i < end;
+  const priced = lines.slice(0, end < 0 ? lines.length : end)
+    .filter((l) => !WEIGHT.test(l) && !NOT_ITEM.test(l) && PRICE_END.test(l)).length;
+  const inBlock = (i) => priced < 3 && start >= 0 && i > start && i < end;
 
   const out = [];
   const add = (it) => {
@@ -169,15 +172,35 @@ async function prepare(file) {
 // Marks read from the table beside the receipt sit in a thin strip at the photo's left edge,
 // well apart from the text, and when the price column is lost to glare a stray letter or two is
 // read far out on the right instead. Both are dropped before parsing; real prices are kept.
+// A receipt photographed on a patterned counter also gets marks read on both sides of the paper,
+// so when enough words are read with confidence, words well outside the span they cover are
+// dropped too (prices are always kept).
+const PRICE_WORD = /\d[.,]\d{2}/;
+function column(lines, width) {
+  const sure = lines.flatMap((l) => l.words).filter((w) => w.confidence >= 85 && /[A-Za-z\d]{3}/.test(w.text));
+  if (sure.length < 8) return null;
+  const pad = width * 0.03;
+  return [Math.min(...sure.map((w) => w.bbox.x0)) - pad, Math.max(...sure.map((w) => w.bbox.x1)) + pad];
+}
+
 export function receiptText(data, width) {
   if (!data.lines?.length || !width) return data.text;
+  const span = column(data.lines, width);
   return data.lines.map((line) => {
     let words = line.words;
+    if (span) {
+      words = words.filter((w) => PRICE_WORD.test(w.text) || ((w.bbox.x0 + w.bbox.x1) / 2 > span[0] && (w.bbox.x0 + w.bbox.x1) / 2 < span[1]));
+      // Unsure marks before a name, and after the price, are creases.
+      while (words.length > 1 && words[0].confidence < 50 && !/[A-Za-z\d]/.test(words[0].text)) words = words.slice(1);
+      const p = words.findLastIndex((w) => PRICE_WORD.test(w.text));
+      if (p >= 0) words = words.filter((w, i) => i <= p || w.confidence >= 50);
+      if (!words.length) return '';
+    }
     const k = words.findIndex((w) => w.bbox.x0 > width * 0.1);
     if (k > 0 && words[k - 1].bbox.x1 < width * 0.1 && words[k].bbox.x0 - words[k - 1].bbox.x1 > width * 0.05) words = words.slice(k);
     while (words.length > 1) {
       const [a, b] = words.slice(-2);
-      if (/\d[.,]\d{2}/.test(b.text) || b.bbox.x0 - a.bbox.x1 < width * 0.15) break;
+      if (PRICE_WORD.test(b.text) || b.bbox.x0 - a.bbox.x1 < width * 0.15) break;
       words = words.slice(0, -1);
     }
     return words.map((w) => w.text).join(' ');
