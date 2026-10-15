@@ -2,6 +2,7 @@ import { icon, hydrateIcons } from './icons.js';
 import { createSync, syncAvailable } from './sync.js';
 import { FRIDGE_CATS, guessCat, readExpense, readReceipt } from './receipt.js';
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
+import { alertRecipients, alertTopic, bucketAlert, sendAlerts, testAlert, thanksAlert } from './alerts.js';
 import { cleanName, expenseStats as moneyStats, joinNames, legacyMembersFor, MAX_MEMBERS, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
@@ -1947,11 +1948,36 @@ function houseMessage() {
     default: return { ok: false, text: 'Not syncing. Events, tasks and expenses stay on this device only.' };
   }
 }
+/* ---------- Phone alerts (see alerts.js) ---------- */
+const appUrl = () => location.href.split('#')[0];
+// Fire and forget: the thank-you or tick is already saved and syncing either way.
+const phoneAlert = (to, alert) => { if (housePass && to.length) sendAlerts(housePass, to, alert, { click: appUrl() }); };
+const topics = {}; // channel names worked out so far, by passphrase and person
+function alertsRow() {
+  const u = userOf(me());
+  if (!u || !housePass || !syncAvailable()) return '';
+  if (!u.alerts) {
+    return `<div class="setting-row"><div><b>Alerts on ${esc(u.name)}'s phone</b><div class="hint">Get a notification when someone sends you a thank-you or ticks off a bucket list item. Uses the free ntfy app.</div></div>
+      <button class="btn" data-action="alerts-on">Turn on</button></div>`;
+  }
+  const key = `${housePass}\n${u.id}`;
+  if (!topics[key]) alertTopic(housePass, u.id).then((t) => { topics[key] = t; if (currentRoute() === 'settings' && calmToRender()) renderView(); });
+  const topic = topics[key] || '…';
+  return `<div class="setting-row alerts-row"><div><b>Alerts on ${esc(u.name)}'s phone</b>
+      <ol class="hint alerts-steps">
+        <li>Get the free ntfy app: <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener">iPhone</a> or <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener">Android</a>. Allow its notifications.</li>
+        <li>In ntfy, tap the + button and subscribe to <code class="alerts-topic">${topic}</code> <button class="link-btn" data-action="alerts-copy" data-v="${topic}">Copy</button></li>
+        <li>Tap Send a test below to check it works.</li>
+      </ol>
+      <div class="hint">Alerts say who did what, never what a note says. The channel name comes from your passphrase, so keep it to yourself.</div></div>
+      <div class="alerts-btns"><button class="btn" data-action="alerts-test">Send a test</button><button class="btn ghost" data-action="alerts-off">Turn off</button></div></div>`;
+}
 function houseCard() {
   const head = `<div class="profiles">${members().map((u) => `<button class="profile" data-action="edit-member" data-id="${u.id}" aria-label="Edit ${esc(u.name)}">${avatar(u.id, 'lg')}<b>${esc(u.name)}</b></button>`).join('')}
       ${members().length < MAX_MEMBERS ? `<button class="profile add-member" data-action="add-member"><span class="av av-lg av-none-lg">${icon('plus')}</span><b>Add</b></button>` : ''}</div>
     <div class="setting-row"><div><b>Who uses this device</b><div class="hint">Thank-yous for this person show here and are marked read when opened. Pick Shared for the fridge.</div></div>
       <div class="seg wrap">${[...members().map((u) => [u.id, esc(u.name)]), ['', 'Shared']].map(([id, l]) => `<button class="${me() === id ? 'on' : ''}" data-action="set-me" data-v="${id}">${l}</button>`).join('')}</div></div>
+    ${alertsRow()}
     <h3 class="set-sub">Sync across devices</h3>`;
   if (!syncAvailable()) {
     return `<div class="card">${head}
@@ -2782,6 +2808,7 @@ const actions = {
     (state.thanks ||= []).push({ id: `k${Date.now()}`, from, to, emoji, text, ...(el.dataset.win && { win: el.dataset.win, for: el.dataset.title }), at: Date.now(), readAt: 0 });
     closeSheet();
     toast(`Sent to ${userOf(to).name} ${emoji}`);
+    phoneAlert(alertRecipients(members(), from).filter((u) => u.id === to), thanksAlert(userOf(from).name, emoji));
   },
   'open-thanks': (el) => openThanks(el.dataset.to),
   'view-thanks': (el) => {
@@ -2876,8 +2903,17 @@ const actions = {
     Object.assign(b, { doneAt: Date.now(), doneBy, ...(from && { from }) });
     closeSheet();
     toast(`Ticked off ${b.text} · +${loveOf(b)} love points ❤️`);
+    // Same people as the Home notice: everyone but the one who ticked it off.
+    if (from) phoneAlert(alertRecipients(members(), from), bucketAlert(userOf(from).name, loveOf(b)));
   },
   'set-me': (el) => { state.settings.me = el.dataset.v; },
+  'alerts-on': () => { const m = state.members.find((x) => x.id === me()); if (m) m.alerts = true; },
+  'alerts-off': () => { const m = state.members.find((x) => x.id === me()); if (m) delete m.alerts; },
+  'alerts-copy': (el) => { navigator.clipboard?.writeText(el.dataset.v).then(() => toast('Copied'), () => toast(el.dataset.v)); },
+  'alerts-test': async () => {
+    const n = await sendAlerts(housePass, members().filter((u) => u.id === me()), testAlert(), { click: appUrl() });
+    toast(n ? 'Test sent. It should show up on this phone in a few seconds.' : "Couldn't reach ntfy. Check the connection and try again.");
+  },
   'setup-add-row': () => {
     const box = $('#setup-names');
     if (!box || box.children.length >= MAX_MEMBERS) return;
@@ -3079,7 +3115,7 @@ const actions = {
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['setup-add-row', 'open-join', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
+const NO_RERENDER = new Set(['setup-add-row', 'open-join', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
