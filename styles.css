@@ -648,6 +648,12 @@ label.btn { cursor: pointer; }
 .setting-row:first-child { border-top: 0; }
 .setting-row > div:first-child { flex: 1; }
 .setting-row b { display: block; font-weight: 500; }
+.alerts-row { align-items: flex-start; flex-wrap: wrap; }
+.alerts-steps { margin: 6px 0 8px; padding-left: 20px; line-height: 1.6; }
+.alerts-topic { font-size: 13px; padding: 1px 6px; border-radius: 6px; background: var(--card-border); word-break: break-all; user-select: all; }
+.alerts-steps a { color: inherit; text-decoration: underline; }
+.alerts-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.link-btn { border: 0; background: none; padding: 0 4px; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .chip { border: 1px solid var(--card-border); background: var(--card); border-radius: 999px; padding: 8px 14px; font-size: 14px; }
 
