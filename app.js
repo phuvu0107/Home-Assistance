@@ -1,5 +1,6 @@
 import { icon, hydrateIcons } from './icons.js';
 import { createSync, syncAvailable } from './sync.js';
+import { accountAvailable, createInvite, joinHome, joinWithCode, myHome, showCode, signIn as accountSignIn, signOut as accountSignOut, startHome, watchUser } from './account.js';
 import { FRIDGE_CATS, guessCat, readExpense, readReceipt } from './receipt.js';
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 import { cleanName, expenseStats as moneyStats, joinNames, legacyMembersFor, MAX_MEMBERS, newMember, PERSON_COLORS, sortMembers } from './people.js';
@@ -1909,10 +1910,27 @@ function openBucketTick(b) {
    ========================================================= */
 const HOUSE_PASS_KEY = 'home-dashboard.household-pass.v1';
 const HOUSE_BASE_KEY = 'home-dashboard.household-base.v1';
-let housePass = '';
-try { housePass = localStorage.getItem(HOUSE_PASS_KEY) || ''; } catch { housePass = ''; }
-let houseSync = { state: housePass ? 'connecting' : 'off' };
+const HOUSE_HOME_KEY = 'home-dashboard.home.v1'; // the signed-in household this device syncs with
+const HOUSE_INVITE_KEY = 'home-dashboard.invite.v1';
+const readLocal = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+const writeLocal = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch { /* ignore */ } };
+const savedHouseBase = () => { try { return JSON.parse(localStorage.getItem(HOUSE_BASE_KEY)); } catch { return null; } };
+let housePass = readLocal(HOUSE_PASS_KEY);
+let houseHome = readLocal(HOUSE_HOME_KEY);
+let houseSync = { state: housePass || houseHome ? 'connecting' : 'off' };
 let houseTyped = ''; // passphrase waiting on "start a new household"
+// Signing in: who is signed in on this device (known once Firebase has checked), and the sign-in
+// sheet's own state.
+let account = { ready: !accountAvailable(), user: null };
+let houseMoved = null; // { home, invite } once this screen's passphrase household moved to sign-in
+let houseUsePass = false; // the sheet shows the old passphrase form instead of sign-in
+let houseBusy = ''; // 'signin' | 'start' | 'join' | 'move' while that is under way
+let houseNote = ''; // why the last sign-in step didn't work
+let houseInvite = null; // { code, expires } made on this device for the current household
+try {
+  const inv = JSON.parse(localStorage.getItem(HOUSE_INVITE_KEY));
+  if (inv?.home === houseHome && inv.expires > Date.now()) houseInvite = inv;
+} catch { houseInvite = null; }
 const calmToRender = () => $('#sheet').hidden && !document.activeElement?.matches('input, textarea');
 const house = createSync({
   getState: () => state,
@@ -1930,6 +1948,8 @@ const house = createSync({
     houseSync = st;
     // The saved passphrase stopped working: ask for it again.
     if (st.state === 'badpass' && housePass && !houseSheetOpen()) openHouseSheet();
+    // Another screen moved this household to sign-in: follow it there.
+    if (st.state === 'moved') { houseMoved = { home: st.home, invite: st.invite }; houseUsePass = false; followMove(); }
     if (currentRoute() === 'settings' && calmToRender()) renderView();
   },
   onBase: (b) => { try { b ? localStorage.setItem(HOUSE_BASE_KEY, JSON.stringify(b)) : localStorage.removeItem(HOUSE_BASE_KEY); } catch { /* ignore */ } },
@@ -1938,15 +1958,17 @@ onSaved = () => { if (house.connected) house.changed(); };
 function houseMessage() {
   const at = houseSync.at ? ago(houseSync.at) : '';
   switch (houseSync.state) {
-    case 'ok': return { ok: true, text: `Synced with every device on this passphrase. Last sync ${at}.` };
+    case 'ok': return { ok: true, text: house.mode === 'home' ? `Synced with everyone in your household. Last sync ${at}.` : `Synced with every device on this passphrase. Last sync ${at}.` };
     case 'connecting': return { ok: true, text: 'Connecting…' };
     case 'new': return { ok: false, text: 'No household uses this passphrase yet. Check it for typos, or start a new household with what is on this device.' };
     case 'offline': return { ok: false, text: 'Offline. Changes are saved here and will sync when the connection is back.' };
     case 'badpass': return { ok: false, text: "That passphrase doesn't unlock this household's data." };
+    case 'moved': return { ok: false, text: 'This household moved to sign-in. Sign in with Google to keep this device in sync.' };
     case 'error': return { ok: false, text: "Couldn't reach the sync service. It will keep trying." };
     default: return { ok: false, text: 'Not syncing. Events, tasks and expenses stay on this device only.' };
   }
 }
+const busyLabel = (what, idle, busy) => (houseBusy === what ? busy : idle);
 function houseCard() {
   const head = `<div class="profiles">${members().map((u) => `<button class="profile" data-action="edit-member" data-id="${u.id}" aria-label="Edit ${esc(u.name)}">${avatar(u.id, 'lg')}<b>${esc(u.name)}</b></button>`).join('')}
       ${members().length < MAX_MEMBERS ? `<button class="profile add-member" data-action="add-member"><span class="av av-lg av-none-lg">${icon('plus')}</span><b>Add</b></button>` : ''}</div>
@@ -1959,21 +1981,79 @@ function houseCard() {
     </div>`;
   }
   const m = houseMessage();
-  return `<div class="card">${head}
-    ${m.ok ? `<p class="sync-line">${icon('check')}${m.text}</p>` : `<div class="sync-banner">${icon('users')}<span>${m.text}</span></div>`}
-    ${houseSync.state === 'new' ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 16px"><button class="btn" data-action="house-create">Start a new household</button><button class="btn ghost" data-action="house-cancel">Cancel</button></div>` : ''}
-    <div class="field"><label for="house-pass">Household passphrase</label>
+  const line = m.ok ? `<p class="sync-line">${icon('check')}${m.text}</p>` : `<div class="sync-banner">${icon('users')}<span>${m.text}</span></div>`;
+  const u = account.user;
+  // A signed-in household: who is signed in, invite codes, signing out.
+  if (houseHome) {
+    return `<div class="card">${head}${line}
+      ${u ? `<p class="hint acct-who">Signed in as <b>${esc(u.email || u.name)}</b></p>` : `<div style="margin:-4px 0 16px"><button class="btn" data-action="acct-signin">${busyLabel('signin', 'Sign in with Google', 'Signing in…')}</button></div>`}
+      ${u ? `<div class="field"><label>Invite someone</label>
+        ${houseInvite ? `<div class="invite-code" aria-label="Invite code">${showCode(houseInvite.code)}</div>
+          <div class="hint">On their phone or another screen: open this app, sign in with Google, then Join with a code. This code works until ${new Date(houseInvite.expires).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}.</div>` : '<div class="hint">Each person signs in with their own Google account, then types a code to join this household.</div>'}
+        <div style="margin-top:10px"><button class="btn${houseInvite ? ' ghost' : ''}" data-action="acct-invite">${busyLabel('invite', houseInvite ? 'New code' : 'Make an invite code', 'Making a code…')}</button></div></div>
+      <button class="btn ghost" data-action="acct-signout">Sign out on this device</button>` : ''}
+    </div>`;
+  }
+  const passBox = `<div class="field"><label for="house-pass">Household passphrase</label>
       <div style="display:flex;gap:8px"><input class="input" id="house-pass" data-house-pass type="password" autocomplete="off" placeholder="${housePass ? 'Saved on this device' : 'Same phrase on every device'}">
       <button class="btn" data-action="house-connect">${housePass ? 'Update' : 'Connect'}</button></div>
-      <div class="hint">Type the same passphrase on each device. Everything is encrypted with it before it leaves this device. Joining a household replaces this device's events, chores and expenses with the shared ones.</div></div>
+      <div class="hint">Type the same passphrase on each device. Everything is encrypted with it before it leaves this device. Joining a household replaces this device's events, chores and expenses with the shared ones.</div></div>`;
+  // A passphrase household: moving it to sign-in is one tap from a signed-in device.
+  const move = accountAvailable() && housePass && houseSync.state !== 'moved' ? `<h3 class="set-sub">Sign in instead of a passphrase</h3>
+    <p class="hint">Everyone signs in with Google, and new people join with an invite code. Everything in this household moves over, and the other screens follow once someone signs in on them.</p>
+    <div style="margin:10px 0 16px"><button class="btn" data-action="${u ? 'acct-move' : 'acct-signin'}">${u ? busyLabel('move', 'Move this household to sign-in', 'Moving…') : busyLabel('signin', 'Sign in with Google to move', 'Signing in…')}</button></div>` : '';
+  return `<div class="card">${head}${line}
+    ${houseSync.state === 'moved' ? `<div style="margin:-4px 0 16px"><button class="btn" data-action="acct-signin">${busyLabel('signin', 'Sign in with Google', 'Signing in…')}</button></div>` : ''}
+    ${houseSync.state === 'new' ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 16px"><button class="btn" data-action="house-create">Start a new household</button><button class="btn ghost" data-action="house-cancel">Cancel</button></div>` : ''}
+    ${!housePass && accountAvailable() ? `<div style="margin:-4px 0 16px"><button class="btn" data-action="open-join">Sign in to sync</button></div>` : ''}
+    ${houseSync.state === 'moved' ? '' : passBox}
     ${housePass ? '<button class="btn ghost" data-action="house-disconnect">Stop syncing on this device</button>' : ''}
+    ${move}
   </div>`;
 }
 
-// Sign-in panel: pops up when this device isn't in a household yet, or its passphrase
-// needs typing again. "Not now" keeps the device on its own until the app is opened again.
+// Sign-in panel: pops up when this device isn't in a household yet, or its sign-in or passphrase
+// needs doing again. "Not now" keeps the device on its own until the app is opened again.
 const houseSheetOpen = () => !$('#sheet').hidden && $('#sheet').dataset.kind === 'house';
 function openHouseSheet() {
+  if (!accountAvailable() || houseUsePass || (housePass && !houseMoved)) { openPassSheet(); return; }
+  const u = account.user;
+  const note = houseNote ? `<div class="sync-banner">${icon('users')}<span>${esc(houseNote)}</span></div>` : '';
+  let body;
+  if (!account.ready || (u && houseHome && houseSync.state === 'connecting')) {
+    body = `<p class="house-intro">${account.ready ? 'Connecting to your household…' : 'Checking sign-in…'}</p>`;
+  } else if (!u) {
+    body = `<p class="house-intro">${houseMoved ? 'This household moved to sign-in. Sign in with Google to keep this screen in sync. Nothing here is lost.'
+      : houseHome ? 'Sign in with Google again to keep this device in sync with your household.'
+      : 'Sign in with Google to share events, chores and expenses with everyone at home. You can get back in on any device, even a new phone.'}</p>
+      ${note}
+      <div class="sheet-actions">
+        <button class="btn ghost" data-action="close-sheet">Not now</button>
+        <button class="btn" data-action="acct-signin" ${houseBusy ? 'disabled' : ''}>${busyLabel('signin', 'Sign in with Google', 'Signing in…')}</button>
+      </div>
+      ${houseMoved || houseHome ? '' : '<p class="hint setup-join">Set up with a household passphrase before? <button class="link" data-action="acct-use-pass">Use the passphrase</button></p>'}`;
+  } else if (houseMoved?.home && !houseNote) {
+    body = `<p class="house-intro">Joining your household…</p>`;
+  } else {
+    body = `<p class="house-intro">Signed in as <b>${esc(u.email || u.name)}</b>.</p>
+      ${note}
+      <div class="field"><label for="join-code">Join with a code</label>
+        <div style="display:flex;gap:8px"><input class="input" id="join-code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD-EFGH-JK" maxlength="16">
+        <button class="btn" data-action="acct-join" ${houseBusy ? 'disabled' : ''}>${busyLabel('join', 'Join', 'Joining…')}</button></div>
+        <div class="hint">Someone already in your household makes a code in Settings › Household.</div></div>
+      ${houseMoved ? '' : `<div class="field"><label>Or start a new household</label>
+        <div class="hint" style="margin-bottom:10px">It starts with the events, chores and expenses on this screen. Invite everyone else after.</div>
+        <button class="btn ghost" data-action="acct-start" ${houseBusy ? 'disabled' : ''}>${busyLabel('start', 'Start a household', 'Starting…')}</button></div>`}
+      <div class="sheet-actions">
+        <button class="btn ghost" data-action="acct-signout">Use a different account</button>
+        <button class="btn ghost" data-action="close-sheet">Not now</button>
+      </div>`;
+  }
+  openSheet(`${sheetHead(houseMoved ? 'Your household moved' : 'Join your household', 'users')}${body}`);
+  $('#sheet').dataset.kind = 'house';
+}
+// The old passphrase panel, for screens on a passphrase household (or set up that way before).
+function openPassSheet() {
   const st = houseSync.state;
   const note = st === 'new' ? 'No household uses this passphrase yet. Check it for typos, or start a new household with what is on this device.'
     : st === 'badpass' ? "That passphrase doesn't unlock the household. Type it again."
@@ -1990,11 +2070,72 @@ function openHouseSheet() {
     <div class="sheet-actions">
       <button class="btn ghost" data-action="close-sheet">Not now</button>
       <button class="btn" data-action="house-connect" ${st === 'connecting' ? 'disabled' : ''}>${st === 'connecting' ? 'Connecting…' : 'Connect'}</button>
-    </div>`}`);
+    </div>`}
+    ${accountAvailable() && !housePass ? '<p class="hint setup-join">New here? <button class="link" data-action="acct-use-account">Sign in with Google instead</button></p>' : ''}`);
   $('#sheet').dataset.kind = 'house';
 }
 // The passphrase box next to the button that was tapped (Settings card or the pop-up).
 const houseInput = (el) => (el?.closest('.sheet, .card') || document).querySelector('[data-house-pass]');
+// Redraws whatever shows the household's state: the open panel, or Settings.
+function refreshHouse() {
+  if (houseSheetOpen()) openHouseSheet();
+  else if (currentRoute() === 'settings' && calmToRender()) renderView();
+}
+function useHome(home) {
+  houseHome = home; writeLocal(HOUSE_HOME_KEY, home);
+  if (houseInvite && houseInvite.home !== home) { houseInvite = null; writeLocal(HOUSE_INVITE_KEY, ''); }
+}
+// After a move, the passphrase is no longer needed on this device.
+function forgetPass() { housePass = ''; writeLocal(HOUSE_PASS_KEY, ''); }
+const accountError = (e) => (navigator.onLine === false ? "You're offline. Connect to the internet and try again."
+  : `Something went wrong (${String(e?.code || e?.message || e).replace(/^auth\//, '')}). Try again.`);
+
+// Signed in or out (also when the page loads). The first time, this decides whether the
+// sign-in panel needs to show.
+let accountChecked = false;
+async function onAccount(u) {
+  const first = !accountChecked; accountChecked = true;
+  account = { ready: true, user: u };
+  if (u) {
+    if (houseMoved) { await followMove(); return; }
+    if (houseHome && !house.connected) house.resumeHome(houseHome, savedHouseBase());
+    else if (!houseHome && house.mode !== 'pass') {
+      // Signed in on a new device, or again after signing out: find the household.
+      let home = null;
+      try { home = await myHome(u.uid); } catch { home = null; }
+      if (home) {
+        useHome(home);
+        if (houseSheetOpen()) { houseSync = { state: 'connecting' }; openHouseSheet(); }
+        const r = await house.connectHome(home, { fresh: true });
+        if (r === 'ok') { toast('Synced with your household'); if (houseSheetOpen()) closeSheet(); }
+      } else if (first && !houseSheetOpen()) openHouseSheet(); // signed in, no household yet
+    }
+  } else {
+    if (house.mode === 'home') house.disconnect(); // signed out on this device
+    // Not signed in when the app opens: ask, unless an old passphrase household is syncing.
+    if (first && !housePass && !houseSheetOpen()) openHouseSheet();
+  }
+  refreshHouse();
+}
+// Follows a passphrase household that another screen moved to sign-in. This screen's copy is
+// the same household's data, so it is merged in, keeping anything changed here since.
+async function followMove() {
+  if (!account.user || !houseMoved?.home) { if (!houseSheetOpen()) openHouseSheet(); else refreshHouse(); return; }
+  const { home, invite } = houseMoved;
+  try {
+    await joinHome(account.user.uid, home, invite);
+  } catch (e) {
+    // The move's code ran out (a screen offline for over a week): someone makes a new one.
+    houseNote = e?.code === 'permission-denied' ? 'The code from the move has run out. Ask someone in your household for an invite code (Settings › Household) and type it here.' : accountError(e);
+    if (!houseSheetOpen()) openHouseSheet(); else refreshHouse();
+    return;
+  }
+  houseNote = ''; houseMoved = null;
+  forgetPass(); useHome(home);
+  const r = await house.connectHome(home);
+  if (r === 'ok') { toast('Moved to sign-in'); if (houseSheetOpen()) closeSheet(); }
+  refreshHouse();
+}
 
 /* ---------- Who lives here: first run and Settings ---------- */
 // A new household names its people before anything else, since chores, stars and money all
@@ -2447,7 +2588,7 @@ views.settings = () => {
         <p class="hint">A GitHub job emails the household with what's on, open chores, stars and anything in the fridge to use up.</p>
         <details class="setup"><summary>Turn it on (one time)</summary><ol class="hint">
           <li>On the sending Gmail account, create an <b>app password</b> (Google Account › Security › 2-Step Verification › App passwords).</li>
-          <li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add <code>EMAIL_SMTP_USER</code> (that Gmail address), <code>EMAIL_SMTP_PASSWORD</code> (the app password), <code>EMAIL_TO</code> (who gets it, comma separated) and <code>HOUSEHOLD_PASSPHRASE</code> (the passphrase you sync with).</li>
+          <li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add <code>EMAIL_SMTP_USER</code> (that Gmail address), <code>EMAIL_SMTP_PASSWORD</code> (the app password), <code>EMAIL_TO</code> (who gets it, comma separated) and ${houseHome ? `<code>HOME_ID</code> (<code>${esc(houseHome)}</code>, this household). Then add <code>FIREBASE_SERVICE_ACCOUNT</code>: in the Firebase console, open <b>Project settings › Service accounts</b>, choose <b>Generate new private key</b> and paste the whole file.` : '<code>HOUSEHOLD_PASSPHRASE</code> (the passphrase you sync with).'}</li>
           <li>To try it now, run <b>Daily summary email</b> in the repo's <b>Actions</b> tab.</li>
         </ol></details>`)}
     </div>
@@ -2890,7 +3031,7 @@ const actions = {
     state.members = names.reduce((list, n) => [...list, newMember(n, list)], []);
     render();
   },
-  'open-join': () => openHouseSheet(),
+  'open-join': () => { houseUsePass = false; openHouseSheet(); },
   'add-member': () => openMemberSheet(null),
   'edit-member': (el) => { const u = userOf(el.dataset.id); if (u) openMemberSheet(u); },
   'pick-member-color': (el) => { el.parentElement.querySelectorAll('.swatch').forEach((b) => b.classList.toggle('on', b === el)); },
@@ -2964,6 +3105,103 @@ const actions = {
   'house-disconnect': () => {
     house.disconnect(); housePass = '';
     try { localStorage.removeItem(HOUSE_PASS_KEY); } catch { /* ignore */ }
+  },
+  'acct-use-pass': () => { houseUsePass = true; openHouseSheet(); },
+  'acct-use-account': () => { houseUsePass = false; houseSync = { state: 'off' }; openHouseSheet(); },
+  'acct-signin': async () => {
+    if (houseBusy) return;
+    houseBusy = 'signin'; houseNote = ''; refreshHouse();
+    try {
+      await accountSignIn(); // what happens next follows from onAccount
+    } catch (e) {
+      houseNote = accountError(e);
+      if (!houseSheetOpen() && currentRoute() === 'settings') toast(houseNote);
+    }
+    houseBusy = ''; refreshHouse();
+  },
+  'acct-signout': async () => {
+    if (house.mode === 'home') house.disconnect();
+    houseHome = ''; writeLocal(HOUSE_HOME_KEY, '');
+    houseInvite = null; writeLocal(HOUSE_INVITE_KEY, '');
+    houseNote = '';
+    try { await accountSignOut(); } catch { /* signed out here anyway */ }
+    if (!houseSheetOpen()) toast('Signed out. This device keeps its copy but stops syncing.');
+    refreshHouse();
+  },
+  'acct-start': async () => {
+    const u = account.user;
+    if (!u || houseBusy) return;
+    houseBusy = 'start'; houseNote = ''; openHouseSheet();
+    try {
+      const home = await startHome(u.uid);
+      useHome(home);
+      const r = await house.connectHome(home); // starts from what is on this screen
+      if (r === 'ok') { toast('Household started. Invite everyone from Settings.'); closeSheet(); } else houseNote = houseMessage().text;
+    } catch (e) { houseNote = accountError(e); }
+    houseBusy = ''; refreshHouse();
+  },
+  'acct-join': async (el) => {
+    const u = account.user;
+    const code = el.closest('.sheet')?.querySelector('#join-code')?.value || '';
+    if (!u || houseBusy) return;
+    if (!code.trim()) { toast('Type the code first'); return; }
+    houseBusy = 'join'; houseNote = ''; openHouseSheet();
+    try {
+      const home = await joinWithCode(u.uid, code);
+      if (home === 'nocode') houseNote = "That code doesn't work. Check it for typos, or ask for a new one.";
+      else if (home === 'expired') houseNote = 'That code has run out. Ask for a new one.';
+      else {
+        // A screen following a moved household keeps its copy (the same household's data);
+        // any other device takes the household's data instead of mixing its own in.
+        const following = !!houseMoved;
+        if (house.connected) house.disconnect();
+        houseMoved = null; forgetPass(); useHome(home);
+        const r = await house.connectHome(home, { fresh: !following });
+        if (r === 'ok') { toast('Joined your household'); closeSheet(); } else houseNote = houseMessage().text;
+      }
+    } catch (e) { houseNote = accountError(e); }
+    houseBusy = ''; refreshHouse();
+  },
+  'acct-invite': async () => {
+    const u = account.user;
+    if (!u || !houseHome || houseBusy) return;
+    houseBusy = 'invite'; refreshHouse();
+    try {
+      const inv = await createInvite(houseHome, u.uid);
+      houseInvite = { ...inv, home: houseHome };
+      writeLocal(HOUSE_INVITE_KEY, JSON.stringify(houseInvite));
+    } catch (e) { toast(accountError(e)); }
+    houseBusy = ''; refreshHouse();
+  },
+  'acct-move': () => {
+    openSheet(`${sheetHead('Move to sign-in', 'users')}
+      <p class="house-intro">Everything in this household moves to a new one that people sign in to with Google. Nothing is deleted: the passphrase copy stays as it is.</p>
+      <p class="house-intro">Other screens and phones show a Sign in button the next time they sync. After signing in, they carry on where they were.</p>
+      <div class="sheet-actions">
+        <button class="btn ghost" data-action="close-sheet">Cancel</button>
+        <button class="btn" data-action="acct-move-go">Move</button>
+      </div>`);
+    $('#sheet').dataset.kind = 'house-move';
+  },
+  'acct-move-go': async (el) => {
+    const u = account.user;
+    if (!u || !housePass || house.mode !== 'pass' || houseBusy) return;
+    houseBusy = 'move'; el.disabled = true; el.textContent = 'Moving…';
+    const pass = housePass; const base = savedHouseBase();
+    try {
+      const home = await startHome(u.uid);
+      const inv = await createInvite(home, u.uid);
+      const r = await house.moveTo(home, inv.code);
+      if (r !== 'ok') throw new Error(houseMessage().text);
+      useHome(home); forgetPass();
+      houseInvite = { ...inv, home }; writeLocal(HOUSE_INVITE_KEY, JSON.stringify(houseInvite));
+      toast('Moved. Invite people from Settings.');
+    } catch (e) {
+      // Back to the passphrase household as it was; nothing there was changed.
+      house.disconnect(); house.resume(pass, base);
+      toast(`Couldn't move: ${accountError(e)}`);
+    }
+    houseBusy = ''; closeSheet(); refreshHouse();
   },
   'energy-connect': () => {
     const v = $('#energy-pass').value;
@@ -3079,7 +3317,7 @@ const actions = {
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['setup-add-row', 'open-join', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
+const NO_RERENDER = new Set(['setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -3176,11 +3414,13 @@ render();
 fetchWeather();
 syncEnergy();
 syncWakeLock();
-if (housePass && syncAvailable()) {
-  let savedBase = null;
-  try { savedBase = JSON.parse(localStorage.getItem(HOUSE_BASE_KEY)); } catch { savedBase = null; }
-  house.resume(housePass, savedBase);
-} else if (syncAvailable()) {
+// A signed-in household connects once Firebase says who is signed in (onAccount); an old
+// passphrase household connects straight away.
+if (houseHome && accountAvailable()) houseSync = { state: 'connecting' };
+else if (housePass && syncAvailable()) house.resume(housePass, savedHouseBase());
+if (accountAvailable()) {
+  watchUser(onAccount).catch(() => { account = { ready: true, user: null }; refreshHouse(); });
+} else if (!housePass && syncAvailable()) {
   openHouseSheet(); // not in a household yet: ask every time the app opens
 }
 window.addEventListener('online', () => house.retry());
