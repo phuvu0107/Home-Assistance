@@ -2,19 +2,10 @@ name: Daily summary email
 
 on:
   schedule:
-    # 7 AM, noon, 5 PM and 9 PM Pacific. Each hour is listed for summer (PDT) and winter (PST)
-    # time; the script sends only the one that matches today's clock. The morning one runs
-    # at :30, after the 7 AM deploy has published yesterday's PG&E data.
-    - cron: '30 14 * * *'
-    - cron: '30 15 * * *'
-    - cron: '0 19 * * *'
-    - cron: '0 20 * * *'
-    - cron: '0 0 * * *'
-    - cron: '0 1 * * *'
-    - cron: '0 4 * * *'
-    - cron: '0 5 * * *'
-  # An outside timer can start this on time with a slot (see README), since GitHub can start
-  # scheduled runs hours late.
+    # Emails go out at 7:30 AM, noon, 5 PM and 9 PM Pacific. GitHub starts scheduled runs
+    # hours late, so this runs every hour and each run waits for the next email's time (up to
+    # 5½ hours ahead). Only one scheduled run goes at a time, and each email is sent once.
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       slot:
@@ -23,21 +14,41 @@ on:
         options: [auto, morning, midday, evening, night]
         default: auto
 
+concurrency:
+  group: daily-email-${{ github.event_name }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
 jobs:
   email:
-    # With an outside timer set up, GitHub's own schedule stands down so nothing sends twice.
-    if: github.event_name != 'schedule' || vars.EMAIL_TIMER != 'external'
     runs-on: ubuntu-latest
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Pick the next email
+        id: plan
+        if: github.event_name == 'schedule'
+        run: python sync/daily_email.py --plan
+      # A marker in the Actions cache records each email once it has gone out.
+      - name: Check it hasn't gone out
+        id: sent
+        if: steps.plan.outputs.slot != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .sent
+          key: sent-${{ steps.plan.outputs.key }}
+          lookup-only: true
+      - name: Wait for its time
+        if: steps.plan.outputs.slot != '' && steps.sent.outputs.cache-hit != 'true'
+        run: sleep ${{ steps.plan.outputs.wait }}
       # Does nothing until the email secrets are added (see README).
       - name: Send the summary
+        if: github.event_name != 'schedule' || (steps.plan.outputs.slot != '' && steps.sent.outputs.cache-hit != 'true')
         env:
           FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
           HOUSEHOLD_PASSPHRASE: ${{ secrets.HOUSEHOLD_PASSPHRASE }}
@@ -46,10 +57,17 @@ jobs:
           EMAIL_SMTP_USER: ${{ secrets.EMAIL_SMTP_USER }}
           EMAIL_SMTP_PASSWORD: ${{ secrets.EMAIL_SMTP_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          SCHEDULE: ${{ github.event.schedule }}
-          SLOT: ${{ inputs.slot }}
+          SLOT: ${{ steps.plan.outputs.slot || inputs.slot }}
           ENERGY_PASSPHRASE: ${{ secrets.ENERGY_PASSPHRASE }}
           ENERGY_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/energy.enc.json
         run: |
           pip install --quiet cryptography==50.0.2
           python sync/daily_email.py
+      - name: Mark it sent
+        if: steps.plan.outputs.slot != '' && steps.sent.outputs.cache-hit != 'true'
+        run: mkdir -p .sent && touch .sent/${{ steps.plan.outputs.key }}
+      - if: steps.plan.outputs.slot != '' && steps.sent.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .sent
+          key: sent-${{ steps.plan.outputs.key }}
