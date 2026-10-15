@@ -2,6 +2,8 @@
 // for Money, into an expense.
 // Text recognition runs in the browser with Tesseract.js, so the photo never leaves the device.
 
+import { WORDS, MIXUPS } from './receipt-words.js';
+
 // Days an item usually keeps, used for the suggested use-by date. Blank means no suggestion.
 export const FRIDGE_CATS = [
   { id: 'produce', label: 'Fruit & veg', icon: 'leaf', days: 7 },
@@ -87,6 +89,111 @@ function itemName(line) {
   return { name: tidy(name), qty };
 }
 
+// Fixing misread letters. The reader learns from what it read right: WORDS are words printed on
+// real receipts (most common first) and MIXUPS the letters it confuses ("T>I": a T read as I),
+// both learned from hundreds of labelled receipts (see receipt-corpus/ in the project folder).
+// Each household adds its own: names kept as read, and names someone corrected, after a scan.
+const SHAPES = 'O>0 O>Q O>D D>O I>1 I>L I>T L>I L>1 S>5 S>8 B>8 B>3 Z>2 G>6 G>3 E>F A>R V>Y Y>V N>H M>H U>O O>U';
+const LEARNED_KEY = 'receipt-words';
+let lex = null;
+function build(words, mixups, mine = {}) {
+  const L = { rank: new Map(), byLen: new Map(), mix: new Set(`${mixups} ${SHAPES}`.split(' ')), fixes: mine.fixes || {} };
+  const add = (w, r) => {
+    if (w.length < 3 || L.rank.has(w)) return;
+    L.rank.set(w, r);
+    if (!L.byLen.has(w.length)) L.byLen.set(w.length, []);
+    L.byLen.get(w.length).push(w);
+  };
+  // Words this household confirmed rank first, then the shipped list by how common they are.
+  Object.entries(mine.words || {}).sort((a, b) => b[1] - a[1]).forEach(([w]) => add(w, 0));
+  words.split(' ').forEach((w, i) => add(w, i + 1));
+  Object.keys(SHORT).forEach((w) => add(w, 1));
+  Object.values(CAT_WORDS).join(' ').split(' ').forEach((w) => add(w, 1));
+  return L;
+}
+function lexicon() {
+  if (lex) return lex;
+  let mine = {};
+  try { mine = JSON.parse(globalThis.localStorage?.getItem(LEARNED_KEY)) || {}; } catch { mine = {}; }
+  lex = build(WORDS, MIXUPS, mine);
+  return lex;
+}
+// For tests and the corpus scorer: use these words and mix-ups instead of the shipped ones
+// (no arguments goes back to the shipped list and this device's own).
+export function useReceiptWords(words, mixups = MIXUPS) {
+  lex = words === undefined ? null : build(words, mixups);
+}
+
+// Cost of turning word t into what the reader saw (o): a known mix-up costs a third of an edit.
+function cost(t, o, mix, limit) {
+  let prev = Array.from({ length: o.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= t.length; i++) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= o.length; j++) {
+      const sub = t[i - 1] === o[j - 1] ? 0 : mix.has(`${t[i - 1]}>${o[j - 1]}`.toUpperCase()) ? 0.35 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + sub);
+      best = Math.min(best, cur[j]);
+    }
+    if (best > limit) return Infinity;
+    prev = cur;
+  }
+  return prev[o.length];
+}
+
+// The word the reader most likely saw, or the word as read when nothing known is close enough.
+function fixWord(token) {
+  const core = token.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '');
+  const o = core.toLowerCase();
+  // Only words: three or more characters, mostly letters (digits may be misread letters).
+  if (o.length < 3 || (o.match(/[a-z]/g) || []).length < o.length - 1 || /^\d/.test(o)) return token;
+  const L = lexicon();
+  const fix = L.fixes[o];
+  if (!fix && L.rank.has(o)) return token;
+  let best = fix || null;
+  if (!best) {
+    // Letters read wrong, not letters added or lost: those are as often plurals or other languages.
+    const limit = o.length <= 4 ? 0.35 : o.length < 8 ? 1 : 1.7;
+    let bc = Infinity, second = Infinity, br = Infinity;
+    for (const w of L.byLen.get(o.length) || []) {
+      const c = cost(w, o, L.mix, limit);
+      if (c > limit) continue;
+      const r = L.rank.get(w);
+      if (c < bc || (c === bc && r < br)) { second = Math.min(second, bc); bc = c; br = r; best = w; } else second = Math.min(second, c);
+    }
+    // Only when one word is clearly closest.
+    if (!best || second <= bc) return token;
+  }
+  // Case as the word mostly reads: a misread letter is often the wrong case too.
+  const up = (core.match(/[A-Z]/g) || []).length, low = (core.match(/[a-z]/g) || []).length;
+  const out = up > low + 1 ? best.toUpperCase() : up === 0 ? best : best[0].toUpperCase() + best.slice(1);
+  return token.replace(core, out);
+}
+// Corrections someone made on this device, word for word.
+const fixWords = (s) => {
+  const { fixes } = lexicon();
+  return s.split(' ').map((t) => { const f = fixes[t.toLowerCase()]; return f ? (t === t.toUpperCase() ? f.toUpperCase() : f) : t; }).join(' ');
+};
+
+// After a scan, what the person kept teaches this device: names kept as read count as right, and
+// a name someone corrected maps the misread word to the right one next time.
+export function learnFromReceipt(pairs) {
+  let mine = {};
+  try { mine = JSON.parse(localStorage.getItem(LEARNED_KEY)) || {}; } catch { mine = {}; }
+  mine.words ||= {}; mine.fixes ||= {};
+  const words = (s) => s.toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3);
+  for (const { read, kept } of pairs) {
+    const r = words(read), k = words(kept);
+    k.forEach((w) => { mine.words[w] = (mine.words[w] || 0) + 1; });
+    if (r.length === k.length) r.forEach((w, i) => { if (w !== k[i] && cost(k[i], w, new Set(), 3) <= 2) mine.fixes[w] = k[i]; });
+  }
+  // Keep the most used, so the list stays small.
+  mine.words = Object.fromEntries(Object.entries(mine.words).sort((a, b) => b[1] - a[1]).slice(0, 3000));
+  mine.fixes = Object.fromEntries(Object.entries(mine.fixes).slice(-1000));
+  try { localStorage.setItem(LEARNED_KEY, JSON.stringify(mine)); } catch { /* full or blocked */ }
+  lex = null;
+}
+
 // Receipt text in, a list of { name, qty, cat } out. A line counts when it ends in a price, or
 // when it names an item sold by weight (the weight line below carries the price). Between the
 // store's header and the subtotal a line also counts without a price, since glare on a photo
@@ -119,7 +226,7 @@ export function parseReceipt(text) {
     }
     pending = null;
     if (notItem(line) || SECTION.test(line.replace(/\s*\/\s*/g, ' '))) return;
-    const it = itemName(price ? line.slice(0, price.index) : line);
+    const it = itemName(fixWords(price ? line.slice(0, price.index) : line));
     if (!it) return;
     if (price || inBlock(i)) add(it);
     else pending = it;
@@ -192,6 +299,8 @@ async function prepare(file) {
 // so when enough words are read with confidence, words well outside the span they cover are
 // dropped too (prices are always kept).
 const PRICE_WORD = /\d[.,]\d{2}/;
+// Words read with less confidence than this are checked against the words the reader knows.
+const UNSURE = 85;
 function column(lines, width) {
   const sure = lines.flatMap((l) => l.words).filter((w) => w.confidence >= 85 && /[A-Za-z\d]{3}/.test(w.text));
   if (sure.length < 8) return null;
@@ -219,7 +328,7 @@ export function receiptText(data, width) {
       if (PRICE_WORD.test(b.text) || b.bbox.x0 - a.bbox.x1 < width * 0.15) break;
       words = words.slice(0, -1);
     }
-    return words.map((w) => w.text).join(' ');
+    return words.map((w) => (w.confidence < UNSURE ? fixWord(w.text) : w.text)).join(' ');
   }).join('\n');
 }
 
@@ -242,23 +351,24 @@ const PAID = /\b(total|balance due|amount due|grand total|summe|zu zahlen)\b/i;
 // Some stores (Safeway) print the total as BALANCE; food-stamp and gift-card balances are not it.
 const BALANCE = /\bbalance\b/i;
 const NOT_BALANCE = /\b(food|ebt|snap|fs|cash|gift|card|remaining|avail)/i;
-const NOT_PAID = /\b(sub ?total|tax|cash back|transaction|sav(ed|ings?)|discount|items?|change|tip)\b/i;
+const NOT_PAID = /\b(sub ?total|sub-total|tax|qty|excl\w*|points|cash ?back|transaction|sav(ed|ings?)|discount|items?|change|tip)\b/i;
 const CARD = /\b(visa|master ?card|amex|discover|debit|credit|amount|charged|paid)\b/i;
 // The last amount on a line: 12.34, 12,34 or 5,280.00.
 const money = (line) => {
-  const m = line.match(/\$?\s*(\d{1,3}(?:,\d{3})+\.\d{2}|\d{1,5}[.,]\d{2})\b(?!.*\d[.,]\d{2})/);
+  const m = line.match(/(?<![\d.,/])(\d{1,3}(?:,\d{3})+\.\d{2}|\d{1,5}[.,]\d{2})(?![.,/]?\d)(?!.*\d[.,]\d{2})/);
   return m ? Number(/,\d{3}/.test(m[1]) ? m[1].replace(/,/g, '') : m[1].replace(',', '.')) : null;
 };
 export function parseExpense(text, today = new Date()) {
   const lines = String(text).split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
-  // The totals, the store's balance line and the card slip usually agree; one misread digit is
-  // outvoted. The first one printed counts double, since card slips further down can add cash back
-  // or pay only part of it.
+  // What the totals, the store's balance line and the card slip say was paid.
   const said = lines.filter((l) => (PAID.test(l) && !NOT_PAID.test(l)) || (BALANCE.test(l) && !NOT_BALANCE.test(l))
     || (CARD.test(l) && !NOT_PAID.test(l) && !NOT_BALANCE.test(l))).map(money).filter((n) => n);
   if (!said.length) said.push(...lines.filter((l) => /\btransaction\b/i.test(l)).map(money).filter((n) => n));
-  const votes = (n) => said.filter((m) => m === n).length + (n === said[0] ? 1 : 0);
-  const amount = said.reduce((best, n) => (best === null || votes(n) > votes(best) ? n : best), null);
+  // The biggest of them: the subtotal and tax come before it, and a card slip that adds cash back
+  // is brought back down to what the shopping cost.
+  const back = lines.filter((l) => /cash ?back/i.test(l)).map(money).find((n) => n) || 0;
+  let amount = said.length ? Math.max(...said) : null;
+  if (back && amount && said.some((n) => Math.abs(n - (amount - back)) < 0.005)) amount = Math.round((amount - back) * 100) / 100;
 
   // The first line that reads as a name, before any address, phone or item.
   const top = lines.slice(0, 4).find((l) => /^[^\d]*[A-Za-z]{3}/.test(l) && !HEADER.test(l) && !NOT_ITEM.test(l) && !PRICE_END.test(l));

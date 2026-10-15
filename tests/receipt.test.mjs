@@ -1,7 +1,7 @@
 // Run with: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { flatten, parseExpense, parseReceipt, receiptText } from '../receipt.js';
+import { flatten, learnFromReceipt, parseExpense, parseReceipt, receiptText, useReceiptWords } from '../receipt.js';
 
 // Tesseract's text for a Thien Thanh Market receipt photo (8 foods, 4 of them sold by weight),
 // after the glare is evened out and the edge marks are dropped.
@@ -197,7 +197,7 @@ test('a Costco item count above the items does not end the list early', () => {
   assert.equal(parseExpense(text).amount, 62.09);
 });
 
-test('the paid amount leaves out cash back, and one misread total is outvoted', () => {
+test('the paid amount leaves out cash back and food-stamp balances', () => {
   const tj = 'TRADER JOE\'S\nOPEN 8:00AM TO 9:00PM DAILY\nCHICKEN BURRITOS 2.69\nPOTATO TOTS 2.49\nSUBTOTAL $9.07\n'
     + 'TOTAL $9.15\nDEBIT $29.15\nCHANGE $20.00\nPurchase: $9.15\nCashback: $20.00\nTotal: USD$ 29.15';
   assert.deepEqual(parseReceipt(tj).map((i) => i.name), ['Chicken Burritos', 'Potato Tots']);
@@ -256,4 +256,37 @@ test('takes the total over the subtotal and savings', () => {
 
 test('an unreadable photo gives an empty expense', () => {
   assert.deepEqual(parseExpense('', new Date(2026, 9, 14)), { store: '', amount: null, date: '' });
+});
+
+test('fixes letters the reader was unsure of, using words printed on other receipts', () => {
+  const W = 1000;
+  const word = (text, x0, x1, confidence) => ({ text, bbox: { x0, x1 }, confidence });
+  const data = { lines: [
+    { words: [word('BROQCOLI', 100, 300, 60), word('2.49', 800, 900, 95)] },
+    { words: [word('SPlNACH', 100, 300, 70), word('3.99', 800, 900, 95)] },
+    // Read with confidence: left as printed, even when it looks like a misread.
+    { words: [word('BROQCOLI', 100, 300, 96), word('1.00', 800, 900, 95)] },
+  ] };
+  assert.equal(receiptText(data, W), 'BROCCOLI 2.49\nSPINACH 3.99\nBROQCOLI 1.00');
+});
+
+test('learns this household\'s words from the names kept when a receipt is saved', () => {
+  const store = new Map();
+  globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)) };
+  try {
+    const W = 1000;
+    const word = (text, x0, x1, confidence) => ({ text, bbox: { x0, x1 }, confidence });
+    const data = { lines: [{ words: [word('KOMBUXHA', 100, 300, 60), word('4.99', 800, 900, 95)] }] };
+    // A word no receipt taught it, misread, then fixed by hand and saved.
+    assert.deepEqual(parseReceipt('KOMBUXHA 3.49').map((f) => f.name), ['Kombuxha']);
+    learnFromReceipt([{ read: 'Kombuxha', kept: 'Kombucha' }]);
+    assert.deepEqual(parseReceipt('KOMBUXHA 3.49').map((f) => f.name), ['Kombucha']);
+    assert.equal(receiptText(data, W), 'KOMBUCHA 4.99');
+    // A name changed to a different food is not a misread.
+    learnFromReceipt([{ read: 'Apples', kept: 'Pears' }]);
+    assert.deepEqual(parseReceipt('APPLES 2.00').map((f) => f.name), ['Apples']);
+  } finally {
+    delete globalThis.localStorage;
+    useReceiptWords();
+  }
 });
