@@ -145,13 +145,13 @@ export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) 
     return { items, gone };
   }
 
-  async function push() {
+  async function push(force = false) {
     if (!path || pushing) return;
     pushing = true; dirty = false;
     try {
       const mine = localDoc();
       // Nothing changed since the last sync (a tap that only opened a sheet, say).
-      if (base && sameDoc(mine, base)) return;
+      if (!force && base && sameDoc(mine, base)) return;
       const be = await backend();
       let merged = null;
       await be.update(path, async (remote) => {
@@ -222,7 +222,7 @@ export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) 
         if (base) await push(); // this device synced before: merge in what changed here while away
         else { base = doc; onBase(base); onRemote((state) => applyItems(state, doc.items)); } // first join: take the household's data
       } else {
-        await push(); // a brand new household starts from this device's data
+        await push(true); // a brand new household starts from this device's data, even if nothing changed here
       }
       await watch();
       if (!dirty) status('ok', { at: Date.now() });
@@ -253,7 +253,10 @@ export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) 
       if (dirty) await push();
       const r = await this.connectHome(home);
       if (r !== 'ok') return r;
-      await (await backend()).mark(old, { moved: await seal(oldKey, { home, invite }), movedAt: Date.now() });
+      // Only send the other screens over once the household's data is really there.
+      const be = await backend();
+      if (!(await be.read(homePath(home)))?.box) return 'error';
+      await be.mark(old, { moved: await seal(oldKey, { home, invite }), movedAt: Date.now() });
       return 'ok';
     },
     // Pick up again on page load with the saved passphrase and the last synced copy.

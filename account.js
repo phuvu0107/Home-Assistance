@@ -1,0 +1,99 @@
+// Household accounts: sign in with Google, then start a household or join one with an invite code.
+// Who may see a household is decided by the database's rules (firestore.rules), not by a shared
+// passphrase, so a lost phone or a forgotten phrase never locks anyone out: signing in again on
+// any device finds the household.
+import { firebase, firebaseConfigured } from './firebase.js';
+
+export const accountAvailable = () => firebaseConfigured();
+
+// No look-alike letters or digits (0/O, 1/I/L), so a code read aloud or off a screen types right.
+const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const INVITE_DAYS = 7;
+const randomCode = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => CODE_CHARS[b % CODE_CHARS.length]).join('');
+// What people type: any case, with spaces or dashes ("abcd-efgh").
+export const cleanCode = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+export const showCode = (code) => code.replace(/(.{4})(?=.)/g, '$1-');
+
+const person = (u) => (u ? { uid: u.uid, email: u.email || '', name: u.displayName || '' } : null);
+
+// Calls back with the signed-in person (or null) now and whenever that changes.
+export async function watchUser(cb) {
+  const { auth, au } = await firebase();
+  return auth.onAuthStateChanged(au, (u) => cb(person(u)));
+}
+
+export async function signIn() {
+  const { auth, au } = await firebase();
+  // Tests against the Firebase emulator sign in as a made-up person instead of opening Google.
+  if (window.HOME_FIREBASE_EMULATOR && window.HOME_TEST_USER) {
+    const t = window.HOME_TEST_USER;
+    return person((await auth.signInWithCredential(au, auth.GoogleAuthProvider.credential(JSON.stringify({ sub: t, email: `${t}@example.com` })))).user);
+  }
+  const provider = new auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  try {
+    return person((await auth.signInWithPopup(au, provider)).user);
+  } catch (e) {
+    // Installed apps (the fridge screen) and some browsers block pop-ups: go to Google and back.
+    if (['auth/popup-blocked', 'auth/operation-not-supported-in-this-environment', 'auth/cancelled-popup-request'].includes(e?.code)) {
+      await auth.signInWithRedirect(au, provider);
+      return null;
+    }
+    if (e?.code === 'auth/popup-closed-by-user') return null;
+    throw e;
+  }
+}
+
+export async function signOut() {
+  const { auth, au } = await firebase();
+  await auth.signOut(au);
+}
+
+// The household this person belongs to, if any.
+export async function myHome(uid) {
+  const { fs, db } = await firebase();
+  const s = await fs.getDoc(fs.doc(db, `users/${uid}`));
+  return s.exists() ? s.data().home || null : null;
+}
+
+// A new household with this person as its only member.
+export async function startHome(uid, name = 'Home') {
+  const { fs, db } = await firebase();
+  const home = randomCode(20).toLowerCase();
+  await fs.setDoc(fs.doc(db, `homes/${home}`), { members: { [uid]: true }, name });
+  await fs.setDoc(fs.doc(db, `users/${uid}`), { home });
+  return home;
+}
+
+// A code that lets someone else join this household for the next week.
+export async function createInvite(home, uid) {
+  const { fs, db } = await firebase();
+  const code = randomCode(10);
+  const expires = Date.now() + INVITE_DAYS * 864e5;
+  await fs.setDoc(fs.doc(db, `invites/${code}`), { home, by: uid, expires: fs.Timestamp.fromMillis(expires) });
+  return { code, expires };
+}
+
+// Adds this person to the household the invite is for. Returns the household id, or
+// 'nocode' / 'expired' when the code doesn't work.
+export async function joinWithCode(uid, typed) {
+  const { fs, db } = await firebase();
+  const code = cleanCode(typed);
+  if (code.length < 8) return 'nocode';
+  const s = await fs.getDoc(fs.doc(db, `invites/${code}`));
+  if (!s.exists()) return 'nocode';
+  const { home, expires } = s.data();
+  if (expires.toMillis() < Date.now()) return 'expired';
+  await joinHome(uid, home, code);
+  return home;
+}
+
+// Joining with a code already known to be for this household (a passphrase household that
+// moved to sign-in leaves one behind for its other screens).
+export async function joinHome(uid, home, code) {
+  const { fs, db } = await firebase();
+  // Members can't add people, but someone not in the household yet can add themselves
+  // with a live invite. Already a member? The update simply changes nothing.
+  await fs.updateDoc(fs.doc(db, `homes/${home}`), { [`members.${uid}`]: true, invite: code });
+  await fs.setDoc(fs.doc(db, `users/${uid}`), { home });
+}
