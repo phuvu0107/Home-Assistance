@@ -1,12 +1,15 @@
 """Email the household a short summary four times a day: 7 AM, noon, 5 PM and 9 PM.
 
-Run by .github/workflows/daily-email.yml. It reads the same encrypted household
-document the dashboard syncs to (see sync.js), unlocks it with the household
-passphrase, and sends one email through an SMTP account (a Gmail app password works).
+Run by .github/workflows/daily-email.yml. It reads the same household document the
+dashboard syncs to (see sync.js) and sends one email through an SMTP account (a Gmail
+app password works).
 
 Needs these environment variables (GitHub secrets):
   FIREBASE_CONFIG       the same secret the site uses for sync
-  HOUSEHOLD_PASSPHRASE  the passphrase typed on each device
+  HOME_ID and FIREBASE_SERVICE_ACCOUNT
+                        a signed-in household: its id (Settings › Connections › Summary email)
+                        and a Firebase service account key (JSON) that can read it
+  or HOUSEHOLD_PASSPHRASE  for a household still on a passphrase
   EMAIL_SMTP_USER       the account that sends, e.g. you@gmail.com
   EMAIL_SMTP_PASSWORD   its app password
   EMAIL_TO              where to send, comma separated
@@ -28,7 +31,8 @@ import urllib.request
 from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
@@ -56,16 +60,57 @@ def firebase_config():
     return json.loads(re.sub(r",\s*}", "}", body))
 
 
+def documents_url(cfg):
+    host = os.environ.get("FIRESTORE_EMULATOR_HOST")  # local testing against the Firebase emulator
+    base = f"http://{host}" if host else "https://firestore.googleapis.com"
+    return f"{base}/v1/projects/{cfg['projectId']}/databases/(default)/documents"
+
+
 def household_state(passphrase):
-    """The household's items, decrypted, in the same shape sync.js keeps them."""
+    """A passphrase household's items, decrypted, in the same shape sync.js keeps them."""
     cfg = firebase_config()
     doc_id = hashlib.sha256(f"home-dashboard:{passphrase}".encode()).hexdigest()
-    url = (f"https://firestore.googleapis.com/v1/projects/{cfg['projectId']}/databases/(default)"
-           f"/documents/households/{doc_id}?key={cfg['apiKey']}")
-    box = {k: v["stringValue"] for k, v in get_json(url)["fields"]["box"]["mapValue"]["fields"].items() if "stringValue" in v}
+    fields = get_json(f"{documents_url(cfg)}/households/{doc_id}?key={cfg['apiKey']}")["fields"]
+    if "moved" in fields:
+        print("This passphrase household moved to sign-in, so its data here is out of date. "
+              "Add the HOME_ID and FIREBASE_SERVICE_ACCOUNT secrets (see README).", file=sys.stderr)
+    box = {k: v["stringValue"] for k, v in fields["box"]["mapValue"]["fields"].items() if "stringValue" in v}
     key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=SALT, iterations=ITER).derive(passphrase.encode())
     doc = json.loads(AESGCM(key).decrypt(base64.b64decode(box["iv"]), base64.b64decode(box["data"]), None))
-    items = doc["items"]
+    return state_from(doc["items"])
+
+
+def b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def service_token(account):
+    """An access token for the service account, from a signed JWT (Google's OAuth server-to-server flow)."""
+    now = int(dt.datetime.now(dt.timezone.utc).timestamp())
+    head = b64url(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+    claims = b64url(json.dumps({"iss": account["client_email"], "scope": "https://www.googleapis.com/auth/datastore",
+                                "aud": account["token_uri"], "iat": now, "exp": now + 600}).encode())
+    key = serialization.load_pem_private_key(account["private_key"].encode(), password=None)
+    sig = b64url(key.sign(f"{head}.{claims}".encode(), padding.PKCS1v15(), hashes.SHA256()))
+    body = f"grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion={head}.{claims}.{sig}".encode()
+    req = urllib.request.Request(account["token_uri"], data=body, headers={"Content-Type": "application/x-www-form-urlencoded"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)["access_token"]
+
+
+def home_state(home, account_json):
+    """A signed-in household's items. The database rules only let members read it, so this signs
+    in as a service account, which the rules don't apply to."""
+    account = json.loads(account_json)
+    cfg = {"projectId": account["project_id"]}
+    req = urllib.request.Request(f"{documents_url(cfg)}/homes/{home}/data/main",
+                                 headers={"Authorization": f"Bearer {'owner' if os.environ.get('FIRESTORE_EMULATOR_HOST') else service_token(account)}"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        fields = json.load(r)["fields"]
+    return state_from(json.loads(fields["box"]["mapValue"]["fields"]["json"]["stringValue"])["items"])
+
+
+def state_from(items):
     lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge", "k": "thanks", "n": "notes", "b": "bucket", "p": "members"}
     state = {name: [v for k, v in items.items() if k.startswith(p + ":")] for p, name in lists.items()}
     state["stars"] = items.get("stars", {}).get("value", {})
@@ -175,7 +220,10 @@ def who_label(who, users):
 
 
 SLOTS = {7: "morning", 12: "midday", 17: "evening", 21: "night"}
-MAX_LATE = dt.timedelta(minutes=90)  # a scheduled run later than this sends nothing
+# When each email goes out. The morning one waits until :30 for the 7 AM deploy's PG&E data.
+SEND_AT = {"morning": (7, 30), "midday": (12, 0), "evening": (17, 0), "night": (21, 0)}
+MAX_WAIT = dt.timedelta(hours=5, minutes=30)  # a job can run 6 hours
+MAX_LATE = dt.timedelta(hours=1)
 
 
 def build(state, now, energy, sky, slot="morning"):
@@ -335,41 +383,42 @@ def page(slot, now, hello, sign, sky, sections):
             f'</table></div>')
 
 
-def pick_slot(now, tz):
-    """Which email this run is. Scheduled runs pass the cron line, and GitHub can start them
-    late, so the slot comes from when the run was meant to start, not from the clock now.
-    The workflow fires for both summer and winter time; the run for the other one stops here."""
-    cron = os.environ.get("SCHEDULE", "").split()
-    if not cron:  # started by hand: pick the nearest slot
-        return SLOTS[min(SLOTS, key=lambda h: abs(h - now.hour))]
-    utc_now = dt.datetime.now(dt.timezone.utc)
-    meant = utc_now.replace(hour=int(cron[1]), minute=int(cron[0]), second=0, microsecond=0)
-    if meant > utc_now + dt.timedelta(minutes=5):
-        meant -= dt.timedelta(days=1)  # meant for just before midnight UTC
-    slot = SLOTS.get(meant.astimezone(ZoneInfo(tz)).hour)
-    late = utc_now - meant
-    if slot and late > MAX_LATE:
-        # GitHub has started scheduled runs hours late; a 7 AM email at 2 PM is just noise.
-        print(f"Skipping the {slot} email: GitHub started this run {late.seconds // 3600}h {late.seconds % 3600 // 60}m late.")
-        return "late"
-    return slot
+def plan(tz):
+    """For a scheduled run: which email comes next and how long to wait for it. GitHub starts
+    scheduled runs hours late, so an hourly run picks the next email up to MAX_WAIT ahead and
+    waits for its time. An email whose time passed more than MAX_LATE ago is not sent."""
+    now = dt.datetime.now(ZoneInfo(tz))
+    for day in (now.date(), now.date() + dt.timedelta(days=1)):
+        for slot, (h, m) in SEND_AT.items():
+            at = dt.datetime(day.year, day.month, day.day, h, m, tzinfo=ZoneInfo(tz))
+            if at >= now - MAX_LATE:
+                if at - now > MAX_WAIT:
+                    return None
+                return slot, at, max(0, int((at - now).total_seconds()))
 
 
 def main():
-    need = ["FIREBASE_CONFIG", "HOUSEHOLD_PASSPHRASE", "EMAIL_TO"] + ([] if os.environ.get("DRY_RUN") else ["EMAIL_SMTP_USER", "EMAIL_SMTP_PASSWORD"])
+    if sys.argv[1:] == ["--plan"]:  # writes slot, key and wait for the workflow's next steps
+        nxt = plan(os.environ.get("EMAIL_TIMEZONE", "America/Los_Angeles"))
+        out = f"slot={nxt[0]}\nkey={nxt[1]:%Y-%m-%d}-{nxt[0]}\nwait={nxt[2]}\n" if nxt else "slot=\n"
+        print(f"Next: the {nxt[0]} email at {nxt[1]:%a %H:%M}, in {nxt[2] // 60} min." if nxt else "No email due in the next few hours.")
+        with open(os.environ.get("GITHUB_OUTPUT", os.devnull), "a") as f:
+            f.write(out)
+        return
+    signed_in = os.environ.get("HOME_ID", "").strip() and os.environ.get("FIREBASE_SERVICE_ACCOUNT", "").strip()
+    need = (["EMAIL_TO"] if signed_in else ["FIREBASE_CONFIG", "HOUSEHOLD_PASSPHRASE", "EMAIL_TO"]) \
+        + ([] if os.environ.get("DRY_RUN") else ["EMAIL_SMTP_USER", "EMAIL_SMTP_PASSWORD"])
     missing = [k for k in need if not os.environ.get(k, "").strip()]
     if missing:
         print("Daily email is off until these secrets are added: " + ", ".join(missing))
         return
     tz = os.environ.get("EMAIL_TIMEZONE", "America/Los_Angeles")
     now = dt.datetime.now(ZoneInfo(tz))
-    slot = os.environ.get("SLOT", "").strip().replace("auto", "") or pick_slot(now, tz)
-    if slot == "late":
-        return
-    if not slot:
-        print("Not an email hour in this time zone today (the other summer/winter time run sends it).")
-        return
-    state = household_state(os.environ["HOUSEHOLD_PASSPHRASE"].strip())
+    slot = os.environ.get("SLOT", "").strip().replace("auto", "") or SLOTS[min(SLOTS, key=lambda h: abs(h - now.hour))]
+    if signed_in:
+        state = home_state(os.environ["HOME_ID"].strip(), os.environ["FIREBASE_SERVICE_ACCOUNT"])
+    else:
+        state = household_state(os.environ["HOUSEHOLD_PASSPHRASE"].strip())
     morning = slot == "morning"
     energy = energy_yesterday((now.date() - dt.timedelta(days=1)).isoformat()) if morning else None
     subject, text, page = build(state, now, energy, weather(tz, 1 if slot == "night" else 0), slot)
