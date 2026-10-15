@@ -66,7 +66,7 @@ The layout adapts from a wide display down to a phone. Every screen gets a see-t
 
 <img src="docs/screenshots/phone.png" alt="Dashboard on a phone" width="320">
 
-The household's people are set up the first time the app opens (**Who lives here?**) and edited in **Settings › Household**: tap a face to rename someone or change their color, or **Add** for someone new. They sync like everything else, and a household that used the app before this keeps Phu and Nhi with their own avatars from `avatars/`; anyone added later shows their initial. Splitting money, Both (Everyone with three or more people) and thank-yous all work for any number of people. Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). **Phone alerts** for a new thank-you or a ticked-off bucket list item come through the free [ntfy](https://ntfy.sh) app: on your phone, pick yourself under **Who uses this device**, tap **Turn on** under Alerts, and subscribe to the channel it shows in ntfy. The channel name comes from the household passphrase, and an alert only says who did what, never what a note says. Display settings are saved in the browser on each device; events, chores, kitchen items and expenses are shared across devices once [sync](#sync-across-devices) is on.
+The household's people are set up the first time the app opens (**Who lives here?**) and edited in **Settings › Household**: tap a face to rename someone or change their color, or **Add** for someone new. They sync like everything else, and a household that used the app before this keeps Phu and Nhi with their own avatars from `avatars/`; anyone added later shows their initial. Splitting money, Both (Everyone with three or more people) and thank-yous all work for any number of people. Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). **Phone alerts** for a new thank-you or a ticked-off bucket list item come through the free [ntfy](https://ntfy.sh) app: on your phone, pick yourself under **Who uses this device**, tap **Turn on** under Alerts, and subscribe to the channel it shows in ntfy. The channel name is random and only shared within the household, and an alert only says who did what, never what a note says. Display settings are saved in the browser on each device; events, chores, kitchen items and expenses are shared across devices once [sync](#sync-across-devices) is on.
 
 ## Set up on your device
 
@@ -120,33 +120,28 @@ While the Google app is in Testing, only the test users from step 2 can connect.
 
 ## Sync across devices
 
-Events, tasks, stars, expenses and Fitbit numbers can be shared by every device in the house through a free [Firebase](https://firebase.google.com) Firestore database. Data is encrypted in the browser with a household passphrase before it's sent, so the database only stores scrambled data, and the record's name is a hash of the passphrase.
+Events, tasks, stars, expenses and Fitbit numbers can be shared by every device in the house through a free [Firebase](https://firebase.google.com) Firestore database. Everyone signs in with their Google account. The database's rules (`firestore.rules`) let only the people in a household read or change its data, and signing in again on any device, even a new phone, finds the household.
 
 One-time setup:
 1. Create a Firebase project, then add a Firestore database in production mode.
-2. Replace the Firestore rules with:
-   ```
-   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{db}/documents {
-       match /households/{id} {
-         allow get, create, update: if id.size() == 64;
-       }
-     }
-   }
-   ```
-3. Register a web app in Project settings. Copy its `firebaseConfig` block into a GitHub Actions secret named `FIREBASE_CONFIG` (repo **Settings › Secrets and variables › Actions**), then run **Deploy to GitHub Pages**. The deploy writes it into the published `sync-config.js`, so it never lives in the repo. In Google Cloud's **APIs & Services › Credentials**, restrict that browser key to your site's address and the Cloud Firestore API.
-4. Whenever the app opens on a device that isn't in a household yet, a **Join your household** panel pops up (tap **Not now** to skip until next time; the same box is in **Settings › Sync across devices**). On the first device, type a passphrase and tap **Start a new household**. On every other device, type the same passphrase. Joining replaces that device's events, tasks and expenses with the shared ones.
+2. In **Firestore Database › Rules**, paste the contents of [`firestore.rules`](firestore.rules) and **Publish**.
+3. In **Authentication › Sign-in method**, enable **Google**. In **Authentication › Settings › Authorized domains**, add your site's domain (for example `phuvu0107.github.io`).
+4. Register a web app in Project settings. Copy its `firebaseConfig` block into a GitHub Actions secret named `FIREBASE_CONFIG` (repo **Settings › Secrets and variables › Actions**), then run **Deploy to GitHub Pages**. The deploy writes it into the published `sync-config.js`, so it never lives in the repo. In Google Cloud's **APIs & Services › Credentials**, restrict that browser key to your site's address.
+5. Whenever the app opens on a device that isn't in a household yet, a **Join your household** panel pops up (tap **Not now** to skip until next time; the same button is in **Settings › Sync across devices**). On the first device, sign in with Google and tap **Start a household**: it starts with what's on that screen. Then make an invite code in **Settings › Sync across devices**. On every other device, sign in and type the code under **Join with a code**. Codes work for 7 days. Joining replaces that device's events, tasks and expenses with the shared ones.
+
+**Households from before sign-in** used a passphrase instead: their data is encrypted in the browser with it, and the record's name is a hash of it. They keep working (the rules above still allow them). To move one to sign-in, sign in on one screen that's synced and tap **Settings › Move this household to sign-in**. Everything moves over, and the old encrypted copy is left as it was. Every other screen then shows **Your household moved**; after a Google sign-in there, it carries on with the same data. Deploy first and give always-on screens ten minutes to reload before moving, since a screen still on an older version doesn't know about the move.
 
 Changes show up on the other screens within a second or two. Edits made offline are kept and sync when the connection comes back, and two people editing at once both keep their changes. Open screens reload themselves within about ten minutes of a new deploy (each deploy writes `version.txt`), and a screen still on an older version passes along any data it doesn't understand instead of deleting it. If the stars for a ticked chore or event ever go missing, the app rebuilds them from the tick.
 
 ## Summary email setup
 
-`.github/workflows/daily-email.yml` runs `sync/daily_email.py`, which reads the household's encrypted sync document, unlocks it with the household passphrase and sends the email over SMTP. It does nothing until these Actions secrets are added:
+`.github/workflows/daily-email.yml` runs `sync/daily_email.py`, which reads the household's sync document and sends the email over SMTP. It does nothing until these Actions secrets are added:
 
 | Secret | What it is |
 | --- | --- |
-| `HOUSEHOLD_PASSPHRASE` | The passphrase you type on each device to sync |
+| `HOME_ID` | The household's id, shown in **Settings › Connections › Summary email** |
+| `FIREBASE_SERVICE_ACCOUNT` | A key that can read the household: Firebase console › **Project settings › Service accounts › Generate new private key**, and paste the whole file |
+| `HOUSEHOLD_PASSPHRASE` | Only for a household still on a passphrase, instead of the two above |
 | `EMAIL_SMTP_USER` | The Gmail address that sends the email |
 | `EMAIL_SMTP_PASSWORD` | An [app password](https://myaccount.google.com/apppasswords) for that account |
 | `EMAIL_TO` | Who gets it, comma separated |
@@ -177,7 +172,8 @@ python3 -m http.server 8000
 - `app.js` – state, weather, views and actions
 - `icons.js` – inline SVG icon set
 - `receipt.js` – fridge kinds and the receipt reader
-- `sync.js`, `sync-config.js` – encrypted household sync (Firebase Firestore)
+- `sync.js`, `sync-config.js`, `firebase.js` – household sync (Firebase Firestore)
+- `account.js`, `firestore.rules` – Google sign-in, invite codes, and who may read each household (rules tested in `tests/rules.emulator.mjs`)
 - `people.js` – the household's people and who owes whom (tested in `tests/people.test.mjs`)
 - `avatars/` – Phu's and Nhi's avatars
 - `sw.js`, `manifest.webmanifest`, `icons/` – installable PWA and offline cache

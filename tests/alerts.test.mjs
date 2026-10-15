@@ -1,17 +1,17 @@
 // Run with: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { alertRecipients, alertTopic, bucketAlert, NTFY, sendAlerts, thanksAlert } from '../alerts.js';
+import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, NTFY, sendAlerts, thanksAlert } from '../alerts.js';
 
-const people = [{ id: 'phu', name: 'Phu', alerts: true }, { id: 'nhi', name: 'Nhi', alerts: true }, { id: 'm1', name: 'Kim' }];
+const people = [{ id: 'phu', name: 'Phu', alerts: newAlertTopic() }, { id: 'nhi', name: 'Nhi', alerts: newAlertTopic() }, { id: 'm1', name: 'Kim' }];
 
-test('each person gets their own private channel, the same on every device', async () => {
-  const a = await alertTopic('secret phrase', 'phu');
+test('each person gets their own random private channel', () => {
+  const a = newAlertTopic();
   assert.match(a, /^home-[0-9a-f]{24}$/);
-  assert.equal(a, await alertTopic('secret phrase', 'phu'));
-  assert.notEqual(a, await alertTopic('secret phrase', 'nhi'));
-  assert.notEqual(a, await alertTopic('other phrase', 'phu'));
-  assert.ok(!a.includes('phu') && !a.includes('secret'));
+  assert.notEqual(a, newAlertTopic());
+  assert.equal(alertTopicOf({ alerts: a }), a);
+  // Anything else on a synced record (an old true flag, something made up) is no channel.
+  for (const v of [true, '', 'home-x', `${a}&x`, undefined]) assert.equal(alertTopicOf({ alerts: v }), '');
 });
 
 test('only people who turned alerts on hear about it, never the sender', () => {
@@ -29,21 +29,19 @@ test('alerts say who did what, never the note itself', () => {
 test('sends one simple JSON request per person to ntfy', async () => {
   const calls = [];
   const fetchFn = async (url, opts) => { calls.push({ url, opts }); return { ok: true }; };
-  const n = await sendAlerts('pass', people.slice(0, 2), thanksAlert('Kim'), { click: 'https://x.test/', fetchFn });
+  const n = await sendAlerts(people, thanksAlert('Kim'), { click: 'https://x.test/', fetchFn });
   assert.equal(n, 2);
   assert.equal(calls[0].url, `${NTFY}/`);
   assert.equal(calls[0].opts.method, 'POST');
   assert.equal(calls[0].opts.headers, undefined); // no custom headers, so no CORS preflight
   const body = JSON.parse(calls[0].opts.body);
-  assert.equal(body.topic, await alertTopic('pass', 'phu'));
+  assert.equal(body.topic, people[0].alerts);
+  assert.equal(calls.length, 2); // Kim has no channel
   assert.equal(body.click, 'https://x.test/');
   assert.equal(body.title, 'Kim sent you a thank-you 💌');
 });
 
-test('a failed alert never throws and nothing goes out without a passphrase', async () => {
+test('a failed alert never throws', async () => {
   const boom = async () => { throw new Error('offline'); };
-  assert.equal(await sendAlerts('pass', people, thanksAlert('Kim'), { fetchFn: boom }), 0);
-  let called = false;
-  assert.equal(await sendAlerts('', people, thanksAlert('Kim'), { fetchFn: async () => { called = true; return { ok: true }; } }), 0);
-  assert.equal(called, false);
+  assert.equal(await sendAlerts(people, thanksAlert('Kim'), { fetchFn: boom }), 0);
 });

@@ -1,20 +1,21 @@
 // Shared household sync: the household's people, events, tasks, stars (and who earned them when), expenses, fridge items,
 // thank-you notes, sticky notes and Fitbit numbers stay the same on every device.
 //
-// Everything is encrypted in the browser with the household passphrase before it leaves
-// the device, so the database (Firebase Firestore) only ever holds scrambled data. The
-// document's name is a hash of the passphrase, so nobody can find it without the passphrase.
+// A household signed in with Google keeps its data at homes/{home}/data/main in Firebase
+// Firestore, and the database's rules (firestore.rules) let only its members read or change it.
+// Older households were found and unlocked by a passphrase instead: their data is encrypted in
+// the browser before it leaves the device, and the document's name is a hash of the passphrase.
+// Those keep working until every screen has moved to sign-in.
 //
 // Each item carries an update time (`u`), and deletions leave a short note (`gone`), so two
 // people editing at the same moment both keep their changes instead of one overwriting the other.
 
-import FIREBASE_CONFIG from './sync-config.js';
+import { firebase, firebaseConfigured } from './firebase.js';
 
-const SDK = 'https://www.gstatic.com/firebasejs/10.12.2';
 const ITER = 310000;
 const SALT = new TextEncoder().encode('home-dashboard household sync v1');
 
-export const syncAvailable = () => !!(FIREBASE_CONFIG || window.HOME_SYNC_BACKEND);
+export const syncAvailable = () => !!(firebaseConfigured() || window.HOME_SYNC_BACKEND);
 
 const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
 const unb64 = (v) => Uint8Array.from(atob(v), (c) => c.charCodeAt(0));
@@ -37,6 +38,13 @@ async function open(key, box) {
   const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(box.iv) }, key, unb64(box.data));
   return JSON.parse(new TextDecoder().decode(plain));
 }
+// How a signed-in household's data is stored: as text, since Firestore can't hold every shape
+// the app uses (lists inside lists, say). The rules keep it to the household's members.
+const plainCodec = { seal: async (obj) => ({ v: 2, json: JSON.stringify(obj) }), open: async (box) => JSON.parse(box.json) };
+const passCodec = (key) => ({ seal: (obj) => seal(key, obj), open: (box) => open(key, box) });
+// Where a household's data lives: a passphrase household by its hash, a signed-in one by its id.
+const passPath = (id) => `households/${id}`;
+const homePath = (home) => `homes/${home}/data/main`;
 
 /* ---------- State <-> items ---------- */
 const LISTS = { e: 'events', t: 'tasks', x: 'expenses', l: 'log', f: 'fridge', k: 'thanks', n: 'notes', b: 'bucket', p: 'members' };
@@ -88,31 +96,33 @@ let backendP = null;
 function backend() {
   if (window.HOME_SYNC_BACKEND) return Promise.resolve(window.HOME_SYNC_BACKEND);
   backendP ||= (async () => {
-    const [{ initializeApp }, fs] = await Promise.all([import(`${SDK}/firebase-app.js`), import(`${SDK}/firebase-firestore.js`)]);
-    const db = fs.getFirestore(initializeApp(FIREBASE_CONFIG));
-    const ref = (id) => fs.doc(db, 'households', id);
+    const { fs, db } = await firebase();
+    const ref = (path) => fs.doc(db, path);
     return {
-      async read(id) { const s = await fs.getDoc(ref(id)); return s.exists() ? s.data() : null; },
-      async update(id, fn) {
+      async read(path) { const s = await fs.getDoc(ref(path)); return s.exists() ? s.data() : null; },
+      async update(path, fn) {
         return fs.runTransaction(db, async (tx) => {
-          const s = await tx.get(ref(id));
+          const s = await tx.get(ref(path));
           const next = await fn(s.exists() ? s.data() : null);
-          tx.set(ref(id), next);
+          tx.set(ref(path), next);
           return next;
         });
       },
-      watch(id, cb, onErr) {
-        return fs.onSnapshot(ref(id), (s) => { if (!s.metadata.hasPendingWrites) cb(s.exists() ? s.data() : null); }, onErr);
+      watch(path, cb, onErr) {
+        return fs.onSnapshot(ref(path), (s) => { if (!s.metadata.hasPendingWrites) cb(s.exists() ? s.data() : null); }, onErr);
       },
+      // Marks an old passphrase household as moved, leaving its data where it is.
+      async mark(path, fields) { await fs.setDoc(ref(path), fields, { merge: true }); },
     };
   })();
   return backendP;
 }
 
 /* ---------- Public API ---------- */
-// status: off | connecting | new (no household yet for this passphrase) | ok | offline | badpass | error
+// status: off | connecting | new (no household yet for this passphrase) | ok | offline | badpass
+//         | moved (this passphrase household moved to sign-in; extra: { home, invite }) | error
 export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) {
-  let id = null; let key = null; let base = null; let unwatch = null;
+  let path = null; let codec = null; let key = null; let base = null; let unwatch = null;
   let dirty = false; let pushing = false; let timer = null;
   const status = (s, extra = {}) => onStatus({ state: s, ...extra });
 
@@ -135,18 +145,18 @@ export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) 
     return { items, gone };
   }
 
-  async function push() {
-    if (!id || pushing) return;
+  async function push(force = false) {
+    if (!path || pushing) return;
     pushing = true; dirty = false;
     try {
       const mine = localDoc();
       // Nothing changed since the last sync (a tap that only opened a sheet, say).
-      if (base && sameDoc(mine, base)) return;
+      if (!force && base && sameDoc(mine, base)) return;
       const be = await backend();
       let merged = null;
-      await be.update(id, async (remote) => {
-        merged = remote ? merge(await open(key, remote.box), mine) : mine;
-        return { box: await seal(key, merged), at: Date.now() };
+      await be.update(path, async (remote) => {
+        merged = remote ? merge(await codec.open(remote.box), mine) : mine;
+        return { box: await codec.seal(merged), at: Date.now() };
       });
       base = merged; onBase(base);
       // Bring in anything the other device changed at the same moment.
@@ -164,61 +174,104 @@ export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) 
   }
 
   function schedule(ms = 700) {
-    if (!id) return;
+    if (!path) return;
     dirty = true;
     clearTimeout(timer);
     timer = setTimeout(push, ms);
   }
 
+  // A passphrase household that moved to sign-in says where to, sealed with the passphrase.
+  async function movedTo(remote) {
+    if (!remote?.moved || !key) return null;
+    try { return await open(key, remote.moved); } catch { return {}; }
+  }
+  function stop() { unwatch?.(); unwatch = null; path = null; codec = null; clearTimeout(timer); }
+
   async function watch() {
     const be = await backend();
     unwatch?.();
-    unwatch = be.watch(id, async (remote) => {
-      if (!remote || pushing || dirty) return;
+    const watching = path;
+    unwatch = be.watch(path, async (remote) => {
+      if (!remote || pushing || dirty || path !== watching) return;
+      const moved = await movedTo(remote);
+      if (moved) { stop(); status('moved', moved); return; }
       try {
-        const doc = await open(key, remote.box);
+        const doc = await codec.open(remote.box);
         const local = base ? JSON.stringify(toItemsComparable(base.items)) : '';
         base = doc; onBase(base);
         if (JSON.stringify(toItemsComparable(doc.items)) !== local) onRemote((state) => applyItems(state, doc.items));
         status('ok', { at: Date.now() });
-      } catch { status('badpass'); }
+      } catch { status(key ? 'badpass' : 'error'); }
     }, () => status('offline'));
   }
 
-  return {
-    // Connect with a passphrase. Joins the household if it exists; otherwise reports 'new'.
-    async connect(pass, { create = false } = {}) {
-      status('connecting');
-      try {
-        id = await householdId(pass);
-        key = await householdKey(pass);
-        const be = await backend();
-        const remote = await be.read(id);
-        if (!remote && !create && !base) { id = null; status('new'); return 'new'; }
-        if (remote) {
-          let doc;
-          try { doc = await open(key, remote.box); } catch { id = null; status('badpass'); return 'badpass'; }
-          if (base) await push(); // this device synced before: merge in what changed here while away
-          else { base = doc; onBase(base); onRemote((state) => applyItems(state, doc.items)); } // first join: take the household's data
-        } else {
-          await push(); // a brand new household starts from this device's data
-        }
-        await watch();
-        if (!dirty) status('ok', { at: Date.now() });
-        return 'ok';
-      } catch (e) {
-        status(navigator.onLine === false ? 'offline' : 'error', { message: String(e?.message || e) });
-        return 'error';
+  // Joins the household at `where` if it exists; otherwise starts it from this device's data
+  // when `create` is set, or reports 'new'.
+  async function attach(where, how, { create = false } = {}) {
+    status('connecting');
+    try {
+      path = where; codec = how;
+      const be = await backend();
+      const remote = await be.read(path);
+      const moved = await movedTo(remote);
+      if (moved) { stop(); status('moved', moved); return 'moved'; }
+      if (!remote && !create && !base) { stop(); status('new'); return 'new'; }
+      if (remote) {
+        let doc;
+        try { doc = await codec.open(remote.box); } catch { stop(); status(key ? 'badpass' : 'error'); return key ? 'badpass' : 'error'; }
+        if (base) await push(); // this device synced before: merge in what changed here while away
+        else { base = doc; onBase(base); onRemote((state) => applyItems(state, doc.items)); } // first join: take the household's data
+      } else {
+        await push(true); // a brand new household starts from this device's data, even if nothing changed here
       }
+      await watch();
+      if (!dirty) status('ok', { at: Date.now() });
+      return 'ok';
+    } catch (e) {
+      status(navigator.onLine === false ? 'offline' : 'error', { message: String(e?.message || e) });
+      return 'error';
+    }
+  }
+
+  return {
+    // Connect with a passphrase (households from before sign-in).
+    async connect(pass, opts) {
+      key = await householdKey(pass);
+      return attach(passPath(await householdId(pass)), passCodec(key), opts);
+    },
+    // Connect to a signed-in household. A new household starts from this device's data.
+    connectHome(home, { fresh = false } = {}) {
+      key = null;
+      if (fresh) { base = null; onBase(null); } // joining someone else's: take theirs, don't merge ours in
+      return attach(homePath(home), plainCodec, { create: true });
+    },
+    // Moving a passphrase household to sign-in: everything synced here goes to the new household,
+    // and the old one is marked moved (its data stays where it is) so its other screens follow.
+    async moveTo(home, invite) {
+      if (!key || !path) throw new Error('Not on a passphrase household');
+      const old = path; const oldKey = key;
+      if (dirty) await push();
+      const r = await this.connectHome(home);
+      if (r !== 'ok') return r;
+      // Only send the other screens over once the household's data is really there.
+      const be = await backend();
+      if (!(await be.read(homePath(home)))?.box) return 'error';
+      await be.mark(old, { moved: await seal(oldKey, { home, invite }), movedAt: Date.now() });
+      return 'ok';
     },
     // Pick up again on page load with the saved passphrase and the last synced copy.
     resume(pass, savedBase) {
       base = savedBase || null;
       return this.connect(pass);
     },
-    disconnect() { unwatch?.(); unwatch = null; id = null; key = null; base = null; onBase(null); clearTimeout(timer); status('off'); },
+    resumeHome(home, savedBase) {
+      base = savedBase || null;
+      return this.connectHome(home);
+    },
+    disconnect() { stop(); key = null; base = null; onBase(null); status('off'); },
     changed: () => schedule(),
-    retry: () => { if (id && dirty) push(); },
-    get connected() { return !!id; },
+    retry: () => { if (path && dirty) push(); },
+    get connected() { return !!path; },
+    get mode() { return !path ? null : key ? 'pass' : 'home'; },
   };
 }
