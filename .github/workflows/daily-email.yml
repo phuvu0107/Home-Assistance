@@ -52,6 +52,8 @@ jobs:
         env:
           FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
           HOUSEHOLD_PASSPHRASE: ${{ secrets.HOUSEHOLD_PASSPHRASE }}
+          HOME_ID: ${{ secrets.HOME_ID }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           EMAIL_SMTP_USER: ${{ secrets.EMAIL_SMTP_USER }}
           EMAIL_SMTP_PASSWORD: ${{ secrets.EMAIL_SMTP_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}

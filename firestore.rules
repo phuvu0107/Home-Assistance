@@ -1,0 +1,61 @@
+rules_version = '2';
+
+// Who can read and change what in the household database. Publish with:
+//   Firebase console › Firestore Database › Rules (paste this file), or `firebase deploy --only firestore:rules`.
+//
+// homes/{home}            one household: who its members are (members: { uid: true }) and its name
+// homes/{home}/data/main  everything the household shares (events, chores, money, notes …)
+// invites/{code}          a short code that lets someone signed in join a household for 7 days
+// users/{uid}             which household a signed-in person belongs to
+// households/{id}         the old passphrase households, kept until every screen has moved over
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null; }
+    function isMember(home) {
+      return signedIn() && request.auth.uid in get(/databases/$(db)/documents/homes/$(home)).data.members;
+    }
+
+    // A live invite for this household.
+    function validInvite(code, home) {
+      let inv = get(/databases/$(db)/documents/invites/$(code)).data;
+      return code is string && inv.home == home && inv.expires > request.time;
+    }
+
+    match /homes/{home} {
+      allow get: if isMember(home);
+      // Starting a household: you are its only member.
+      allow create: if signedIn() && request.resource.data.members.keys().hasOnly([request.auth.uid])
+        && request.resource.data.members[request.auth.uid] == true;
+      // Members can rename it or remove people, but never add someone without an invite.
+      allow update: if isMember(home) && request.resource.data.members.keys().hasOnly(resource.data.members.keys())
+        // Joining: add only yourself, with a live invite for this household.
+        || signedIn()
+          && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid])
+          && request.resource.data.members[request.auth.uid] == true
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'invite'])
+          && validInvite(request.resource.data.invite, home);
+
+      match /data/{doc} {
+        allow read, write: if isMember(home);
+      }
+    }
+
+    match /invites/{code} {
+      // Looked up one at a time by its code; nobody can list them.
+      allow get: if signedIn();
+      allow create: if isMember(request.resource.data.home) && request.resource.data.by == request.auth.uid
+        && code.size() >= 8 && request.resource.data.expires < request.time + duration.value(8, 'd');
+      allow delete: if signedIn() && resource.data.by == request.auth.uid;
+    }
+
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Old passphrase households. The data inside is encrypted; anyone with the passphrase can
+    // find it. Remove this block once every screen has moved to sign-in.
+    match /households/{id} {
+      allow get, create, update: if id.size() == 64;
+    }
+  }
+}

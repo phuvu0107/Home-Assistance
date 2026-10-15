@@ -648,6 +648,12 @@ label.btn { cursor: pointer; }
 .setting-row:first-child { border-top: 0; }
 .setting-row > div:first-child { flex: 1; }
 .setting-row b { display: block; font-weight: 500; }
+.alerts-row { align-items: flex-start; flex-wrap: wrap; }
+.alerts-steps { margin: 6px 0 8px; padding-left: 20px; line-height: 1.6; }
+.alerts-topic { font-size: 13px; padding: 1px 6px; border-radius: 6px; background: var(--card-border); word-break: break-all; user-select: all; }
+.alerts-steps a { color: inherit; text-decoration: underline; }
+.alerts-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.link-btn { border: 0; background: none; padding: 0 4px; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .chip { border: 1px solid var(--card-border); background: var(--card); border-radius: 999px; padding: 8px 14px; font-size: 14px; }
 
@@ -710,6 +716,10 @@ label.btn { cursor: pointer; }
 .sheet-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
 .house-intro { margin: -6px 0 16px; color: var(--text-2); font-size: 14px; line-height: 1.5; }
 .sheet .sync-banner { margin: 0 0 16px; }
+.acct-who { margin: -4px 0 16px; }
+.acct-who b { color: var(--text); }
+.invite-code { font: 600 28px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; padding: 12px 16px; margin-bottom: 8px;
+  background: var(--chip, rgba(127, 127, 127, .1)); border-radius: 14px; user-select: all; text-align: center; }
 .toast {
   position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 14px; max-width: calc(100vw - 32px);
   background: #1c2333; color: #fff; padding: 12px 20px; border-radius: 999px; font-weight: 500; box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
