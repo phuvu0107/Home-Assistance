@@ -90,6 +90,64 @@ test('drops marks at the photo edge and stray letters where a price should be', 
   assert.equal(receiptText(data, W), 'BEAN SPROUT $1.39\nSHRIMP 21/25\n2 BANANAS 1.18');
 });
 
+// Tesseract's text for a LION supermarket receipt photographed on a granite counter, after the
+// counter's marks are dropped. Under each item is a line of garbled characters (the printer's
+// try at the Chinese name), and weighed items have their weight on the line above.
+const LION = `LION %i Fiz
+39055 Cedar Blvd
+NEWARK, CA i
+(910) 742-8179 é
+#008-005 10/14/2026 18:31:34 LINH THUAN
+Invi:00236570 Trs#:237376
+TT TT TT TT Te ee ee emma mgs
+Tare: 0.01 1b] 0.82 1b @ $3.99/1b
+CELERY CHINESE $3.27 F
+ARE-0d
+GARLIC PEELED $2.07 F
+20 2/ $1.60
+ONION GREEN 1.60 F
+wor
+0.60 1b @ $2.99/1p
+CHIVE GREEN $1.79 F
+i4u
+GROUND PORK $3.61 F
+EL O
+RIB EVE STEAK $16.10 F
+2H Avi
+EYE ROUND $14.90 F
+nel
+BEAN SPROUT [MUNG BEAN] 1 LB $1.69 F
+Recycle bag $0.15
+Net Sales $45.03
+ioen Sales $0.15
+TOTAL SALES $45.18
+sus ToTAL $45.18
+Debit card $45.18`;
+
+test('reads the LION receipt without the garbled name lines or the cashier line', () => {
+  assert.deepEqual(parseReceipt(LION).map((i) => i.name), [
+    'Celery Chinese', 'Garlic Peeled', 'Onion Green', 'Chive Green', 'Ground Pork', 'Rib Eve Steak', 'Eye Round',
+    'Bean Sprout Mung Bean',
+  ]);
+  assert.deepEqual(parseExpense(LION, new Date(2026, 9, 15)).amount, 45.18);
+});
+
+test('drops marks read off the counter on both sides of the receipt', () => {
+  const W = 1350;
+  const word = (text, x0, x1, confidence = 95) => ({ text, bbox: { x0, x1 }, confidence });
+  const data = { lines: [
+    { words: [word('39055', 546, 639), word('Cedar', 661, 754), word('Blvd', 776, 852)] },
+    { words: [word('Rr', 52, 193, 34), word('CELERY', 325, 420), word('CHINESE', 441, 558), word('$3.27', 834, 922), word('F', 940, 958), word('49', 1165, 1251, 62), word('|', 1344, 1349, 52)] },
+    { words: [word('@', 281, 295, 0), word('GARLIC', 323, 423), word('PEELED', 442, 542), word('$2.07', 830, 914), word('F', 932, 949), word('Pp)', 1020, 1037, 22)] },
+    { words: [word('ALGAE', 14, 394, 20), word('be', 1139, 1302, 43)] },
+    { words: [word('1.43', 212, 305, 65), word('1b', 339, 379, 43), word('@', 407, 430, 43), word('$1.69/', 532, 681, 55)] },
+    { words: [word('THUAN', 920, 1012), word('Net', 314, 363), word('Sales', 384, 467), word('$45.03', 809, 909)] },
+  ] };
+  assert.deepEqual(receiptText(data, W).split('\n'), [
+    '39055 Cedar Blvd', 'CELERY CHINESE $3.27 F', 'GARLIC PEELED $2.07 F', '', '1.43 1b @ $1.69/', 'THUAN Net Sales $45.03',
+  ]);
+});
+
 test('evens out a shadow so paper is white and print stays dark on both sides', () => {
   const w = 200, h = 50;
   const px = new Uint8ClampedArray(w * h * 4);
