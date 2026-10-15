@@ -175,7 +175,10 @@ def who_label(who, users):
 
 
 SLOTS = {7: "morning", 12: "midday", 17: "evening", 21: "night"}
-MAX_LATE = dt.timedelta(minutes=90)  # a scheduled run later than this sends nothing
+# When each email goes out. The morning one waits until :30 for the 7 AM deploy's PG&E data.
+SEND_AT = {"morning": (7, 30), "midday": (12, 0), "evening": (17, 0), "night": (21, 0)}
+MAX_WAIT = dt.timedelta(hours=5, minutes=30)  # a job can run 6 hours
+MAX_LATE = dt.timedelta(hours=1)
 
 
 def build(state, now, energy, sky, slot="morning"):
@@ -335,27 +338,28 @@ def page(slot, now, hello, sign, sky, sections):
             f'</table></div>')
 
 
-def pick_slot(now, tz):
-    """Which email this run is. Scheduled runs pass the cron line, and GitHub can start them
-    late, so the slot comes from when the run was meant to start, not from the clock now.
-    The workflow fires for both summer and winter time; the run for the other one stops here."""
-    cron = os.environ.get("SCHEDULE", "").split()
-    if not cron:  # started by hand: pick the nearest slot
-        return SLOTS[min(SLOTS, key=lambda h: abs(h - now.hour))]
-    utc_now = dt.datetime.now(dt.timezone.utc)
-    meant = utc_now.replace(hour=int(cron[1]), minute=int(cron[0]), second=0, microsecond=0)
-    if meant > utc_now + dt.timedelta(minutes=5):
-        meant -= dt.timedelta(days=1)  # meant for just before midnight UTC
-    slot = SLOTS.get(meant.astimezone(ZoneInfo(tz)).hour)
-    late = utc_now - meant
-    if slot and late > MAX_LATE:
-        # GitHub has started scheduled runs hours late; a 7 AM email at 2 PM is just noise.
-        print(f"Skipping the {slot} email: GitHub started this run {late.seconds // 3600}h {late.seconds % 3600 // 60}m late.")
-        return "late"
-    return slot
+def plan(tz):
+    """For a scheduled run: which email comes next and how long to wait for it. GitHub starts
+    scheduled runs hours late, so an hourly run picks the next email up to MAX_WAIT ahead and
+    waits for its time. An email whose time passed more than MAX_LATE ago is not sent."""
+    now = dt.datetime.now(ZoneInfo(tz))
+    for day in (now.date(), now.date() + dt.timedelta(days=1)):
+        for slot, (h, m) in SEND_AT.items():
+            at = dt.datetime(day.year, day.month, day.day, h, m, tzinfo=ZoneInfo(tz))
+            if at >= now - MAX_LATE:
+                if at - now > MAX_WAIT:
+                    return None
+                return slot, at, max(0, int((at - now).total_seconds()))
 
 
 def main():
+    if sys.argv[1:] == ["--plan"]:  # writes slot, key and wait for the workflow's next steps
+        nxt = plan(os.environ.get("EMAIL_TIMEZONE", "America/Los_Angeles"))
+        out = f"slot={nxt[0]}\nkey={nxt[1]:%Y-%m-%d}-{nxt[0]}\nwait={nxt[2]}\n" if nxt else "slot=\n"
+        print(f"Next: the {nxt[0]} email at {nxt[1]:%a %H:%M}, in {nxt[2] // 60} min." if nxt else "No email due in the next few hours.")
+        with open(os.environ.get("GITHUB_OUTPUT", os.devnull), "a") as f:
+            f.write(out)
+        return
     need = ["FIREBASE_CONFIG", "HOUSEHOLD_PASSPHRASE", "EMAIL_TO"] + ([] if os.environ.get("DRY_RUN") else ["EMAIL_SMTP_USER", "EMAIL_SMTP_PASSWORD"])
     missing = [k for k in need if not os.environ.get(k, "").strip()]
     if missing:
@@ -363,12 +367,7 @@ def main():
         return
     tz = os.environ.get("EMAIL_TIMEZONE", "America/Los_Angeles")
     now = dt.datetime.now(ZoneInfo(tz))
-    slot = os.environ.get("SLOT", "").strip().replace("auto", "") or pick_slot(now, tz)
-    if slot == "late":
-        return
-    if not slot:
-        print("Not an email hour in this time zone today (the other summer/winter time run sends it).")
-        return
+    slot = os.environ.get("SLOT", "").strip().replace("auto", "") or SLOTS[min(SLOTS, key=lambda h: abs(h - now.hour))]
     state = household_state(os.environ["HOUSEHOLD_PASSPHRASE"].strip())
     morning = slot == "morning"
     energy = energy_yesterday((now.date() - dt.timedelta(days=1)).isoformat()) if morning else None
