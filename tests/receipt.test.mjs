@@ -148,6 +148,82 @@ test('drops marks read off the counter on both sides of the receipt', () => {
   ]);
 });
 
+// Tesseract's text for real receipt photos from public test sets (card and member numbers left out).
+// A Safeway receipt: tax flags read as §, 5, 8 or ° after the price, "2 QTY" before the name,
+// Regular Price and Card Savings lines (often misspelled), section headings, and BALANCE for the total.
+const SAFEWAY = `SAFEWAY
+2111 Mission Street
+Santa Cruz CA 95060
+GROCERY
+SIG CHESE BL BARRL 5.00 S
+CRMY RNCH DP 15 0Z. 3.50 S
+Regular Price 3.99
+Card Savinas 0.49-
+2 QTY KEWPIE MAY 8.98 S
+REFRIG/FROZEN
+LUCERNE CHEESE MD . 6.99 §
+Resular Price 7.99
+Card Savinss 1.00-
+1 ary
+OUI BY YOPLAIT 1.50 S
+GEN MERCHANDISE
+CLIF BAR CHOC CHIP 1.258
+LASAGNE ROAST PAN . 8.99 7
+PRODUCE
+LRG HASS AVOCADOS . 3.52 S
+CLEMENTINE 3LB BAG 5.96
+STRAUS MILK RF 2% 3.815
+DEPOSIT MLK 2.00
+TRAX 0.83
+*xx% BALANCE 42.06
+SNAP BAL DUE 32.24
+SNAP Purchase 02/05/19 17:45
+SNAP BALANCE 683.20
+CASH BALANCE 0.00
+CHANGE 0.00`;
+
+test('reads a Safeway receipt with tax flags, quantities and savings lines', () => {
+  assert.deepEqual(parseReceipt(SAFEWAY).map((i) => [i.name, i.qty]), [
+    ['Sig Chese Bl Barrl', 1], ['Crmy Rnch Dp', 1], ['Kewpie May', 2], ['Lucerne Cheese Md', 1], ['Oui By Yoplait', 1],
+    ['Clif Bar Choc Chip', 1], ['Lasagne Roast Pan', 1], ['Lrg Hass Avocados', 1], ['Clementine Bag', 1], ['Straus Milk Rf', 1],
+  ]);
+  assert.equal(parseExpense(SAFEWAY, new Date(2019, 1, 6)).amount, 42.06);
+});
+
+test('a Costco item count above the items does not end the list early', () => {
+  const text = 'Santa Cruz #149\n220 Sylvania Ave\n(831) 469-0961\nTOTAL NUMBER OF ITEMS SOLD = 6\n919652 SUNDRI PESTO 9.59\n'
+    + '26584 BEST FD MAYO 6.99\nE 0000210159 / 26584 2.00-\n47500 KS TRKY BRST 13.69\n4521 CA REDEMP VA 0.60\nSUBTOTAL 59.94\nTAX 2.10\n**** TOTAL 62.09';
+  assert.deepEqual(parseReceipt(text).map((i) => i.name), ['Sundri Pesto', 'Best Fd Mayo', 'Kirkland Trky Breast']);
+  assert.equal(parseExpense(text).amount, 62.09);
+});
+
+test('the paid amount leaves out cash back, and one misread total is outvoted', () => {
+  const tj = 'TRADER JOE\'S\nOPEN 8:00AM TO 9:00PM DAILY\nCHICKEN BURRITOS 2.69\nPOTATO TOTS 2.49\nSUBTOTAL $9.07\n'
+    + 'TOTAL $9.15\nDEBIT $29.15\nCHANGE $20.00\nPurchase: $9.15\nCashback: $20.00\nTotal: USD$ 29.15';
+  assert.deepEqual(parseReceipt(tj).map((i) => i.name), ['Chicken Burritos', 'Potato Tots']);
+  assert.equal(parseExpense(tj).amount, 9.15);
+  const outlet = 'GROCERY OUTLET\nCHOC CHIP CKIE \' 1.98 F\nDIP SPREAD VEGAN 1.00 F\n3@3 FOR 1.00\nBALANCE DUE z1.17\n'
+    + 'SUB TOTAL 21.17\nTOTAL TAX 0.00\nTOTAL 21.17\nFOOD STAMPS TOTAL $21.17\nPurchase Amount $ 21.17\nEBT Food Balance $ 308.84';
+  assert.deepEqual(parseReceipt(outlet).map((i) => i.name), ['Choc Chip Ckie', 'Dip Spread Vegan']);
+  assert.equal(parseExpense(outlet).amount, 21.17);
+});
+
+test('reads a German receipt: SUMME, Pfand and comma prices', () => {
+  const text = 'real SB-Warenhaus GmbH\n40217 Dusseldorf-Bilk\nTel 02111334130\nPR PFANDGUTSCHL0158073 5,25-v\n'
+    + 'TIP BALKANKAESE 0,79 E\nTIP EDELSALAMT 150 1.29 E\nSUMME EUR 9.31\nBar EUR 10,01\nROCKGELD EUR 0,70';
+  assert.deepEqual(parseReceipt(text).map((i) => i.name), ['Tip Balkankaese', 'Tip Edelsalamt']);
+  assert.equal(parseExpense(text).amount, 9.31);
+});
+
+test('foods that start like totals, savings or tax lines are kept', () => {
+  assert.deepEqual(parseReceipt('SAFEWAY\n(831) 420-0781\nTEN GRAIN BREAD 3.99\nSAVOY CABBAGE 2.10\nREGULAR COFFEE 4.99\nEYE OF RND STK 9.12\nTRAX 0.46\nTOTAL 20.66')
+    .map((i) => i.name), ['Ten Grain Bread', 'Savoy Cabbage', 'Regular Coffee', 'Eye Of Rnd Stk']);
+});
+
+test('reads totals with thousands separators', () => {
+  assert.equal(parseExpense('BERG BUILDERS\nSubtotal $5,280.00\nBalance Due $5,280.00').amount, 5280);
+});
+
 test('evens out a shadow so paper is white and print stays dark on both sides', () => {
   const w = 200, h = 50;
   const px = new Uint8ClampedArray(w * h * 4);
