@@ -1,7 +1,7 @@
 import { icon, hydrateIcons } from './icons.js';
 import { createSync, syncAvailable } from './sync.js';
 import { accountAvailable, createInvite, joinHome, joinWithCode, myHome, showCode, signIn as accountSignIn, signOut as accountSignOut, startHome, watchUser } from './account.js';
-import { FRIDGE_CATS, guessCat, readExpense, readReceipt } from './receipt.js';
+import { FRIDGE_CATS, guessCat, learnFromReceipt, readExpense, readReceipt } from './receipt.js';
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
 import { cleanName, expenseStats as moneyStats, joinNames, legacyMembersFor, MAX_MEMBERS, newMember, PERSON_COLORS, sortMembers } from './people.js';
@@ -1483,7 +1483,7 @@ views.calendar = () => {
       <h2>${calTitle()}</h2>
       <button class="btn ghost sm" data-action="cal-today">Today</button>
       <span class="spacer"></span>
-      <div class="seg cal-who" role="group" aria-label="Whose schedule">${[['', 'Everyone'], ...USERS.map((u) => [u.id, u.name])].map(([id, l]) => `<button class="${calWho() === id ? 'on' : ''}" data-action="cal-who" data-who="${id}" aria-pressed="${calWho() === id}">${l}</button>`).join('')}</div>
+      <div class="seg cal-who" role="group" aria-label="Whose schedule">${[['', 'Everyone'], ...members().map((u) => [u.id, u.name])].map(([id, l]) => `<button class="${calWho() === id ? 'on' : ''}" data-action="cal-who" data-who="${id}" aria-pressed="${calWho() === id}">${l}</button>`).join('')}</div>
       <button class="chip-toggle${calChores() ? ' on' : ''}" data-action="cal-chores" aria-pressed="${calChores()}" aria-label="Chores">${icon('checkSquare')} Chores</button>
       <div class="seg">${Object.entries(CAL_VIEWS).map(([x, l]) => `<button class="${v === x ? 'on' : ''}" data-action="cal-view" data-v="${x}">${l}</button>`).join('')}</div>
     </div>
@@ -2396,7 +2396,7 @@ function openFridgeSheet(it) {
 function openReceiptSheet(found) {
   openSheet(`${sheetHead('From your receipt', 'receipt')}
     ${found.length ? `<p class="hint">Untick anything that isn't for the fridge and fix any names the reader got wrong.</p>
-    <div class="rc-list" data-nofocus>${found.map((f, i) => `<div class="rc-row" data-i="${i}">
+    <div class="rc-list" data-nofocus>${found.map((f, i) => `<div class="rc-row" data-i="${i}" data-read="${esc(f.name)}">
       <button class="check on rc-tick" data-action="rc-tick" aria-label="Include">${icon('check')}</button>
       <input class="input rc-name" value="${esc(f.name)}" aria-label="Item">
       <input class="input rc-qty" type="number" min="1" value="${f.qty}" aria-label="How many">
@@ -3354,7 +3354,7 @@ const actions = {
   },
   'save-receipt': () => {
     const today = isoDay(new Date()); const t = Date.now();
-    let n = 0;
+    let n = 0; const read = [];
     $('#sheet').querySelectorAll('.rc-row').forEach((row, i) => {
       const name = row.querySelector('.rc-name').value.trim();
       if (!row.querySelector('.rc-tick').classList.contains('on') || !name) return;
@@ -3363,7 +3363,10 @@ const actions = {
       const same = state.fridge.find((x) => x.name.toLowerCase() === name.toLowerCase());
       if (same) { same.qty += qty; same.added = today; same.use = suggestUse(cat) || same.use; } else state.fridge.push({ id: `f${t + i}`, name, qty, cat, added: today, use: suggestUse(cat) });
       n += 1;
+      read.push({ read: row.dataset.read || '', kept: name });
     });
+    // Names kept as read, or fixed by hand, teach the reader this household's words.
+    learnFromReceipt(read);
     closeSheet();
     toast(`Added ${n} item${n === 1 ? '' : 's'} to the fridge`);
   },
