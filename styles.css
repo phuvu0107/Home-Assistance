@@ -515,6 +515,11 @@ label.btn { cursor: pointer; }
 .emoji-pick .burst { --burst-c: var(--accent); --r: 36px; }
 .tc-check.burst { --r: 15px; }
 .tev-check.burst { --r: 21px; }
+.heart-btn.burst { --burst-c: var(--rose-fg); --r: 24px; }
+.bal-icon.burst { --burst-c: var(--green-fg); --r: 36px; }
+.bk-emoji.burst { --burst-c: var(--accent); --r: 26px; }
+.bk-emoji.burst::after { inset: auto; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px; border-radius: 50%; }
+.btn-round.burst { --burst-c: var(--accent); }
 @keyframes burst-ring { from { opacity: .7; transform: scale(.8); } to { opacity: 0; transform: scale(1.6); } }
 @keyframes burst-dots { from { opacity: 1; transform: scale(.35); } 70% { opacity: 1; } to { opacity: 0; transform: scale(1); } }
 @media (min-width: 900px) { .check { width: 48px; height: 48px; } .check.burst { --r: 38px; } }
@@ -713,7 +718,7 @@ label.btn { cursor: pointer; }
 .seg button.on { transition: background-color .25s, box-shadow .25s, color .2s, transform .15s; }
 
 @media (prefers-reduced-motion: reduce) {
-  .burst, .view.enter-fwd, .view.enter-back, .view .card, .view.settling, .view .board > *, .cal-body.fade-in,
+  .burst, .sticky.stuck, .view.enter-fwd, .view.enter-back, .view .card, .view.settling, .view .board > *, .cal-body.fade-in,
   .sheet:not([hidden]), .sheet.closing, .sheet-backdrop:not([hidden]), .sheet-backdrop.closing, .toast:not([hidden]) { animation: none !important; }
   .burst::before, .burst::after { display: none; }
   .tabs.ink-ready .tab-ink, .tab .ico, .dome, .dome.open, .orb, .dome.open .orb, .dome-arm, .dome-scrim { transition-duration: .01s !important; transition-delay: 0s !important; }
@@ -1080,7 +1085,7 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
   display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 .sticky small { font-size: 12px; opacity: .62; }
 .sticky-new { position: absolute; top: 9px; right: 10px; font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--accent); }
-.sticky.new { animation: stick-on .5s cubic-bezier(.2, 1.4, .4, 1) both; }
+.sticky.new, .sticky.stuck { animation: stick-on .5s cubic-bezier(.2, 1.4, .4, 1) var(--burst-t, 0s) both; }
 @keyframes stick-on { from { transform: rotate(var(--tilt, 0deg)) translateY(-10px) scale(.96); opacity: 0; } }
 .note-add { flex: none; width: 92px; min-height: 150px; border: 1.5px dashed var(--card-border); border-radius: 6px; background: none; color: var(--text-2);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-weight: 500; font-size: 13px; }
