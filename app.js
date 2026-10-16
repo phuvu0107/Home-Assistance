@@ -1244,7 +1244,6 @@ function taskChip(t) {
 }
 
 // `face` puts the person's avatar and name on the row, for lists that mix both people.
-let justTicked = null; // the tick that was just made gets a little pop
 function taskCard(t, u, face = false) {
   const done = isDone(t);
   return `<div class="task${done ? ' done' : ''}${t.important ? ' imp' : ''}${face ? ' with-face' : ''}">
@@ -1254,7 +1253,7 @@ function taskCard(t, u, face = false) {
       <small>${face ? `${u.name} · ` : ''}${REPEAT_LABEL[t.repeat]} <span class="stars">${icon('star')}${t.stars}</span></small>
     </button>
     ${face && done ? thankBtn(`${t.id}@${t.doneOn}@${t.who}`, t.who, t.title) : ''}
-    <button class="check ${done ? 'on' : ''}${done && justTicked === t.id ? ' pop' : ''}" data-action="toggle-task" data-id="${t.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}" aria-pressed="${done}">${icon('check')}</button>
+    <button class="check ${done ? 'on' : ''}" data-action="toggle-task" data-id="${t.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}" aria-pressed="${done}">${icon('check')}</button>
   </div>`;
 }
 
@@ -2683,6 +2682,7 @@ function renderView(anim) {
   if (anim === 'fwd' || anim === 'back') animate(view, `enter-${anim}`);
   else if (anim === 'cal') animate($('.cal-body'), 'fade-in');
   updateBadge();
+  playBurst();
 }
 
 let lastRoute = null;
@@ -2805,6 +2805,25 @@ function daySheetHtml(iso) {
 function redrawDaySheet() {
   const sheet = $('#sheet');
   if (!sheet.hidden && sheet.dataset.kind === 'day') sheet.innerHTML = daySheetHtml(sheet.dataset.d);
+  playBurst();
+}
+
+// A little pop and sparkle on a check or emoji the moment it's ticked or picked. Pages get
+// re-rendered right after a tap (and again when a sheet closes), so the new copy of the button
+// picks the animation up where the old one was, using a negative delay.
+const BURST_MS = 600;
+let burstAt = 0, burstSel = '';
+function burst(sel) { burstAt = Date.now(); burstSel = sel; }
+function burstOn(el, t = 0) {
+  el.classList.remove('burst');
+  void el.offsetWidth; // restart the animation on a second quick tap
+  el.style.setProperty('--burst-t', `${-t}ms`);
+  el.classList.add('burst');
+}
+function playBurst() {
+  const t = Date.now() - burstAt;
+  if (!burstSel || t > BURST_MS) return;
+  document.querySelectorAll(burstSel).forEach((el) => { if (!el.classList.contains('burst')) burstOn(el, t); });
 }
 
 function openDaySheet(iso) {
@@ -2856,6 +2875,7 @@ const actions = {
   'toggle-important': (el) => el.setAttribute('aria-checked', String(el.getAttribute('aria-checked') !== 'true')),
   'pick-seg': (el) => {
     el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
+    if (el.parentElement.classList.contains('emoji-pick')) burstOn(el);
   },
 
   'cal-move': (el) => {
@@ -2914,6 +2934,7 @@ const actions = {
       if ($('#ev-stars .on')) e.stars = Number($('#ev-stars .on').dataset.v);
     }
     awardStars(e, 'event', !eventDone(e));
+    if (eventDone(e)) burst(`[data-action="toggle-event"][data-id="${e.id}"]:not(.btn)`);
     if (el.dataset.close) closeSheet();
     redrawDaySheet();
   },
@@ -2962,7 +2983,7 @@ const actions = {
   'toggle-task': (el) => {
     const t = state.tasks.find((x) => x.id === el.dataset.id);
     awardStars(t, 'task', !isDone(t));
-    justTicked = t.id; setTimeout(() => { justTicked = null; }, 600);
+    if (isDone(t)) burst(`[data-action="toggle-task"][data-id="${t.id}"]`);
     redrawDaySheet();
   },
 
@@ -3074,6 +3095,7 @@ const actions = {
     // Whoever ticked it off: this phone's owner, or on the fridge the one person who went.
     const from = me() || (userOf(doneBy) ? doneBy : '');
     Object.assign(b, { doneAt: Date.now(), doneBy, ...(from && { from }) });
+    burst(`[data-action="tick-bucket"][data-id="${b.id}"]`);
     closeSheet();
     toast(`Ticked off ${b.text} · +${loveOf(b)} love points ❤️`);
     // Same people as the Home notice: everyone but the one who ticked it off.
@@ -3326,7 +3348,10 @@ const actions = {
     }]);
   },
   'fridge-cat': (el) => { fridgeCat = el.dataset.v; },
-  'rc-tick': (el) => { el.classList.toggle('on'); el.closest('.rc-row').classList.toggle('off', !el.classList.contains('on')); },
+  'rc-tick': (el) => {
+    el.classList.toggle('on'); el.closest('.rc-row').classList.toggle('off', !el.classList.contains('on'));
+    if (el.classList.contains('on')) burstOn(el);
+  },
   'save-receipt': () => {
     const today = isoDay(new Date()); const t = Date.now();
     let n = 0;

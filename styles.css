@@ -501,9 +501,23 @@ label.btn { cursor: pointer; }
 .task.done .task-body b { color: var(--text-2); }
 .check.on { background: var(--ok); border-color: var(--ok); color: #fff; }
 .task.done .task-body b { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text-3) 60%, transparent); }
-.check.pop { animation: check-pop .45s cubic-bezier(.2, 1.6, .4, 1); }
 @keyframes check-pop { 0% { transform: scale(.7); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
-@media (min-width: 900px) { .check { width: 48px; height: 48px; } }
+/* Tick or pick: the button pops, a ring spreads out and six little dots fly off. */
+.burst { position: relative; overflow: visible; --r: 32px; --burst-c: var(--ok); animation: check-pop .45s cubic-bezier(.2, 1.6, .4, 1) var(--burst-t, 0s); }
+.burst::before, .burst::after { content: ''; position: absolute; pointer-events: none; animation-delay: var(--burst-t, 0s); animation-fill-mode: both; }
+.burst::after { inset: -3px; border-radius: inherit; border: 2px solid var(--burst-c); animation-name: burst-ring; animation-duration: .5s; animation-timing-function: ease-out; }
+.burst::before {
+  left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px; border-radius: 50%; color: var(--burst-c);
+  box-shadow: 0 calc(-1 * var(--r)), calc(.87 * var(--r)) calc(-.5 * var(--r)), calc(.87 * var(--r)) calc(.5 * var(--r)),
+    0 var(--r), calc(-.87 * var(--r)) calc(.5 * var(--r)), calc(-.87 * var(--r)) calc(-.5 * var(--r));
+  animation-name: burst-dots; animation-duration: .55s; animation-timing-function: cubic-bezier(.2, .7, .3, 1);
+}
+.emoji-pick .burst { --burst-c: var(--accent); --r: 36px; }
+.tc-check.burst { --r: 15px; }
+.tev-check.burst { --r: 21px; }
+@keyframes burst-ring { from { opacity: .7; transform: scale(.8); } to { opacity: 0; transform: scale(1.6); } }
+@keyframes burst-dots { from { opacity: 1; transform: scale(.35); } 70% { opacity: 1; } to { opacity: 0; transform: scale(1); } }
+@media (min-width: 900px) { .check { width: 48px; height: 48px; } .check.burst { --r: 38px; } }
 .add-task { margin-top: 12px; width: 100%; border: 1px dashed var(--card-border); background: none; border-radius: 14px; padding: 12px; color: var(--text-2); font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 8px; }
 .home-tasks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .home-person .person-head { margin-bottom: 10px; }
@@ -699,8 +713,9 @@ label.btn { cursor: pointer; }
 .seg button.on { transition: background-color .25s, box-shadow .25s, color .2s, transform .15s; }
 
 @media (prefers-reduced-motion: reduce) {
-  .check.pop, .view.enter-fwd, .view.enter-back, .view .card, .view.settling, .view .board > *, .cal-body.fade-in,
+  .burst, .view.enter-fwd, .view.enter-back, .view .card, .view.settling, .view .board > *, .cal-body.fade-in,
   .sheet:not([hidden]), .sheet.closing, .sheet-backdrop:not([hidden]), .sheet-backdrop.closing, .toast:not([hidden]) { animation: none !important; }
+  .burst::before, .burst::after { display: none; }
   .tabs.ink-ready .tab-ink, .tab .ico, .dome, .dome.open, .orb, .dome.open .orb, .dome-arm, .dome-scrim { transition-duration: .01s !important; transition-delay: 0s !important; }
 }
 
