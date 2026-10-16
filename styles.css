@@ -1,64 +1,76 @@
 :root {
-  --bg: #f6f3ee;
-  --card: #ffffff;
-  --card-border: #efeae3;
-  --muted-surface: #f4f1ec;
-  --text: #1c2333;
-  --text-2: #5d6474;
-  --text-3: #8b909c;
-  --accent: #2f5bd3;
-  --accent-soft: #e7eefc;
-  --ok: #22b26b;
-  --warn: #e2932b;
-  --danger: #e0524d;
-  --imp: #e5383b; --imp-bg: #ffe9e8; --imp-on: #fff;
+  /* The Hearth palette. Navy is the brand (headings, the night greeting card), cream is the
+     page by day, teal is for buttons and anything done, coral for what needs attention,
+     and honey gold for stars and love points. */
+  --navy: #1F2A44; --cream: #FBF6EC; --teal: #2A9D8F; --coral: #E76F51; --honey: #E9C46A;
+  --brand: var(--navy);
+  --bg: var(--cream);
+  --card: #fffdf9;
+  --card-border: #ede4d3;
+  --muted-surface: #f5eee2;
+  --text: var(--navy);
+  --text-2: #586178;
+  --text-3: #8a8f9c;
+  --accent: var(--teal);
+  --accent-soft: #e2f2ef;
+  --ok: var(--teal);
+  --warn: #d9a83a;
+  --danger: var(--coral);
+  --imp: var(--coral); --imp-bg: #fdebe5; --imp-on: #fff;
   --glass: rgba(255, 255, 255, .62);
   --glass-border: rgba(255, 255, 255, .85);
   --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .9);
-  --blob-1: rgba(255, 196, 160, .45); --blob-2: rgba(190, 180, 245, .38); --blob-3: rgba(160, 205, 245, .35);
+  --blob-1: rgba(231, 111, 81, .16); --blob-2: rgba(42, 157, 143, .14); --blob-3: rgba(233, 196, 106, .22);
   --shadow: 0 1px 2px rgba(30, 30, 40, .04), 0 6px 20px rgba(30, 30, 40, .05);
   /* The floating tab bar and the More half circle: mostly see-through, blurred behind. */
-  --float: rgba(255, 255, 255, .38); --float-strong: rgba(255, 255, 255, .5); --float-edge: rgba(28, 35, 51, .08);
+  --float: rgba(255, 255, 255, .38); --float-strong: rgba(255, 255, 255, .5); --float-edge: rgba(31, 42, 68, .08);
   --float-shadow: 0 12px 32px rgba(20, 26, 44, .14), 0 2px 6px rgba(20, 26, 44, .05);
-  --lens-fill: rgba(47, 91, 211, .12); --lens-edge: rgba(47, 91, 211, .22);
+  --lens-fill: rgba(42, 157, 143, .14); --lens-edge: rgba(42, 157, 143, .28);
+  /* The selected tab sits on a solid brand pill. */
+  --tab-ink: var(--navy); --tab-ink-edge: transparent; --tab-on: var(--cream);
 
-  --amber-bg: #fff6e8; --amber-icon: #ffe6b8; --amber-fg: #e8a21b;
-  --blue-bg: #eef4ff;  --blue-icon: #d8e5ff;  --blue-fg: #3e6fe0;
-  --green-bg: #eefaf2; --green-icon: #d2f2df; --green-fg: #1e9f5f;
+  /* Color families (people, cards, charts), tinted to the palette. */
+  --amber-bg: #fdf6e4; --amber-icon: #f7e7bb; --amber-fg: #d4a32f;
+  --blue-bg: #eef1f7;  --blue-icon: #dae0ee;  --blue-fg: #34477a;
+  --green-bg: #eaf6f4; --green-icon: #cdebe6; --green-fg: var(--teal);
   --purple-bg: #f5f0ff; --purple-icon: #e6dcff; --purple-fg: #7b56d8;
-  --rose-bg: #fff0f0; --rose-icon: #ffdada; --rose-fg: #d9534f;
+  --rose-bg: #fdefea; --rose-icon: #f9d9ce; --rose-fg: #d85c3d;
 
   --radius: 20px;
   --radius-sm: 14px;
-  --font: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font: "Poppins", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
-  --bg: #12151c;
-  --card: #1b202a;
-  --card-border: #262c38;
-  --muted-surface: #222834;
-  --text: #eef1f6;
-  --text-2: #aab1bf;
-  --text-3: #7c8494;
-  --accent: #7ea2ff;
-  --accent-soft: #24304a;
+  /* At night the whole app sits on the brand navy. */
+  --bg: #131a2c;
+  --card: #1c2640;
+  --card-border: #2a3655;
+  --muted-surface: #243050;
+  --text: #f3eee4;
+  --text-2: #b3b8c6;
+  --text-3: #7f879b;
+  --accent: #3fbcab;
+  --accent-soft: #1b3a42;
+  --ok: #3fbcab;
+  --danger: #f08a70;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
-  --float: rgba(30, 36, 50, .4); --float-strong: rgba(30, 36, 50, .52); --float-edge: rgba(0, 0, 0, .3);
+  --float: rgba(31, 42, 68, .42); --float-strong: rgba(31, 42, 68, .55); --float-edge: rgba(0, 0, 0, .3);
   --float-shadow: 0 12px 32px rgba(0, 0, 0, .4), 0 2px 6px rgba(0, 0, 0, .25);
-  --lens-fill: rgba(126, 162, 255, .16); --lens-edge: rgba(126, 162, 255, .3);
+  --lens-fill: rgba(63, 188, 171, .18); --lens-edge: rgba(63, 188, 171, .32);
+  --tab-ink: var(--lens-fill); --tab-ink-edge: var(--lens-edge); --tab-on: var(--accent);
 
-  --amber-bg: #2a2418; --amber-icon: #3d321b; --amber-fg: #f3b84a;
-  --blue-bg: #1b2436;  --blue-icon: #233250;  --blue-fg: #7ea2ff;
-  --green-bg: #18271f; --green-icon: #1e3a2a; --green-fg: #4fd08d;
+  --amber-bg: #2a2719; --amber-icon: #3f371c; --amber-fg: var(--honey);
+  --blue-bg: #1d2742;  --blue-icon: #2a3860;  --blue-fg: #9fb2e0;
+  --green-bg: #16302f; --green-icon: #1c4440; --green-fg: #3fbcab;
   --purple-bg: #231e33; --purple-icon: #322a4b; --purple-fg: #ab8cff;
-  --rose-bg: #2c1c1e; --rose-icon: #43262a; --rose-fg: #ff8a85;
-  --imp: #ff5f5f; --imp-bg: #3a1b1c; --imp-on: #1a0d0d;
-  --glass: rgba(30, 36, 50, .58);
+  --rose-bg: #2e2024; --rose-icon: #472b29; --rose-fg: #f08a70;
+  --imp: #f08a70; --imp-bg: #3a2222; --imp-on: #1a0d0d;
+  --glass: rgba(31, 42, 68, .58);
   --glass-border: rgba(255, 255, 255, .07);
   --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .06);
-  --blob-1: rgba(120, 90, 200, .22); --blob-2: rgba(60, 110, 200, .2); --blob-3: rgba(200, 110, 120, .12);
+  --blob-1: rgba(42, 157, 143, .14); --blob-2: rgba(70, 95, 160, .22); --blob-3: rgba(231, 111, 81, .1);
   color-scheme: dark;
 }
 
@@ -107,21 +119,21 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
   border-radius: 24px; padding: 26px 30px; min-height: 136px;
   display: flex; align-items: center; gap: 22px;
   /* The panel uses the app's own surfaces: a card-toned base with a soft wash of sky. */
-  --hill-1: rgba(47, 91, 211, .06); --hill-2: rgba(47, 91, 211, .1); --palm: rgba(28, 35, 51, .22);
-  --greet: var(--accent); --cloud: #ffffff; --cloud-a: .85; --drop: rgba(62, 98, 170, .42); --flake: #b4c3de;
-  background: linear-gradient(115deg, #fbf9f5 0%, #f1f3f8 60%, #e8eef9 100%);
+  --hill-1: rgba(31, 42, 68, .06); --hill-2: rgba(31, 42, 68, .1); --palm: rgba(31, 42, 68, .22);
+  --greet: var(--brand); --cloud: #ffffff; --cloud-a: .85; --drop: rgba(62, 98, 170, .42); --flake: #b4c3de;
+  background: linear-gradient(115deg, #fdfaf3 0%, #f6efe2 60%, #efe6d4 100%);
   border: 1px solid var(--card-border);
   box-shadow: var(--shadow);
-  color: #1c2333;
+  color: var(--navy);
 }
 .hero.morning { background: linear-gradient(115deg, #fdfaf4 0%, #faf0e2 55%, #f6e5d5 100%); --hill-1: rgba(196, 128, 72, .07); --hill-2: rgba(196, 128, 72, .11); --palm: rgba(92, 64, 44, .2); }
-.hero.day     { background: linear-gradient(115deg, #f9fbfe 0%, #edf3fc 55%, #dfe9fa 100%); }
+.hero.day     { background: linear-gradient(115deg, #fdfaf3 0%, #f3efe4 55%, #e3ece6 100%); }
 .hero.evening { background: linear-gradient(115deg, #fcf7f2 0%, #f7e8df 55%, #ecdfe8 100%); --hill-1: rgba(150, 92, 120, .07); --hill-2: rgba(150, 92, 120, .11); --palm: rgba(70, 44, 60, .22); }
 .hero.night   {
-  background: linear-gradient(115deg, #191d27 0%, #1b2233 55%, #21304f 100%); color: #eef1f6;
-  border-color: #262c38;
-  --hill-1: rgba(126, 162, 255, .05); --hill-2: rgba(126, 162, 255, .09); --palm: rgba(6, 8, 14, .6);
-  --greet: #9db5ff; --cloud: #4a5675; --cloud-a: .5; --drop: rgba(170, 195, 255, .38); --flake: #e8eeff;
+  background: linear-gradient(115deg, #1a2339 0%, var(--navy) 55%, #2a3a60 100%); color: var(--cream);
+  border-color: #2a3655;
+  --hill-1: rgba(251, 246, 236, .05); --hill-2: rgba(251, 246, 236, .08); --palm: rgba(8, 12, 22, .6);
+  --greet: var(--honey); --cloud: #4a5675; --cloud-a: .5; --drop: rgba(170, 195, 255, .38); --flake: #e8eeff;
 }
 /* Gray days dim the sky a touch and soften the sun or moon. */
 .hero.wx-cloud .wx-fx::before, .hero.wx-rain .wx-fx::before, .hero.wx-storm .wx-fx::before, .hero.wx-fog .wx-fx::before, .hero.wx-snow .wx-fx::before {
@@ -247,12 +259,14 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
 }
 .tab > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .tab .ico { font-size: 23px; transition: transform .28s cubic-bezier(.2, 1.4, .4, 1); }
-.tab.active, .tab.hot { color: var(--accent); }
+/* The label on the pill reads in --tab-on: the active tab, the one a slide is on, or More while it is open. */
+.tab.active, .tab.hot, body.dome-open .tab[data-page="more"] { color: var(--tab-on); }
+#tabs:has(.tab.hot) .tab.active:not(.hot), body.dome-open .tab.active:not([data-page="more"]) { color: var(--text-2); }
 .tab.active { font-weight: 600; }
 .tab.hot .ico { transform: scale(1.14) translateY(-1px); }
 .tab-ink {
   position: absolute; top: 0; left: 0; width: 0; height: 0; border-radius: 26px; pointer-events: none;
-  background: var(--lens-fill); box-shadow: inset 0 0 0 1px var(--lens-edge);
+  background: var(--tab-ink); box-shadow: inset 0 0 0 1px var(--tab-ink-edge);
 }
 .more-dots svg { transition: transform .35s cubic-bezier(.2, 1.3, .35, 1); }
 body.dome-open .more-dots svg { transform: rotate(90deg); }
@@ -742,9 +756,9 @@ label.btn { cursor: pointer; }
   background: var(--chip, rgba(127, 127, 127, .1)); border-radius: 14px; user-select: all; text-align: center; }
 .toast {
   position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 14px; max-width: calc(100vw - 32px);
-  background: #1c2333; color: #fff; padding: 12px 20px; border-radius: 999px; font-weight: 500; box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
+  background: var(--navy); color: var(--cream); padding: 12px 20px; border-radius: 999px; font-weight: 500; box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
 }
-.toast-btn { border: 0; background: none; color: #9db6ff; font-weight: 700; padding: 4px 2px; }
+.toast-btn { border: 0; background: none; color: var(--honey); font-weight: 700; padding: 4px 2px; }
 /* The one add button: same corner on every page that can add something. */
 .fab {
   position: fixed; right: 28px; bottom: 28px; z-index: 25; width: 60px; height: 60px; border-radius: 50%; border: 0;
@@ -879,7 +893,7 @@ body.dome-open .fab { opacity: 0; transform: scale(.6); pointer-events: none; }
 .lb-card { display: flex; align-items: center; gap: 16px; min-width: 0; }
 .lb-card.lead { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--amber-fg) 55%, transparent); }
 .lb-rank { flex: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: var(--muted-surface); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-2); }
-.lb-card.lead .lb-rank { background: var(--amber-fg); color: #fff; }
+.lb-card.lead .lb-rank { background: var(--honey); color: var(--navy); }
 .lb-who { flex: 1; min-width: 0; }
 .lb-who h2 { margin: 0 0 8px; font-size: 20px; font-weight: 600; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .lb-who .pills { flex-wrap: wrap; }

@@ -127,7 +127,7 @@ function applyTheme() {
   const h = new Date().getHours();
   const dark = theme === 'dark' || (theme === 'auto' && (h >= 21 || h < 6));
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  $('meta[name="theme-color"]').content = dark ? '#12151c' : '#f6f3ee';
+  $('meta[name="theme-color"]').content = dark ? '#131a2c' : '#FBF6EC';
 }
 
 // A new greeting each day, the same on every screen.
