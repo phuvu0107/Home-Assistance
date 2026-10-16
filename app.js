@@ -1484,7 +1484,7 @@ views.calendar = () => {
       <h2>${calTitle()}</h2>
       <button class="btn ghost sm" data-action="cal-today">Today</button>
       <span class="spacer"></span>
-      <div class="seg cal-who" role="group" aria-label="Whose schedule">${[['', 'Everyone'], ...USERS.map((u) => [u.id, u.name])].map(([id, l]) => `<button class="${calWho() === id ? 'on' : ''}" data-action="cal-who" data-who="${id}" aria-pressed="${calWho() === id}">${l}</button>`).join('')}</div>
+      <div class="seg cal-who" role="group" aria-label="Whose schedule">${[['', 'Everyone'], ...members().map((u) => [u.id, u.name])].map(([id, l]) => `<button class="${calWho() === id ? 'on' : ''}" data-action="cal-who" data-who="${id}" aria-pressed="${calWho() === id}">${l}</button>`).join('')}</div>
       <button class="chip-toggle${calChores() ? ' on' : ''}" data-action="cal-chores" aria-pressed="${calChores()}" aria-label="Chores">${icon('checkSquare')} Chores</button>
       <div class="seg">${Object.entries(CAL_VIEWS).map(([x, l]) => `<button class="${v === x ? 'on' : ''}" data-action="cal-view" data-v="${x}">${l}</button>`).join('')}</div>
     </div>
