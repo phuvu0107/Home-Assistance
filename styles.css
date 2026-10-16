@@ -299,7 +299,7 @@ body.dome-open .dome-scrim { opacity: 1; pointer-events: auto; }
 }
 .dome-disc::after { content: ""; position: absolute; inset: 22% 22% 0; border-radius: 999px 999px 0 0; border: 1px solid var(--lens-edge); border-bottom: 0; opacity: .6; }
 .orb {
-  position: absolute; z-index: 1; width: var(--orb); height: var(--orb); margin: calc(var(--orb) / -2) 0 0 calc(var(--orb) / -2); border-radius: 50%;
+  position: absolute; z-index: calc(5 - var(--d)); /* higher orbs sit above lower ones, so their labels stay readable */ width: var(--orb); height: var(--orb); margin: calc(var(--orb) / -2) 0 0 calc(var(--orb) / -2); border-radius: 50%;
   display: grid; place-items: center; background: var(--card); color: var(--text-2); text-decoration: none; pointer-events: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
   box-shadow: 0 6px 16px rgba(20, 26, 44, .14), inset 0 0 0 1px var(--card-border);
   opacity: 0; transform: scale(.4); transition: opacity .12s, transform .2s, color .2s;
