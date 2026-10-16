@@ -4,6 +4,7 @@ import { accountAvailable, createInvite, joinHome, joinWithCode, myHome, myHomes
 import { FRIDGE_CATS, guessCat, learnFromReceipt, readExpense, readReceipt } from './receipt.js';
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
+import FEEDBACK_EMAIL from './feedback-config.js';
 import { cleanName, expenseStats as moneyStats, joinNames, legacyMembersFor, MAX_MEMBERS, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
@@ -726,6 +727,9 @@ const PAGES = [
 ];
 const MAIN = PAGES.filter((p) => p.main);
 const MORE = PAGES.filter((p) => !p.main);
+// The half circle holds the More pages plus Send feedback, which opens an email instead of a page.
+const FEEDBACK = { id: 'feedback', label: 'Feedback', icon: 'mail' };
+const DOME = [...MORE, FEEDBACK];
 const ROUTE_ALIAS = { board: 'tasks' }; // the Leaderboard now lives on Chores
 
 const currentRoute = () => {
@@ -779,7 +783,7 @@ function moveInk() {
 /* ---------- More: a half circle that opens out of the More tab ----------
    Tap More, then tap a page. Or hold More, slide up, then left or right: a ring follows the finger
    and the page under it opens on release. Sliding along the bar picks a main tab the same way. */
-const ARC = [160, 132, 104, 76, 48, 20]; // degrees, left to right, one per More page
+const ARC = [160, 137, 113, 90, 67, 43, 20]; // degrees, left to right, one per item in the half circle
 const UP = MORE.findIndex((p) => p.id === 'settings'); // straight up from More
 let domeOpen = false;
 let dome = null; // geometry of the open half circle, in screen pixels
@@ -794,7 +798,7 @@ function buildDome() {
   const el = $('#dome');
   el.innerHTML = `<div class="dome-disc" style="left:${dome.cx - R}px;top:${dome.cy - R}px;width:${2 * R}px;height:${R}px"></div>
     <div class="dome-arm" style="left:${dome.cx}px;top:${dome.cy}px;--r:${dome.r}px;--lens:${dome.lens}px"><span class="dome-lens"></span></div>
-    ${MORE.map((p, i) => `<a class="orb${p.id === r ? ' on' : ''}" role="menuitem" href="#/${p.id}" data-i="${i}" style="--orb:${dome.orb}px;--d:${Math.abs(i - (MORE.length - 1) / 2)};left:${dome.xs[i].toFixed(1)}px;top:${(dome.cy - dome.r * Math.sin(rad(ARC[i]))).toFixed(1)}px">${icon(p.icon)}<span class="orb-lbl">${p.label}</span></a>`).join('')}
+    ${DOME.map((p, i) => `<a class="orb${p.id === r ? ' on' : ''}" role="menuitem" href="${p === FEEDBACK ? feedbackLink() : `#/${p.id}`}" data-i="${i}" style="--orb:${dome.orb}px;--d:${Math.abs(i - (DOME.length - 1) / 2)};left:${dome.xs[i].toFixed(1)}px;top:${(dome.cy - dome.r * Math.sin(rad(ARC[i]))).toFixed(1)}px">${icon(p.icon)}<span class="orb-lbl">${p.label}</span></a>`).join('')}
     <div class="dome-hint" style="left:${dome.cx}px;top:${dome.cy - 18}px">Slide left or right</div>`;
   el.classList.toggle('big', big);
   // Revealed by a circle growing out of the More tab.
@@ -858,8 +862,8 @@ function navTrack(e) {
   // From More, the pick follows how far the finger has moved sideways from where it pressed:
   // straight up is Settings, then one page per step left or right.
   if (pop !== null && g.from === 'more') {
-    const step = Math.max(48, (dome.xs[MORE.length - 1] - dome.xs[0]) / (MORE.length - 1));
-    pop = Math.max(0, Math.min(MORE.length - 1, UP + Math.round((e.clientX - g.x) / step)));
+    const step = Math.max(48, (dome.xs[DOME.length - 1] - dome.xs[0]) / (DOME.length - 1));
+    pop = Math.max(0, Math.min(DOME.length - 1, UP + Math.round((e.clientX - g.x) / step)));
   }
   const bar = g.from === 'bar' ? barSlot(e.clientX, e.clientY) : null;
   if (pop !== g.pop || bar !== g.bar) { if ((pop ?? bar) !== null && g.moved) navigator.vibrate?.(6); }
@@ -889,13 +893,20 @@ function navMove(e) {
   navTrack(e);
 }
 const goTo = (id) => { if (id === currentRoute()) render(); else location.hash = `#/${id}`; };
+// A prefilled email, with the page and screen size so a report says where it happened.
+function feedbackLink() {
+  const page = PAGES.find((p) => p.id === currentRoute())?.label || 'Home';
+  const body = `\n\n\n---\nPage: ${page}\nScreen: ${window.innerWidth}x${window.innerHeight}\nVersion: ${appVersion || 'local'}`;
+  return `mailto:${FEEDBACK_EMAIL || ''}?subject=${encodeURIComponent('Home Assistance feedback')}&body=${encodeURIComponent(body)}`;
+}
+function sendFeedback() { location.href = feedbackLink(); }
 function navEnd(e, cancelled) {
   const g = navGesture;
   if (e.pointerId !== g.id) return;
   g.id = null;
   $('#tabs').classList.remove('scrubbing'); $('#dome').classList.remove('scrubbing');
   document.querySelectorAll('#tabs .hot, #dome .hot').forEach((x) => x.classList.remove('hot'));
-  if (!cancelled && g.pop !== null) { closeDome(); goTo(MORE[g.pop].id); return; }
+  if (!cancelled && g.pop !== null) { closeDome(); if (DOME[g.pop] === FEEDBACK) sendFeedback(); else goTo(MORE[g.pop].id); return; }
   // A tap on More opens the half circle and leaves it open; tapping More again closes it.
   if (g.from === 'more') { if (!cancelled && !g.opened && !g.moved) closeDome(); placeLens(moreIndex()); moveInk(); return; }
   const page = g.bar !== null && $('#tabs').querySelectorAll('.tab')[g.bar].dataset.page;

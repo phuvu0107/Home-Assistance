@@ -118,6 +118,10 @@ One-time setup:
 
 While the Google app is in Testing, only the test users from step 2 can connect.
 
+## Send feedback
+
+The More half circle has a **Feedback** button that opens a prefilled email (with the page, screen size and app version). To set where it goes, save the address as the Actions secret `FEEDBACK_EMAIL` and run **Deploy to GitHub Pages**. The deploy writes it into the published `feedback-config.js`; the repo copy stays empty, and without the secret the email opens with the To line blank.
+
 ## Sync across devices
 
 Events, tasks, stars, expenses and Fitbit numbers can be shared by every device in the house through a free [Firebase](https://firebase.google.com) Firestore database. Everyone signs in with their Google account. The database's rules (`firestore.rules`) let only the people in a household read or change its data, and signing in again on any device, even a new phone, finds the household.

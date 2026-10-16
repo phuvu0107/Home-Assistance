@@ -32,7 +32,7 @@ jobs:
       - name: Collect site files
         run: |
           mkdir -p _site/data
-          cp -r index.html styles.css app.js icons.js people.js alerts.js firebase.js account.js receipt.js receipt-words.js sync.js sync-config.js health.js health-config.js sw.js manifest.webmanifest icons avatars _site/
+          cp -r index.html styles.css app.js icons.js people.js alerts.js firebase.js account.js receipt.js receipt-words.js sync.js sync-config.js health.js health-config.js feedback-config.js sw.js manifest.webmanifest icons avatars _site/
           # Open screens check this and reload themselves after a deploy.
           echo "${{ github.sha }}" > _site/version.txt
       - name: Add household sync config
@@ -44,6 +44,11 @@ jobs:
           GOOGLE_HEALTH_CLIENT_ID: ${{ secrets.GOOGLE_HEALTH_CLIENT_ID }}
         run: |
           python3 -c "import json, os; print('export default ' + json.dumps(os.environ.get('GOOGLE_HEALTH_CLIENT_ID', '').strip() or None) + ';')" > _site/health-config.js
+      - name: Add feedback email address
+        env:
+          FEEDBACK_EMAIL: ${{ secrets.FEEDBACK_EMAIL }}
+        run: |
+          python3 -c "import json, os; print('export default ' + json.dumps(os.environ.get('FEEDBACK_EMAIL', '').strip() or None) + ';')" > _site/feedback-config.js
       - uses: actions/setup-python@v5
         if: env.HAS_PGE == 'true'
         with:
