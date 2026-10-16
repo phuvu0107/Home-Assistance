@@ -2812,18 +2812,19 @@ function redrawDaySheet() {
 // re-rendered right after a tap (and again when a sheet closes), so the new copy of the button
 // picks the animation up where the old one was, using a negative delay.
 const BURST_MS = 600;
-let burstAt = 0, burstSel = '';
-function burst(sel) { burstAt = Date.now(); burstSel = sel; }
-function burstOn(el, t = 0) {
-  el.classList.remove('burst');
+// A new sticky note gets the 'stuck' class instead, which slaps it onto the board.
+let burstAt = 0, burstSel = '', burstCls = 'burst';
+function burst(sel, cls = 'burst') { burstAt = Date.now(); burstSel = sel; burstCls = cls; }
+function burstOn(el, t = 0, cls = 'burst') {
+  el.classList.remove(cls);
   void el.offsetWidth; // restart the animation on a second quick tap
   el.style.setProperty('--burst-t', `${-t}ms`);
-  el.classList.add('burst');
+  el.classList.add(cls);
 }
 function playBurst() {
   const t = Date.now() - burstAt;
   if (!burstSel || t > BURST_MS) return;
-  document.querySelectorAll(burstSel).forEach((el) => { if (!el.classList.contains('burst')) burstOn(el, t); });
+  document.querySelectorAll(burstSel).forEach((el) => { if (!el.classList.contains(burstCls)) burstOn(el, t, burstCls); });
 }
 
 function openDaySheet(iso) {
@@ -3000,6 +3001,7 @@ const actions = {
     const text = $('#thx-text').value.trim().slice(0, THANKS_MAX);
     const emoji = $('#thx-emoji .on')?.dataset.v || THANKS_EMOJI[0];
     (state.thanks ||= []).push({ id: `k${Date.now()}`, from, to, emoji, text, ...(el.dataset.win && { win: el.dataset.win, for: el.dataset.title }), at: Date.now(), readAt: 0 });
+    if (el.dataset.win) burst(`.heart-btn[data-win="${CSS.escape(el.dataset.win)}"]`);
     closeSheet();
     toast(`Sent to ${userOf(to).name} ${emoji}`);
     phoneAlert(alertRecipients(members(), from).filter((u) => u.id === to), thanksAlert(userOf(from).name, emoji));
@@ -3040,7 +3042,11 @@ const actions = {
       // Changing how long it stays counts from today; leaving it alone keeps the day it was given.
       const keepWas = !n.until ? '' : n.until === isoDay(new Date()) ? 'today' : 'week';
       Object.assign(n, data, keep === keepWas ? {} : { until });
-    } else (state.notes ||= []).push({ id: `n${Date.now()}`, ...data, until, at: Date.now() });
+    } else {
+      const id = `n${Date.now()}`;
+      (state.notes ||= []).push({ id, ...data, until, at: Date.now() });
+      burst(`.sticky[data-id="${id}"]`, 'stuck');
+    }
     state.settings.lastWriter = by;
     closeSheet();
   },
@@ -3067,8 +3073,10 @@ const actions = {
     if (b) Object.assign(b, { text, kind });
     else {
       const by = me() || pickedWho() || members()[0].id;
-      (state.bucket ||= []).push({ id: `b${Date.now()}`, text, kind, by, at: Date.now() });
+      const id = `b${Date.now()}`;
+      (state.bucket ||= []).push({ id, text, kind, by, at: Date.now() });
       state.settings.lastWriter = by;
+      burst(`.task.bk:has([data-id="${id}"]) .bk-emoji`);
     }
     closeSheet();
   },
@@ -3340,6 +3348,7 @@ const actions = {
     const before = { ...it }; const at = state.fridge.indexOf(it);
     it.qty -= 1;
     if (it.qty <= 0) state.fridge = state.fridge.filter((x) => x !== it);
+    else burst(`[data-action="use-fridge"][data-id="${it.id}"]`);
     // A slip of the finger is one tap to put back.
     toast(it.qty <= 0 ? `${it.name} is used up` : `Used one ${it.name}`, ['Undo', () => {
       const cur = state.fridge.find((x) => x.id === before.id);
@@ -3391,6 +3400,7 @@ const actions = {
     const today = isoDay(new Date());
     const date = piggyMonth === monthKey(new Date()) ? today : isoDay(monthBounds(piggyMonth)[1]);
     state.expenses.push({ id: `x${Date.now()}`, kind: 'settle', title: 'Settled up', amount: t.amount, date, paidBy: t.from, to: t.to, split: false });
+    burst('.balance .bal-icon'); // shows once everyone is square
     toast(expenseStats(expensesIn(piggyMonth)).transfers.length ? `${from.name} is square with ${to.name}` : 'All square');
   },
   'del-expense': (el) => {
