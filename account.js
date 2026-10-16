@@ -49,11 +49,46 @@ export async function signOut() {
   await auth.signOut(au);
 }
 
-// The household this person belongs to, if any.
+// The household this person last used, if any.
 export async function myHome(uid) {
   const { fs, db } = await firebase();
   const s = await fs.getDoc(fs.doc(db, `users/${uid}`));
   return s.exists() ? s.data().home || null : null;
+}
+
+// Every household this person belongs to, with names: [{ id, name }]. Accounts from before
+// there could be several only have `home`, so it is always counted. A household that has
+// since removed them (or no longer exists) is left out.
+export async function myHomes(uid) {
+  const { fs, db } = await firebase();
+  const s = await fs.getDoc(fs.doc(db, `users/${uid}`));
+  const d = s.exists() ? s.data() : {};
+  const ids = [...new Set([...(d.homes || []), d.home].filter(Boolean))];
+  const found = await Promise.all(ids.map(async (id) => {
+    try {
+      const h = await fs.getDoc(fs.doc(db, `homes/${id}`));
+      return h.exists() ? { id, name: h.data().name || 'Home' } : null;
+    } catch { return null; }
+  }));
+  return found.filter(Boolean);
+}
+
+// Adds a household to this person's list and makes it the one they use now. Merged in, so the
+// other households on the list stay.
+async function remember(uid, home) {
+  const { fs, db } = await firebase();
+  await fs.setDoc(fs.doc(db, `users/${uid}`), { home, homes: fs.arrayUnion(home) }, { merge: true });
+}
+
+// Switching households: the one this person opens next time they sign in on a new device.
+export async function useHomeFor(uid, home) {
+  const { fs, db } = await firebase();
+  await fs.setDoc(fs.doc(db, `users/${uid}`), { home }, { merge: true });
+}
+
+export async function renameHome(home, name) {
+  const { fs, db } = await firebase();
+  await fs.updateDoc(fs.doc(db, `homes/${home}`), { name });
 }
 
 // A new household with this person as its only member.
@@ -61,7 +96,7 @@ export async function startHome(uid, name = 'Home') {
   const { fs, db } = await firebase();
   const home = randomCode(20).toLowerCase();
   await fs.setDoc(fs.doc(db, `homes/${home}`), { members: { [uid]: true }, name });
-  await fs.setDoc(fs.doc(db, `users/${uid}`), { home });
+  await remember(uid, home);
   return home;
 }
 
@@ -95,5 +130,5 @@ export async function joinHome(uid, home, code) {
   // Members can't add people, but someone not in the household yet can add themselves
   // with a live invite. Already a member? The update simply changes nothing.
   await fs.updateDoc(fs.doc(db, `homes/${home}`), { [`members.${uid}`]: true, invite: code });
-  await fs.setDoc(fs.doc(db, `users/${uid}`), { home });
+  await remember(uid, home);
 }

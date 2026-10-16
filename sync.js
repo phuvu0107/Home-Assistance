@@ -240,10 +240,29 @@ export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) 
       return attach(passPath(await householdId(pass)), passCodec(key), opts);
     },
     // Connect to a signed-in household. A new household starts from this device's data.
-    connectHome(home, { fresh = false } = {}) {
+    connectHome(home, { fresh = false, create = true } = {}) {
       key = null;
       if (fresh) { base = null; onBase(null); } // joining someone else's: take theirs, don't merge ours in
-      return attach(homePath(home), plainCodec, { create: true });
+      return attach(homePath(home), plainCodec, { create });
+    },
+    // Switching to another household this person belongs to. Anything not yet sent to the one
+    // being left goes first; then this device takes the other household's data. Never creates:
+    // a household with no data yet must not be filled with the one being left.
+    async switchHome(home) {
+      if (!(await this.leave())) return 'offline'; // couldn't send it: stay put rather than lose it
+      return this.connectHome(home, { fresh: true, create: false });
+    },
+    // Stops syncing once anything not yet sent has gone. False (still syncing) if it couldn't go.
+    async leave() {
+      // Let a sync under way land, then send what's left. A sync can bring in changes that the app
+      // tidies and sends straight back, so this takes a few rounds at most.
+      for (let i = 0; i < 4 && path && (pushing || dirty); i++) {
+        while (pushing) await new Promise((r) => setTimeout(r, 100));
+        if (dirty) { clearTimeout(timer); await push(); }
+      }
+      if (path && (pushing || dirty)) return false;
+      this.disconnect();
+      return true;
     },
     // Moving a passphrase household to sign-in: everything synced here goes to the new household,
     // and the old one is marked moved (its data stays where it is) so its other screens follow.
