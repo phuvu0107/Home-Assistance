@@ -1245,3 +1245,46 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
   .pl-count { display: grid; place-items: center; align-self: center; margin-top: auto; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; }
   .cal-bar.trip h2 { flex: 1 1 auto; }
 }
+
+/* ---------- Friends ---------- */
+/* A feed shared with friends from any household, and groups with their own plans, list and money. */
+.soc-side { display: grid; gap: 16px; align-content: start; }
+.soc-intro p { margin: 0 0 16px; color: var(--text-2); line-height: 1.5; }
+.card-head button.link { border: 0; background: none; padding: 0; }
+.composer { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 16px; }
+.composer textarea { resize: vertical; min-height: 52px; font: inherit; }
+.feed { display: grid; gap: 12px; }
+.post { border-radius: 16px; background: var(--muted-surface); padding: 12px 14px; }
+.post-head { display: flex; align-items: center; gap: 10px; }
+.post-who { flex: 1; min-width: 0; }
+.post-head b { display: block; font-weight: 600; font-size: 15px; }
+.post-head small { color: var(--text-3); font-size: 12px; }
+.post-head .btn-round { width: 32px; height: 32px; font-size: 15px; background: none; border-color: transparent; color: var(--text-3); }
+.post-text { margin: 10px 0 8px; font-size: 16px; line-height: 1.45; overflow-wrap: anywhere; }
+.post-acts { display: flex; gap: 6px; }
+.post-act { border: 0; background: none; border-radius: 999px; padding: 6px 10px; display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-weight: 500; font-size: 14px; }
+.post-act span { font-size: 13px; }
+.post-act.on { color: var(--rose-fg); }
+.comments { display: grid; gap: 8px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--card-border); }
+.comment { display: flex; align-items: flex-start; gap: 8px; }
+.comment p { flex: 1; margin: 0; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.comment p small { display: block; color: var(--text-3); font-size: 12px; margin-top: 2px; }
+.comment .btn-round { width: 28px; height: 28px; font-size: 13px; background: none; border-color: transparent; color: var(--text-3); }
+.comment-new { display: flex; gap: 8px; }
+.comment-new .input { min-width: 0; }
+.soc-code { display: flex; align-items: center; gap: 12px; margin: 6px 0 16px; }
+.soc-code b { font-size: 22px; letter-spacing: .08em; font-variant-numeric: tabular-nums; }
+.soc-code.big b { font-size: 30px; }
+.soc-btns { display: flex; gap: 10px; }
+.soc-btns .add-task { flex: 1; }
+.card .row .btn { padding: 8px 14px; }
+.card .row .btn-round { width: 32px; height: 32px; font-size: 15px; }
+.soc-members { display: flex; gap: 14px; flex-wrap: wrap; margin: -4px 0 16px; }
+.soc-member { display: grid; justify-items: center; gap: 4px; }
+.soc-member small { color: var(--text-2); font-size: 12px; max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.soc-tabs { display: flex; max-width: 100%; overflow-x: auto; margin-bottom: 16px; }
+.soc-tabs button { white-space: nowrap; }
+.soc-amt { padding: 0 12px; font-variant-numeric: tabular-nums; }
+.soc-past { margin-top: 16px; }
+.soc-past summary { cursor: pointer; color: var(--text-2); font-weight: 500; margin-bottom: 10px; }
+.task .btn { padding: 8px 14px; flex: none; }

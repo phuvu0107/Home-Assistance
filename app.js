@@ -5,6 +5,7 @@ import { FRIDGE_CATS, guessCat, learnFromReceipt, readExpense, readReceipt } fro
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
 import FEEDBACK_EMAIL from './feedback-config.js';
+import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { createPhotos, shrink } from './photos.js';
 import { cleanName, expenseStats as moneyStats, joinNames, legacyMembersFor, MAX_MEMBERS, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
@@ -714,12 +715,13 @@ function weatherValid() {
 /* =========================================================
    Navigation
    ========================================================= */
-// Three pages you use every day get a tab; the rest sit in the half circle under More.
+// The pages you use every day get a tab; the rest sit in the half circle under More.
 // The More pages are listed left to right around the arc; sliding straight up from More picks Settings.
 const PAGES = [
   { id: 'home', label: 'Home', icon: 'home', main: true },
   { id: 'calendar', label: 'Calendar', icon: 'calendar', main: true },
   { id: 'tasks', label: 'Chores', icon: 'checkSquare', main: true },
+  { id: 'friends', label: 'Friends', icon: 'users', main: true },
   { id: 'fridge', label: 'Kitchen', icon: 'fridge' },
   { id: 'piggy', label: 'Money', icon: 'piggy' },
   { id: 'bucket', label: 'Bucket list', icon: 'sparkles' },
@@ -2100,6 +2102,413 @@ function openBucketTick(b) {
     </div>`);
   $('#sheet').dataset.kind = 'bucket-tick';
 }
+
+/* =========================================================
+   Friends: a feed shared with friends from any household, and groups
+   ========================================================= */
+// Everything here lives in its own place in the database (social.js), never in the household's
+// synced data, and needs someone signed in. On a shared screen it posts as whoever signed in.
+const freshSocial = () => ({ uid: '', state: 'off', note: '', me: null, friends: [], incoming: [], outgoing: [], posts: null, groups: [],
+  gid: '', group: undefined, items: [], tab: 'feed', open: new Set(), comments: {}, drafts: {}, busy: '', offs: [], groupOff: null, commentOffs: {}, dirty: false });
+let social = freshSocial();
+const GROUP_TABS = { feed: 'Feed', plans: 'Plans', bucket: 'Bucket list', money: 'Money' };
+const FRIENDS_PATH = 'posts';
+const groupPath = (id) => `groups/${id}/items`;
+const routeGroup = () => new URLSearchParams(location.hash.split('?')[1] || '').get('g') || '';
+const socialMe = () => ({ uid: social.me.uid, name: social.me.name });
+const stopOff = (p) => Promise.resolve(p).then((off) => off?.()).catch(() => {});
+
+function stopSocial() {
+  social.offs.forEach(stopOff); stopOff(social.groupOff); Object.values(social.commentOffs).forEach(stopOff);
+  social = freshSocial();
+}
+// Redraws Friends when something arrives, unless someone is typing or a sheet is open; then
+// it waits until they're done.
+function socialRedraw() {
+  if (currentRoute() !== 'friends') return;
+  if (calmToRender()) { social.dirty = false; renderView(); } else social.dirty = true;
+}
+document.addEventListener('focusout', () => setTimeout(() => { if (social.dirty) socialRedraw(); }, 0));
+
+function startSocial() {
+  const u = account.user;
+  if (!u) { if (social.uid) stopSocial(); return; }
+  if (social.uid === u.uid) return;
+  stopSocial();
+  social.uid = u.uid; social.state = 'loading';
+  myProfile(u).then((p) => {
+    if (social.uid !== u.uid) return;
+    social.me = { uid: u.uid, ...p }; social.state = 'ready';
+    social.offs.push(watchFriends(u.uid, (f) => { Object.assign(social, f); socialRedraw(); }));
+    social.offs.push(watchPosts(u.uid, (list) => { social.posts = list || []; socialRedraw(); }));
+    refreshGroups();
+  }).catch((e) => { social.state = 'error'; social.note = accountError(e); }).finally(socialRedraw);
+}
+async function refreshGroups() {
+  try { social.groups = await myGroups(social.me.groups || [], social.uid); } catch { /* keep what was shown */ }
+  socialRedraw();
+}
+function watchRouteGroup() {
+  const g = routeGroup();
+  if (g === social.gid) return;
+  stopOff(social.groupOff);
+  Object.assign(social, { gid: g, group: g ? undefined : null, items: [], groupOff: null });
+  if (g) social.groupOff = watchGroup(g, social.uid, (d) => { if (social.gid === g) { Object.assign(social, d); socialRedraw(); } });
+}
+// Runs a database step from a button, with a toast if it fails.
+async function socialDo(busy, fn, done) {
+  if (social.busy) return;
+  social.busy = busy; renderView();
+  try { const r = await fn(); if (done) done(r); } catch (e) { toast(accountError(e)); }
+  social.busy = ''; renderView();
+}
+
+// A person from another household: their initial on a color picked from their id.
+const colorOf = (uid) => PERSON_COLORS[[...String(uid)].reduce((a, c) => a + c.charCodeAt(0), 0) % PERSON_COLORS.length];
+const personAv = (uid, name, size = 'sm') => avatarImg({ name: name || '?', color: colorOf(uid), avatar: '' }, size);
+const nameIn = (uid) => social.group?.members.find((m) => m.uid === uid)?.name || 'Someone';
+const textHtml = (s) => esc(s).replace(/\n/g, '<br>');
+
+function postCard(p, path) {
+  const key = `${path}|${p.id}`;
+  const likes = Object.keys(p.likes || {}).length; const liked = !!p.likes?.[social.uid];
+  const open = social.open.has(key); const comments = social.comments[key];
+  return `<div class="post" data-key="${esc(key)}">
+    <div class="post-head">${personAv(p.by, p.name)}<span class="post-who"><b>${esc(p.name || 'Someone')}</b><small>${ago(p.at)}</small></span>
+      ${p.by === social.uid ? `<button class="btn-round" data-action="soc-del-post" data-path="${path}" data-id="${p.id}" aria-label="Delete post">${icon('trash')}</button>` : ''}</div>
+    <p class="post-text">${textHtml(p.text)}</p>
+    <div class="post-acts">
+      <button class="post-act${liked ? ' on' : ''}" data-action="soc-like" data-path="${path}" data-id="${p.id}" aria-pressed="${liked}">${liked ? '❤️' : '🤍'} ${likes || ''}<span>Like</span></button>
+      <button class="post-act" data-action="soc-comments" data-path="${path}" data-id="${p.id}" aria-expanded="${open}">💬 ${open && comments ? comments.length || '' : ''}<span>${open ? 'Hide comments' : 'Comments'}</span></button>
+    </div>
+    ${open ? `<div class="comments">${comments ? comments.map((c) => `<div class="comment">${personAv(c.by, c.name, 'xs')}<p><b>${esc(c.name || 'Someone')}</b> ${textHtml(c.text)}<small>${ago(c.at)}</small></p>
+        ${c.by === social.uid || p.by === social.uid ? `<button class="btn-round" data-action="soc-del-comment" data-path="${path}" data-id="${p.id}" data-c="${c.id}" aria-label="Delete comment">${icon('x')}</button>` : ''}</div>`).join('') : '<p class="hint">Loading…</p>'}
+      <div class="comment-new"><input class="input" maxlength="${COMMENT_MAX}" data-draft="c:${esc(key)}" value="${esc(social.drafts[`c:${key}`] || '')}" placeholder="Write a comment" aria-label="Write a comment">
+        <button class="btn" data-action="soc-comment" data-path="${path}" data-id="${p.id}">Send</button></div></div>` : ''}
+  </div>`;
+}
+
+function composer(path, placeholder) {
+  return `<div class="composer">
+    <textarea class="input" rows="2" maxlength="${POST_MAX}" data-draft="p:${path}" placeholder="${placeholder}" aria-label="New post">${esc(social.drafts[`p:${path}`] || '')}</textarea>
+    <button class="btn" data-action="soc-post" data-path="${path}" ${social.busy ? 'disabled' : ''}>${social.busy === 'post' ? 'Posting…' : 'Post'}</button>
+  </div>`;
+}
+
+views.friends = () => {
+  if (!accountAvailable()) {
+    return `<div class="section-title">Friends</div><div class="card"><p class="empty-line">Friends needs household sync. Set it up in Settings › Sync across devices.</p></div>`;
+  }
+  startSocial();
+  if (!account.user) {
+    return `<div class="section-title">Friends</div><div class="card soc-intro">
+      <p>Add friends from any household, share posts with them, and make groups for trips, dinners and shared costs. Nothing from your household is shared.</p>
+      <button class="btn" data-action="acct-signin">${busyLabel('signin', 'Sign in with Google', 'Signing in…')}</button></div>`;
+  }
+  if (social.state !== 'ready') {
+    return `<div class="section-title">Friends</div><div class="card"><p class="empty-line">${social.state === 'error' ? esc(social.note) : 'Loading…'}</p>
+      ${social.state === 'error' ? '<button class="btn ghost" data-action="soc-retry">Try again</button>' : ''}</div>`;
+  }
+  watchRouteGroup();
+  return social.gid ? groupView() : friendsHub();
+};
+
+function friendsHub() {
+  const friendIds = social.friends.map((f) => f.uid);
+  const posts = social.posts ? feedFor(social.posts, social.uid, friendIds) : null;
+  const pending = social.outgoing.length;
+  return `<div class="section-title">Friends<span class="spacer"></span><span class="hint">${social.friends.length} friend${social.friends.length === 1 ? '' : 's'} · ${social.groups.length} group${social.groups.length === 1 ? '' : 's'}</span></div>
+  <div class="bk-page">
+    <div class="card">
+      <div class="card-head">${icon('users')}<h2>Feed</h2></div>
+      ${composer(FRIENDS_PATH, social.friends.length ? 'Share something with your friends' : 'Write something (add a friend so they see it)')}
+      <div class="feed">${posts === null ? '<p class="hint">Loading…</p>' : posts.map((p) => postCard(p, FRIENDS_PATH)).join('')
+        || '<p class="empty-line">No posts yet. Add a friend with their code, then say hi.</p>'}</div>
+    </div>
+    <div class="soc-side">
+      ${social.incoming.length ? `<div class="card"><div class="card-head">${icon('bell')}<h2>Friend requests</h2></div>
+        <div class="list">${social.incoming.map((r) => `<div class="row">${personAv(r.from, r.fromName)}<span><b>${esc(r.fromName || 'Someone')}</b><small>wants to be friends</small></span>
+          <span class="spacer"></span><button class="btn ghost" data-action="soc-decline" data-id="${esc(r.id)}">No</button><button class="btn" data-action="soc-accept" data-id="${esc(r.id)}">Accept</button></div>`).join('')}</div></div>` : ''}
+      <div class="card">
+        <div class="card-head">${personAv(social.uid, social.me.name)}<h2>${esc(social.me.name)}</h2><button class="link" data-action="soc-edit-name">Change name</button></div>
+        <p class="hint">Your friend code. Give it to someone so they can add you.</p>
+        <div class="soc-code"><b>${showCode(social.me.code)}</b><button class="btn ghost" data-action="soc-copy" data-v="${social.me.code}">Copy</button></div>
+        <div class="field"><label for="soc-add">Add a friend</label>
+          <div class="comment-new"><input class="input" id="soc-add" data-draft="add" value="${esc(social.drafts.add || '')}" placeholder="Their friend code" autocomplete="off" autocapitalize="characters">
+          <button class="btn" data-action="soc-add" ${social.busy ? 'disabled' : ''}>${social.busy === 'add' ? 'Adding…' : 'Add'}</button></div></div>
+        ${pending ? `<p class="hint">Waiting for ${esc(joinNames(social.outgoing.map((r) => r.toName || 'someone')))} to say yes.</p>` : ''}
+        <div class="list">${social.friends.map((f) => `<div class="row">${personAv(f.uid, f.name)}<span><b>${esc(f.name)}</b></span><span class="spacer"></span>
+          <button class="btn-round" data-action="soc-unfriend" data-id="${esc(f.uid)}" aria-label="Remove ${esc(f.name)} as a friend">${icon('x')}</button></div>`).join('')}</div>
+      </div>
+      <div class="card">
+        <div class="card-head">${icon('users')}<h2>Groups</h2></div>
+        <div class="list">${social.groups.map((g) => `<a class="row" href="#/friends?g=${g.id}"><span class="av-pair">${g.members.slice(0, 3).map((m) => personAv(m.uid, m.name)).join('')}</span>
+          <span><b>${esc(g.name)}</b><small>${g.members.length} ${g.members.length === 1 ? 'person' : 'people'}</small></span>${icon('chevron', 'chev')}</a>`).join('')
+          || '<p class="empty-line">A group shares a feed, plans, a bucket list and costs, with people from any household.</p>'}</div>
+        <div class="soc-btns"><button class="add-task" data-action="soc-new-group">${icon('plus')} New group</button><button class="add-task" data-action="soc-join-group">Join with a code</button></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- One group ---------- */
+const groupItems = (type) => social.items.filter((x) => x.type === type);
+const groupIds = () => social.group.members.map((m) => m.uid);
+
+function groupView() {
+  const g = social.group;
+  if (g === undefined) return `<div class="section-title"><a class="btn-round" href="#/friends" aria-label="Back to Friends">${icon('chevronLeft')}</a>Group</div><div class="card"><p class="hint">Loading…</p></div>`;
+  if (!g) return `<div class="section-title"><a class="btn-round" href="#/friends" aria-label="Back to Friends">${icon('chevronLeft')}</a>Group</div>
+    <div class="card"><p class="empty-line">This group isn't available. You may have left it.</p></div>`;
+  const tab = GROUP_TABS[social.tab] ? social.tab : 'feed';
+  return `<div class="section-title"><a class="btn-round" href="#/friends" aria-label="Back to Friends">${icon('chevronLeft')}</a>${esc(g.name)}<span class="spacer"></span>
+    <button class="btn ghost" data-action="soc-group-invite">${icon('plus')} Invite</button><button class="btn-round" data-action="soc-group-settings" aria-label="Group settings">${icon('settings')}</button></div>
+  <div class="soc-members">${g.members.map((m) => `<span class="soc-member">${personAv(m.uid, m.name)}<small>${esc(m.uid === social.uid ? 'You' : m.name)}</small></span>`).join('')}</div>
+  <div class="seg soc-tabs">${Object.entries(GROUP_TABS).map(([k, l]) => `<button class="${k === tab ? 'on' : ''}" data-action="soc-tab" data-v="${k}">${l}</button>`).join('')}</div>
+  <div class="card">${{ feed: groupFeed, plans: groupPlans, bucket: groupBucket, money: groupMoneyView }[tab]()}</div>`;
+}
+
+function groupFeed() {
+  const path = groupPath(social.gid);
+  const posts = groupItems('post').sort((a, b) => b.at - a.at);
+  return `${composer(path, `Write to ${esc(social.group.name)}`)}
+    <div class="feed">${posts.map((p) => postCard(p, path)).join('') || '<p class="empty-line">Nothing here yet. Say hi to the group.</p>'}</div>`;
+}
+
+function groupPlans() {
+  const today = isoDay(new Date());
+  const all = groupItems('event').sort(byStart);
+  const row = (e) => {
+    const going = Object.keys(e.going || {}).filter((u) => e.going[u]);
+    const mine = !!e.going?.[social.uid];
+    return `<div class="task">
+      <button class="task-body" data-action="soc-edit-plan" data-id="${e.id}"><b>${esc(e.title)}</b><small>${dayLabel(e.date)} · ${timeLabel(e)}${going.length ? ` · ${esc(joinNames(going.map((u) => (u === social.uid ? 'you' : nameIn(u)))))} going` : ''}</small></button>
+      <button class="btn ${mine ? '' : 'ghost'}" data-action="soc-going" data-id="${e.id}" aria-pressed="${mine}">${mine ? `${icon('check')} Going` : "I'm in"}</button></div>`;
+  };
+  const next = all.filter((e) => e.date >= today); const past = all.filter((e) => e.date < today).reverse();
+  return `<div class="task-list">${next.map(row).join('') || '<p class="empty-line">No plans yet.</p>'}</div>
+    <button class="add-task" data-action="soc-add-plan">${icon('plus')} Add a plan</button>
+    ${past.length ? `<details class="soc-past"><summary>Past plans (${past.length})</summary><div class="task-list">${past.map(row).join('')}</div></details>` : ''}`;
+}
+
+function groupBucket() {
+  const list = groupItems('bucket');
+  const open = list.filter((b) => !b.doneAt).sort((a, b) => b.at - a.at);
+  const done = list.filter((b) => b.doneAt).sort((a, b) => b.doneAt - a.doneAt);
+  const row = (b) => `<div class="task bk${b.doneAt ? ' done' : ''}">
+    <button class="task-body" data-action="soc-edit-bucket" data-id="${b.id}"><b>${esc(b.text)}</b><small>${b.doneAt ? `Done ${dayLabel(isoDay(new Date(b.doneAt)))}` : `Added by ${esc(b.by === social.uid ? 'you' : nameIn(b.by))} ${ago(b.at)}`}</small></button>
+    <button class="check ${b.doneAt ? 'on' : ''}" data-action="soc-tick-bucket" data-id="${b.id}" aria-label="${b.doneAt ? 'Put back on the list' : 'Tick off'}: ${esc(b.text)}" aria-pressed="${!!b.doneAt}">${icon('check')}</button></div>`;
+  return `<div class="task-list">${open.map(row).join('') || '<p class="empty-line">Add a trip, a dinner or a place to go together.</p>'}</div>
+    <button class="add-task" data-action="soc-add-bucket">${icon('plus')} Add to the list</button>
+    ${done.length ? `<h3 class="bk-group">Done</h3><div class="task-list">${done.map(row).join('')}</div>` : ''}`;
+}
+
+function groupMoneyView() {
+  const list = groupItems('expense').sort((a, b) => b.date.localeCompare(a.date) || b.at - a.at);
+  const ids = groupIds();
+  const m = groupMoney(list, ids);
+  const who = (u) => (u === social.uid ? 'You' : nameIn(u));
+  return `${m.transfers.length ? `<div class="list">${m.transfers.map((t) => `<div class="row"><span><b>${esc(who(t.from))} owe${t.from === social.uid ? '' : 's'} ${esc(t.to === social.uid ? 'you' : nameIn(t.to))} ${fmtCash(t.amount)}</b></span>
+      <span class="spacer"></span><button class="btn ghost" data-action="soc-settle" data-from="${esc(t.from)}" data-to="${esc(t.to)}" data-v="${t.amount}">Settle up</button></div>`).join('')}</div>`
+      : `<p class="empty-line">${icon('check')} Everyone is square.</p>`}
+    <p class="hint">Spent together: ${fmtCash(m.total)} · split evenly between ${ids.length}</p>
+    <div class="task-list">${list.map((x) => `<div class="task"><button class="task-body" data-action="soc-edit-expense" data-id="${x.id}">
+      <b>${x.kind === 'settle' ? `${esc(who(x.paidBy))} paid ${esc(x.to === social.uid ? 'you' : nameIn(x.to))} back` : esc(x.title)}</b>
+      <small>${fmtShort(x.date)} · ${x.kind === 'settle' ? 'Settled up' : `Paid by ${esc(who(x.paidBy))}`}</small></button><b class="soc-amt">${fmtCash(x.amount)}</b></div>`).join('')}</div>
+    <button class="add-task" data-action="soc-add-expense">${icon('plus')} Add a cost</button>`;
+}
+
+const groupWhoPicker = (selected) => `<div class="who-pick" id="gx-who">${social.group.members.map((m) => `<button class="who-opt${m.uid === selected ? ' on' : ''}" data-action="pick-who" data-who="${esc(m.uid)}">${personAv(m.uid, m.name)}<span>${esc(m.uid === social.uid ? 'You' : m.name)}</span></button>`).join('')}</div>`;
+const groupItem = (id) => social.items.find((x) => x.id === id);
+const sheetDel = (action, id) => `<button class="btn danger" data-action="${action}" data-id="${id}">${icon('trash')} Remove</button><span class="spacer"></span>`;
+
+function openGroupPlanSheet(e) {
+  openSheet(`${sheetHead(e ? 'Plan' : 'Add a plan', 'calendar')}
+    <div class="field"><label for="gx-title">What</label><input class="input" id="gx-title" maxlength="80" value="${esc(e?.title || '')}" placeholder="e.g. Hotpot at our place"></div>
+    <div class="field-row"><div class="field"><label for="gx-date">Day</label><input class="input" type="date" id="gx-date" value="${e?.date || isoDay(new Date())}"></div>
+      <div class="field"><label for="gx-time">Time</label><input class="input" type="time" id="gx-time" value="${e?.time || ''}"></div></div>
+    ${e ? `<p class="hint">Added by ${esc(e.by === social.uid ? 'you' : nameIn(e.by))}</p>` : ''}
+    <div class="sheet-actions">${e ? sheetDel('soc-del-item', e.id) : ''}<button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="soc-save-plan" data-id="${e?.id || ''}">${e ? 'Save' : 'Add'}</button></div>`);
+}
+function openGroupBucketSheet(b) {
+  openSheet(`${sheetHead(b ? 'Bucket list' : 'Add to the bucket list', 'sparkles')}
+    <div class="field"><label for="gx-text">What</label><input class="input" id="gx-text" maxlength="${BUCKET_MAX}" value="${esc(b?.text || '')}" placeholder="e.g. Camping at Big Sur"></div>
+    <div class="sheet-actions">${b ? sheetDel('soc-del-item', b.id) : ''}<button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="soc-save-bucket" data-id="${b?.id || ''}">${b ? 'Save' : 'Add'}</button></div>`);
+}
+function openGroupExpenseSheet(x) {
+  if (x?.kind === 'settle') {
+    openSheet(`${sheetHead('Settled up', 'piggy')}<p class="hint">${fmtCash(x.amount)} on ${fmtShort(x.date)}</p>
+      <div class="sheet-actions">${sheetDel('soc-del-item', x.id)}<button class="btn ghost" data-action="close-sheet">Close</button></div>`);
+    return;
+  }
+  openSheet(`${sheetHead(x ? 'Cost' : 'Add a cost', 'piggy')}
+    <div class="field"><label for="gx-title">What</label><input class="input" id="gx-title" maxlength="80" value="${esc(x?.title || '')}" placeholder="e.g. Airbnb"></div>
+    <div class="field-row"><div class="field"><label for="gx-amount">Amount</label><input class="input" id="gx-amount" type="number" inputmode="decimal" step="0.01" min="0" value="${x ? x.amount : ''}"></div>
+      <div class="field"><label for="gx-date">Day</label><input class="input" type="date" id="gx-date" value="${x?.date || isoDay(new Date())}"></div></div>
+    <div class="field"><label>Paid by</label>${groupWhoPicker(x?.paidBy || social.uid)}</div>
+    <p class="hint">Split evenly between everyone in the group.</p>
+    <div class="sheet-actions">${x ? sheetDel('soc-del-item', x.id) : ''}<button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="soc-save-expense" data-id="${x?.id || ''}">${x ? 'Save' : 'Add'}</button></div>`);
+}
+function openGroupSettings() {
+  openSheet(`${sheetHead('Group', 'settings')}
+    <div class="field"><label for="gx-name">Name</label><input class="input" id="gx-name" maxlength="${GROUP_NAME_MAX}" value="${esc(social.group.name)}"></div>
+    <div class="sheet-actions"><button class="btn danger" data-action="soc-leave-group">Leave group</button><span class="spacer"></span>
+      <button class="btn ghost" data-action="close-sheet">Cancel</button><button class="btn" data-action="soc-rename-group">Save</button></div>`);
+}
+function openCodeSheet(title, hint, code, expires) {
+  openSheet(`${sheetHead(title, 'users')}<p class="hint">${hint}</p>
+    <div class="soc-code big"><b>${showCode(code)}</b><button class="btn ghost" data-action="soc-copy" data-v="${code}">Copy</button></div>
+    ${expires ? `<p class="hint">Works until ${new Date(expires).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}.</p>` : ''}
+    <div class="sheet-actions"><span class="spacer"></span><button class="btn" data-action="close-sheet">Done</button></div>`);
+}
+function openAskSheet(title, label, action, value = '', placeholder = '') {
+  openSheet(`${sheetHead(title, 'users')}
+    <div class="field"><label for="gx-ask">${label}</label><input class="input" id="gx-ask" maxlength="${GROUP_NAME_MAX}" value="${esc(value)}" placeholder="${placeholder}" autocomplete="off"></div>
+    <div class="sheet-actions"><span class="spacer"></span><button class="btn ghost" data-action="close-sheet">Cancel</button><button class="btn" data-action="${action}">OK</button></div>`);
+}
+
+const saveItem = (item) => socialDo('item', () => saveGroupItem(social.gid, item));
+const typed = (id) => ($(`#${id}`)?.value || '').trim();
+
+const socialActions = {
+  'soc-retry': () => { stopSocial(); renderView(); },
+  'soc-copy': (el) => { navigator.clipboard?.writeText(el.dataset.v).then(() => toast('Copied'), () => toast(showCode(el.dataset.v))); },
+  'soc-post': (el) => {
+    const path = el.dataset.path; const key = `p:${path}`;
+    const text = social.drafts[key] || '';
+    if (!text.trim()) { toast('Write something first'); return; }
+    const seen = path === FRIENDS_PATH ? social.friends.map((f) => f.uid) : null;
+    socialDo('post', () => addPost(path, socialMe(), text, seen), () => { social.drafts[key] = ''; });
+  },
+  'soc-like': (el) => {
+    const { path, id } = el.dataset;
+    const p = (path === FRIENDS_PATH ? social.posts : social.items).find((x) => x.id === id);
+    if (!p) return;
+    const on = !p.likes?.[social.uid];
+    p.likes = { ...p.likes }; if (on) p.likes[social.uid] = true; else delete p.likes[social.uid];
+    if (on) burst(`.post[data-key="${CSS.escape(`${path}|${id}`)}"] .post-act.on`);
+    renderView();
+    setLike(path, id, social.uid, on).catch((e) => toast(accountError(e)));
+  },
+  'soc-comments': (el) => {
+    const key = `${el.dataset.path}|${el.dataset.id}`;
+    if (social.open.has(key)) { social.open.delete(key); stopOff(social.commentOffs[key]); delete social.commentOffs[key]; delete social.comments[key]; } else {
+      social.open.add(key);
+      social.commentOffs[key] = watchComments(el.dataset.path, el.dataset.id, (list) => { social.comments[key] = list; socialRedraw(); });
+    }
+    renderView();
+  },
+  'soc-comment': (el) => {
+    const key = `c:${el.dataset.path}|${el.dataset.id}`;
+    if (!(social.drafts[key] || '').trim()) return;
+    socialDo('comment', () => addComment(el.dataset.path, el.dataset.id, socialMe(), social.drafts[key]), () => { social.drafts[key] = ''; });
+  },
+  'soc-del-comment': (el) => { deleteDocAt(`${el.dataset.path}/${el.dataset.id}/comments`, el.dataset.c).catch((e) => toast(accountError(e))); },
+  'soc-del-post': (el) => {
+    if (!confirm('Delete this post?')) return;
+    deleteDocAt(el.dataset.path, el.dataset.id).then(() => toast('Post deleted'), (e) => toast(accountError(e)));
+  },
+  'soc-add': () => {
+    const code = social.drafts.add || '';
+    socialDo('add', () => addFriend(socialMe(), code, social.friends.map((f) => f.uid)), (r) => {
+      const say = { nocode: "That code doesn't match anyone. Check it and try again.", self: "That's your own code.", already: "You're already friends.", asked: 'Asked. You\'ll be friends once they say yes.', friends: "You're friends now." };
+      toast(say[r]); if (r === 'asked' || r === 'friends' || r === 'already') social.drafts.add = '';
+    });
+  },
+  'soc-accept': (el) => { const r = social.incoming.find((x) => x.id === el.dataset.id); if (r) socialDo('accept', () => acceptFriend(socialMe(), r), () => toast(`You and ${r.fromName || 'they'} are friends now`)); },
+  'soc-decline': (el) => { const r = social.incoming.find((x) => x.id === el.dataset.id); if (r) socialDo('decline', () => dropRequest(r)); },
+  'soc-unfriend': (el) => {
+    const f = social.friends.find((x) => x.uid === el.dataset.id);
+    if (f && confirm(`Remove ${f.name} as a friend? They won't see your new posts.`)) socialDo('unfriend', () => unfriend(social.uid, f.uid));
+  },
+  'soc-edit-name': () => openAskSheet('Your name', 'What friends see', 'soc-save-name', social.me.name),
+  'soc-save-name': () => {
+    const v = typed('gx-ask'); if (!v) return;
+    closeSheet();
+    socialDo('name', () => setMyName(social.uid, social.me.code, v, social.me.groups || []), (name) => { if (name) social.me.name = name; refreshGroups(); });
+  },
+  'soc-new-group': () => openAskSheet('New group', 'Name', 'soc-start-group', '', 'e.g. Family, Tahoe trip'),
+  'soc-start-group': () => {
+    const v = typed('gx-ask'); closeSheet();
+    socialDo('group', () => startGroup(socialMe(), v), (id) => { social.me.groups = [...(social.me.groups || []), id]; refreshGroups(); location.hash = `#/friends?g=${id}`; });
+  },
+  'soc-join-group': () => openAskSheet('Join a group', 'Invite code', 'soc-join', '', 'ABCD-EFGH-JK'),
+  'soc-join': () => {
+    const v = typed('gx-ask'); closeSheet();
+    socialDo('join', () => joinGroup(socialMe(), v), (r) => {
+      if (r === 'nocode' || r === 'expired') { toast(r === 'expired' ? 'That invite has run out. Ask for a new one.' : "That code doesn't match a group."); return; }
+      social.me.groups = [...new Set([...(social.me.groups || []), r])]; refreshGroups(); location.hash = `#/friends?g=${r}`;
+    });
+  },
+  'soc-group-invite': () => socialDo('invite', () => createGroupInvite(social.gid, social.uid),
+    ({ code, expires }) => openCodeSheet('Invite to the group', 'Anyone signed in can join with this code: friends, family or another household.', code, expires)),
+  'soc-group-settings': openGroupSettings,
+  'soc-rename-group': () => { const v = typed('gx-name'); closeSheet(); socialDo('rename', () => renameGroup(social.gid, v), refreshGroups); },
+  'soc-leave-group': () => {
+    if (!confirm(`Leave ${social.group.name}? You can come back with a new invite.`)) return;
+    const id = social.gid; closeSheet();
+    socialDo('leave', () => leaveGroup(id, social.uid), () => { social.me.groups = (social.me.groups || []).filter((g) => g !== id); social.groups = social.groups.filter((g) => g.id !== id); location.hash = '#/friends'; });
+  },
+  'soc-tab': (el) => { social.tab = el.dataset.v; renderView(); },
+  'soc-add-plan': () => openGroupPlanSheet(),
+  'soc-edit-plan': (el) => openGroupPlanSheet(groupItem(el.dataset.id)),
+  'soc-save-plan': (el) => {
+    const title = typed('gx-title'); const date = typed('gx-date');
+    if (!title || !date) { toast('Add what and which day'); return; }
+    const e = groupItem(el.dataset.id);
+    closeSheet();
+    saveItem(e ? { ...e, title, date, time: typed('gx-time') } : { type: 'event', title, date, time: typed('gx-time'), by: social.uid, at: Date.now(), going: { [social.uid]: true } });
+  },
+  'soc-going': (el) => {
+    const e = groupItem(el.dataset.id); if (!e) return;
+    const going = { ...e.going }; if (going[social.uid]) delete going[social.uid]; else going[social.uid] = true;
+    saveItem({ ...e, going });
+  },
+  'soc-add-bucket': () => openGroupBucketSheet(),
+  'soc-edit-bucket': (el) => openGroupBucketSheet(groupItem(el.dataset.id)),
+  'soc-save-bucket': (el) => {
+    const text = typed('gx-text').slice(0, BUCKET_MAX);
+    if (!text) { toast('Say what it is first'); return; }
+    const b = groupItem(el.dataset.id);
+    closeSheet();
+    saveItem(b ? { ...b, text } : { type: 'bucket', text, by: social.uid, at: Date.now() });
+  },
+  'soc-tick-bucket': (el) => {
+    const b = groupItem(el.dataset.id); if (!b) return;
+    const { doneAt, doneBy, ...rest } = b;
+    if (!doneAt) burst(`.task.bk:has([data-id="${b.id}"]) .check`);
+    saveItem(doneAt ? rest : { ...rest, doneAt: Date.now(), doneBy: social.uid });
+  },
+  'soc-add-expense': () => openGroupExpenseSheet(),
+  'soc-edit-expense': (el) => openGroupExpenseSheet(groupItem(el.dataset.id)),
+  'soc-save-expense': (el) => {
+    const title = typed('gx-title'); const amount = Math.round(parseFloat(typed('gx-amount')) * 100) / 100;
+    if (!title || !(amount > 0)) { toast('Add what it was and how much'); return; }
+    const paidBy = $('#gx-who .who-opt.on')?.dataset.who || social.uid;
+    const x = groupItem(el.dataset.id);
+    closeSheet();
+    saveItem({ ...(x || { type: 'expense', split: true, by: social.uid, at: Date.now() }), title, amount, paidBy, date: typed('gx-date') || isoDay(new Date()) });
+  },
+  'soc-settle': (el) => {
+    const amount = Number(el.dataset.v);
+    if (!confirm(`Record that ${el.dataset.from === social.uid ? 'you' : nameIn(el.dataset.from)} paid ${el.dataset.to === social.uid ? 'you' : nameIn(el.dataset.to)} ${fmtCash(amount)}?`)) return;
+    saveItem({ type: 'expense', kind: 'settle', paidBy: el.dataset.from, to: el.dataset.to, amount, date: isoDay(new Date()), by: social.uid, at: Date.now() });
+  },
+  'soc-del-item': (el) => {
+    const x = groupItem(el.dataset.id); if (!x) return;
+    closeSheet();
+    socialDo('del', () => deleteDocAt(groupPath(social.gid), x.id), () => toast('Removed', ['Undo', () => saveItem(x)]));
+  },
+};
+// What's typed on Friends survives a redraw.
+document.addEventListener('input', (e) => { const k = e.target.dataset?.draft; if (k) social.drafts[k] = e.target.value; });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !e.target.dataset?.draft || e.target.tagName === 'TEXTAREA') return;
+  e.target.parentElement.querySelector('[data-action]')?.click();
+});
 
 /* =========================================================
    Household sync (same events, chores and expenses on every device)
@@ -3745,7 +4154,9 @@ const actions = {
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+Object.assign(actions, socialActions);
+// Friends redraws itself when its data changes, so its buttons don't redraw the page here.
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');

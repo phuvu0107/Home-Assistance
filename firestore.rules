@@ -6,7 +6,14 @@ rules_version = '2';
 // homes/{home}            one household: who its members are (members: { uid: true }) and its name
 // homes/{home}/data/main  everything the household shares (events, chores, money, notes …)
 // invites/{code}          a short code that lets someone signed in join a household for 7 days
-// users/{uid}             which household a signed-in person belongs to
+// users/{uid}             which household a signed-in person belongs to, their groups and friend code
+// friendCodes/{code}      a person's friend code: who it belongs to and their name
+// friendRequests/{a_b}    a asked b to be friends
+// friendships/{a_b}       a and b are friends (a < b)
+// posts/{id}              a post on the Friends feed, readable by the people listed in `seen`
+// groups/{g}              a group of friends from any household, with its own feed, plans,
+//                         bucket list and shared money (groups/{g}/items/...)
+// groupInvites/{code}     a short code that lets someone signed in join a group for 7 days
 // households/{id}         the old passphrase households, kept until every screen has moved over
 service cloud.firestore {
   match /databases/{db}/documents {
@@ -51,6 +58,104 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /friendCodes/{code} {
+      // Looked up one at a time by its code; nobody can list them or take someone else's.
+      allow get: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid && code.size() >= 8
+        && request.resource.data.name is string && request.resource.data.name.size() <= 40;
+      allow update: if signedIn() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid
+        && request.resource.data.name is string && request.resource.data.name.size() <= 40;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    match /friendRequests/{id} {
+      allow read: if signedIn() && (resource.data.to == request.auth.uid || resource.data.from == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid
+        && request.resource.data.to is string && request.resource.data.to != request.auth.uid
+        && id == request.auth.uid + '_' + request.resource.data.to;
+      allow delete: if signedIn() && (resource.data.to == request.auth.uid || resource.data.from == request.auth.uid);
+    }
+
+    // `from` asked the signed-in person to be friends.
+    function askedMe(from) {
+      return exists(/databases/$(db)/documents/friendRequests/$(from + '_' + request.auth.uid));
+    }
+    match /friendships/{id} {
+      allow read: if signedIn() && request.auth.uid in resource.data.users;
+      // Only the person who was asked can say yes.
+      allow create: if signedIn() && request.resource.data.users.size() == 2
+        && request.resource.data.users[0] < request.resource.data.users[1]
+        && id == request.resource.data.users[0] + '_' + request.resource.data.users[1]
+        && (request.resource.data.users[1] == request.auth.uid && askedMe(request.resource.data.users[0])
+          || request.resource.data.users[0] == request.auth.uid && askedMe(request.resource.data.users[1]));
+      // Either friend can change their own name on it.
+      allow update: if signedIn() && request.auth.uid in resource.data.users
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['names'])
+        && request.resource.data.names.diff(resource.data.names).affectedKeys().hasOnly([request.auth.uid]);
+      allow delete: if signedIn() && request.auth.uid in resource.data.users;
+    }
+
+    match /posts/{post} {
+      allow read: if signedIn() && request.auth.uid in resource.data.seen;
+      allow create: if signedIn() && request.resource.data.by == request.auth.uid
+        && request.auth.uid in request.resource.data.seen && request.resource.data.seen.size() <= 300
+        && request.resource.data.text is string && request.resource.data.text.size() <= 1000
+        && request.resource.data.likes.size() == 0;
+      // Whoever can see a post can like it or take their like back, and change nothing else.
+      allow update: if signedIn() && request.auth.uid in resource.data.seen
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes'])
+        && request.resource.data.likes.diff(resource.data.likes).affectedKeys().hasOnly([request.auth.uid]);
+      allow delete: if signedIn() && resource.data.by == request.auth.uid;
+
+      match /comments/{c} {
+        function canSee() { return signedIn() && request.auth.uid in get(/databases/$(db)/documents/posts/$(post)).data.seen; }
+        allow read: if canSee();
+        allow create: if canSee() && request.resource.data.by == request.auth.uid
+          && request.resource.data.text is string && request.resource.data.text.size() <= 500;
+        allow delete: if signedIn() && (resource.data.by == request.auth.uid
+          || get(/databases/$(db)/documents/posts/$(post)).data.by == request.auth.uid);
+      }
+    }
+
+    function inGroup(g) {
+      return signedIn() && request.auth.uid in get(/databases/$(db)/documents/groups/$(g)).data.members;
+    }
+    function validGroupInvite(code, g) {
+      let inv = get(/databases/$(db)/documents/groupInvites/$(code)).data;
+      return code is string && inv.group == g && inv.expires > request.time;
+    }
+    // A change that touches only the signed-in person's own entry in the members and names maps.
+    function onlyMe() {
+      return request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid])
+        && request.resource.data.get('names', {}).diff(resource.data.get('names', {})).affectedKeys().hasOnly([request.auth.uid]);
+    }
+    match /groups/{g} {
+      allow get: if signedIn() && request.auth.uid in resource.data.members;
+      allow create: if signedIn() && request.resource.data.members.keys().hasOnly([request.auth.uid])
+        && request.resource.data.members[request.auth.uid] == true;
+      // Members can rename the group, change their own name or leave; nobody adds someone else.
+      allow update: if signedIn() && onlyMe() && (
+        request.auth.uid in resource.data.members
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'members', 'names'])
+        // Joining: add only yourself, with a live invite for this group.
+        || request.resource.data.members[request.auth.uid] == true
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'names', 'invite'])
+          && validGroupInvite(request.resource.data.invite, g));
+
+      // The group's feed, plans, bucket list and money, and the comments on its posts. (Under
+      // items/, because a bare {rest=**} would also match the group itself.)
+      match /items/{rest=**} {
+        allow read, write: if inGroup(g);
+      }
+    }
+
+    match /groupInvites/{code} {
+      allow get: if signedIn();
+      allow create: if inGroup(request.resource.data.group) && request.resource.data.by == request.auth.uid
+        && code.size() >= 8 && request.resource.data.expires < request.time + duration.value(8, 'd');
+      allow delete: if signedIn() && resource.data.by == request.auth.uid;
     }
 
     // Old passphrase households. The data inside is encrypted; anyone with the passphrase can
