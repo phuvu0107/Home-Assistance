@@ -6,6 +6,7 @@ import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpire
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
 import FEEDBACK_EMAIL from './feedback-config.js';
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
+import { createPhotos, shrink } from './photos.js';
 import { cleanName, expenseStats as moneyStats, joinNames, legacyMembersFor, MAX_MEMBERS, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
@@ -44,6 +45,7 @@ function defaultState() {
     thanks: [],
     notes: [],
     bucket: [],
+    itinerary: [],
     health: {},
   };
 }
@@ -941,7 +943,7 @@ const FAB = {
   bucket: { action: 'add-bucket', label: 'Add to the bucket list' },
 };
 function setFab(r) {
-  const fab = $('#fab'); const f = FAB[r];
+  const fab = $('#fab'); const f = r === 'calendar' && calView() === 'trip' ? { action: 'add-plan', label: 'Add activity' } : FAB[r];
   fab.hidden = !f;
   if (!f) return;
   fab.dataset.action = f.action;
@@ -1479,8 +1481,9 @@ const calShows = (who) => !calWho() || !who || who === 'both' || who === calWho(
 const calEventsOn = (iso) => eventsOn(iso).filter((e) => calShows(e.who));
 const calTasksToday = () => tasksToday().filter((t) => calShows(t.who));
 
+const monthly = () => calView() === 'month' || calView() === 'trip';
 function calTitle() {
-  if (calView() === 'month') return calCursor.toLocaleDateString([], { month: 'long', year: 'numeric' });
+  if (monthly()) return calCursor.toLocaleDateString([], { month: 'long', year: 'numeric' });
   const s = addDays(calCursor, -calCursor.getDay());
   const e = addDays(s, 6);
   const mon = (d) => d.toLocaleDateString([], { month: 'short' });
@@ -1488,24 +1491,166 @@ function calTitle() {
   return `${mon(s)} ${s.getDate()} – ${endPart}, ${e.getFullYear()}`;
 }
 
-const CAL_VIEWS = { agenda: 'List', week: 'Week', month: 'Month' };
+const CAL_VIEWS = { agenda: 'List', week: 'Week', month: 'Month', trip: 'Itinerary' };
 views.calendar = () => {
   const v = calView();
   return `
   <div class="card cal-card">
-    <div class="cal-bar">
+    <div class="cal-bar${v === 'trip' ? ' trip' : ''}">
       <button class="btn-round" data-action="cal-move" data-d="-1" aria-label="Previous">${icon('chevronLeft')}</button>
       <button class="btn-round" data-action="cal-move" data-d="1" aria-label="Next">${icon('chevron')}</button>
       <h2>${calTitle()}</h2>
       <button class="btn ghost sm" data-action="cal-today">Today</button>
       <span class="spacer"></span>
-      <div class="seg cal-who" role="group" aria-label="Whose schedule">${[['', 'Everyone'], ...members().map((u) => [u.id, u.name])].map(([id, l]) => `<button class="${calWho() === id ? 'on' : ''}" data-action="cal-who" data-who="${id}" aria-pressed="${calWho() === id}">${l}</button>`).join('')}</div>
-      <button class="chip-toggle${calChores() ? ' on' : ''}" data-action="cal-chores" aria-pressed="${calChores()}" aria-label="Chores">${icon('checkSquare')} Chores</button>
+      ${v === 'trip' ? '' : `<div class="seg cal-who" role="group" aria-label="Whose schedule">${[['', 'Everyone'], ...members().map((u) => [u.id, u.name])].map(([id, l]) => `<button class="${calWho() === id ? 'on' : ''}" data-action="cal-who" data-who="${id}" aria-pressed="${calWho() === id}">${l}</button>`).join('')}</div>
+      <button class="chip-toggle${calChores() ? ' on' : ''}" data-action="cal-chores" aria-pressed="${calChores()}" aria-label="Chores">${icon('checkSquare')} Chores</button>`}
       <div class="seg">${Object.entries(CAL_VIEWS).map(([x, l]) => `<button class="${v === x ? 'on' : ''}" data-action="cal-view" data-v="${x}">${l}</button>`).join('')}</div>
     </div>
-    <div class="cal-body">${v === 'month' ? monthView() : v === 'agenda' ? agendaView() : weekView()}</div>
+    <div class="cal-body">${v === 'trip' ? itineraryView() : v === 'month' ? monthView() : v === 'agenda' ? agendaView() : weekView()}</div>
   </div>`;
 };
+
+/* ---------- Itinerary ---------- */
+// The household's plans, day by day: each activity has a start and end time, where it is, notes,
+// people to call and pictures of the place. Activities are their own synced list (i: items), apart
+// from events, so they earn no stars and stay off Home. Pictures live in their own documents
+// (photos.js); an activity only lists their ids.
+const PLAN_NOTE_MAX = 500;
+const PLAN_CONTACT_MAX = 300;
+const PLAN_PHOTOS_MAX = 6;
+const plansOn = (iso) => (state.itinerary || []).filter((a) => a.date === iso)
+  .sort((a, b) => (a.start || '').localeCompare(b.start || '') || String(a.id).localeCompare(String(b.id))); // Any time first, like all-day events
+const planTime = (a, t) => fmtTime(new Date(`${a.date}T${t}`));
+const planWhen = (a) => (a.start ? `${planTime(a, a.start)}${a.end ? ` – ${planTime(a, a.end)}` : ''}` : 'Any time');
+const mapsLink = (place) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`;
+const telLink = (phone) => `tel:${phone.replace(/[^\d+*#]/g, '')}`;
+// Contacts are free text; anything that looks like a phone number becomes tap to call.
+const withCallLinks = (text) => esc(text).replace(/\+?\d[\d\s().-]{5,}\d/g, (n) => `<a href="${telLink(n)}">${n}</a>`);
+// A picture, filled in once it has loaded (fillPhotos).
+const photoImg = (id, cls = 'pl-photo') => `<img class="${cls}" data-photo="${esc(id)}" alt="" ${photos.peek(id) ? `src="${photos.peek(id)}"` : ''}>`;
+function fillPhotos(root = document) {
+  root.querySelectorAll('img[data-photo]:not([src])').forEach(async (img) => {
+    const data = await photos.get(img.dataset.photo);
+    if (data) img.src = data; else img.classList.add('missing');
+  });
+}
+
+function planChip(a) {
+  return `<span class="ev-chip pl-chip">${a.start ? `<b>${planTime(a, a.start)}</b>` : ''}<span>${esc(a.title)}</span></span>`;
+}
+function itineraryView() {
+  const y = calCursor.getFullYear();
+  const m = calCursor.getMonth();
+  const first = new Date(y, m, 1);
+  const start = new Date(y, m, 1 - first.getDay());
+  const weeks = Math.ceil((first.getDay() + new Date(y, m + 1, 0).getDate()) / 7);
+  const todayIso = isoDay(new Date());
+  const cells = Array.from({ length: weeks * 7 }, (_, i) => {
+    const d = addDays(start, i);
+    const iso = isoDay(d);
+    const acts = plansOn(iso);
+    return `<div class="day ${d.getMonth() !== m ? 'other' : ''} ${iso === todayIso ? 'today' : ''}${acts.length ? ' has-plans' : ''}" data-action="open-plan-day" data-d="${iso}">
+      <span class="day-num">${d.getDate()}</span>
+      <div class="day-evs">${acts.slice(0, 3).map(planChip).join('')}${acts.length > 3 ? `<span class="more">+${acts.length - 3} more</span>` : ''}</div>
+      ${acts.length ? `<span class="pl-count" aria-label="${acts.length} planned">${acts.length}</span>` : ''}
+    </div>`;
+  }).join('');
+  return `<p class="hint pl-hint">Tap a day to see its plans or add one.</p>
+    <div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<div class="dow">${d}</div>`).join('')}${cells}</div>`;
+}
+
+// One activity in the day's list, with everything attached to it.
+function planCard(a) {
+  return `<div class="pl-card">
+    <button class="pl-head" data-action="edit-plan" data-id="${esc(a.id)}">
+      <span class="pl-time">${icon('clock')}${planWhen(a)}</span>
+      <b>${esc(a.title)}</b>${icon('chevron', 'chev')}</button>
+    ${a.place ? `<a class="pl-place" href="${mapsLink(a.place)}" target="_blank" rel="noopener">${icon('pin')}<span>${esc(a.place)}</span></a>` : ''}
+    ${a.note ? `<p class="pl-note">${esc(a.note)}</p>` : ''}
+    ${a.contact ? `<p class="pl-contact">${icon('phone')}<span>${withCallLinks(a.contact)}</span></p>` : ''}
+    ${a.photos?.length ? `<div class="pl-photos">${a.photos.map((id) => `<button class="pl-thumb" data-action="view-photo" data-photo-id="${esc(id)}" aria-label="See picture">${photoImg(id)}</button>`).join('')}</div>` : ''}
+  </div>`;
+}
+
+function planDayHtml(iso) {
+  const acts = plansOn(iso);
+  return `${sheetHead(new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }), 'calendar')}
+    ${acts.length ? `<div class="pl-list">${acts.map(planCard).join('')}</div>` : '<p class="muted">Nothing planned yet.</p>'}
+    <div class="sheet-actions pl-day-actions"><button class="btn" data-action="add-plan" data-d="${iso}">${icon('plus')} Add activity</button></div>`;
+}
+function openPlanDay(iso) {
+  openSheet(planDayHtml(iso));
+  $('#sheet').dataset.kind = 'plan-day';
+  $('#sheet').dataset.d = iso;
+  fillPhotos($('#sheet'));
+}
+
+// The activity being edited: its pictures, and the new ones not saved yet (id -> data URL).
+let planDraft = null;
+function draftPhotosHtml() {
+  const list = planDraft.photos.map((id) => `<div class="pl-thumb">${planDraft.fresh.has(id) ? `<img class="pl-photo" src="${planDraft.fresh.get(id)}" alt="">` : photoImg(id)}
+    <button class="pl-x" data-action="del-photo" data-photo-id="${esc(id)}" aria-label="Remove picture">${icon('x')}</button></div>`).join('');
+  const add = planDraft.photos.length < PLAN_PHOTOS_MAX ? `<label class="pl-thumb pl-add">${icon('camera')}<span>Add</span><input type="file" id="plan-photo" accept="image/*" multiple hidden></label>` : '';
+  return list + add;
+}
+function redrawDraftPhotos() { const box = $('#pl-photos'); if (box) { box.innerHTML = draftPhotosHtml(); fillPhotos(box); } }
+// A new activity starts when the day's last one ends (or at 9 AM), for an hour.
+function nextSlot(iso) {
+  const last = plansOn(iso).filter((a) => a.end || a.start).at(-1);
+  const from = last ? minutesOf(last.end || last.start) : 9 * 60;
+  const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  return { start: hhmm(Math.min(from, 22 * 60)), end: hhmm(Math.min(from + 60, 23 * 60 + 59)) };
+}
+function openPlanSheet(a, date) {
+  const fromDay = $('#sheet').dataset.kind === 'plan-day' && !$('#sheet').hidden;
+  const p = a || { id: '', title: '', date, ...nextSlot(date), place: '', note: '', contact: '', photos: [] };
+  planDraft = { id: p.id, photos: [...(p.photos || [])], fresh: new Map() };
+  openSheet(`${sheetHead(a ? 'Edit activity' : 'New activity', 'calendar')}
+    <div class="field"><label for="pl-title">What</label><input class="input" id="pl-title" maxlength="80" value="${esc(p.title)}" placeholder="e.g. Breakfast at the market"></div>
+    <div class="field"><label for="pl-date">Day</label><input class="input" type="date" id="pl-date" value="${p.date}"></div>
+    <div class="field-row pl-times">
+      <div class="field"><label for="pl-start">Starts</label><input class="input" type="time" id="pl-start" value="${p.start || ''}"></div>
+      <div class="field"><label for="pl-end">Ends</label><input class="input" type="time" id="pl-end" value="${p.end || ''}"></div>
+    </div>
+    <div class="field"><label for="pl-place">Where</label><input class="input" id="pl-place" maxlength="160" value="${esc(p.place || '')}" placeholder="Address or place name"></div>
+    <div class="field"><label for="pl-note">Notes</label><textarea class="input" id="pl-note" rows="3" maxlength="${PLAN_NOTE_MAX}" placeholder="Tickets, what to bring, booking number">${esc(p.note || '')}</textarea></div>
+    <div class="field"><label for="pl-contact">Contacts</label><textarea class="input" id="pl-contact" rows="2" maxlength="${PLAN_CONTACT_MAX}" placeholder="e.g. Tour guide Minh 0912 345 678">${esc(p.contact || '')}</textarea></div>
+    <div class="field"><label>Pictures of where to go</label><div class="pl-photos edit" id="pl-photos">${draftPhotosHtml()}</div></div>
+    <div class="sheet-actions">
+      ${a ? `<button class="btn danger" data-action="del-plan" data-id="${esc(p.id)}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
+      <button class="btn ghost" data-action="plan-back" data-d="${fromDay ? p.date : ''}">Cancel</button>
+      <button class="btn" data-action="save-plan" data-id="${esc(p.id)}">${a ? 'Save' : 'Add activity'}</button>
+    </div>`);
+  fillPhotos($('#sheet'));
+}
+async function addDraftPhotos(files) {
+  if (!planDraft) return;
+  const room = PLAN_PHOTOS_MAX - planDraft.photos.length;
+  const list = [...files].slice(0, room);
+  if (files.length > room) toast(`Up to ${PLAN_PHOTOS_MAX} pictures per activity`);
+  for (const f of list) {
+    try {
+      const data = await shrink(f);
+      const id = `ph${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+      planDraft.photos.push(id); planDraft.fresh.set(id, data);
+    } catch (e) { toast(e.message || "Couldn't read that picture"); }
+  }
+  redrawDraftPhotos();
+}
+
+// Full screen, tap anywhere to close.
+async function viewPhoto(id) {
+  const box = Object.assign(document.createElement('div'), { id: 'photo-view', className: 'photo-view' });
+  box.innerHTML = `<img alt=""><button class="btn-round close" aria-label="Close">${icon('x')}</button>`;
+  // Escape closes the picture only, leaving the day's list open behind it.
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); } };
+  const close = () => { box.remove(); document.removeEventListener('keydown', onKey, true); };
+  box.addEventListener('click', close);
+  document.addEventListener('keydown', onKey, true);
+  document.body.append(box);
+  const data = await photos.get(id);
+  if (data) box.querySelector('img').src = data; else { close(); toast("That picture hasn't arrived on this screen yet"); }
+}
 
 /* ---------- Tasks ---------- */
 // Chores: who's ahead on stars at the top, then each person's list, then the stars history.
@@ -2168,7 +2313,7 @@ const groupWhoPicker = (selected) => `<div class="who-pick" id="gx-who">${social
 const groupItem = (id) => social.items.find((x) => x.id === id);
 const sheetDel = (action, id) => `<button class="btn danger" data-action="${action}" data-id="${id}">${icon('trash')} Remove</button><span class="spacer"></span>`;
 
-function openPlanSheet(e) {
+function openGroupPlanSheet(e) {
   openSheet(`${sheetHead(e ? 'Plan' : 'Add a plan', 'calendar')}
     <div class="field"><label for="gx-title">What</label><input class="input" id="gx-title" maxlength="80" value="${esc(e?.title || '')}" placeholder="e.g. Hotpot at our place"></div>
     <div class="field-row"><div class="field"><label for="gx-date">Day</label><input class="input" type="date" id="gx-date" value="${e?.date || isoDay(new Date())}"></div>
@@ -2299,8 +2444,8 @@ const socialActions = {
     socialDo('leave', () => leaveGroup(id, social.uid), () => { social.me.groups = (social.me.groups || []).filter((g) => g !== id); social.groups = social.groups.filter((g) => g.id !== id); location.hash = '#/friends'; });
   },
   'soc-tab': (el) => { social.tab = el.dataset.v; renderView(); },
-  'soc-add-plan': () => openPlanSheet(),
-  'soc-edit-plan': (el) => openPlanSheet(groupItem(el.dataset.id)),
+  'soc-add-plan': () => openGroupPlanSheet(),
+  'soc-edit-plan': (el) => openGroupPlanSheet(groupItem(el.dataset.id)),
   'soc-save-plan': (el) => {
     const title = typed('gx-title'); const date = typed('gx-date');
     if (!title || !date) { toast('Add what and which day'); return; }
@@ -2402,6 +2547,7 @@ const house = createSync({
   },
   onStatus: (st) => {
     houseSync = st;
+    if (st.state === 'ok') photos.flush();
     // The saved passphrase stopped working: ask for it again.
     if (st.state === 'badpass' && housePass && !houseSheetOpen()) openHouseSheet();
     // Another screen moved this household to sign-in: follow it there.
@@ -2411,6 +2557,7 @@ const house = createSync({
   onBase: (b) => { try { b ? localStorage.setItem(HOUSE_BASE_KEY, JSON.stringify(b)) : localStorage.removeItem(HOUSE_BASE_KEY); } catch { /* ignore */ } },
 });
 onSaved = () => { if (house.connected) house.changed(); };
+const photos = createPhotos(house);
 function houseMessage() {
   const at = houseSync.at ? ago(houseSync.at) : '';
   switch (houseSync.state) {
@@ -3154,6 +3301,7 @@ function renderView(anim) {
   else if (anim === 'cal') animate($('.cal-body'), 'fade-in');
   updateBadge();
   playBurst();
+  fillPhotos(view);
 }
 
 let lastRoute = null;
@@ -3353,12 +3501,12 @@ const actions = {
 
   'cal-move': (el) => {
     const d = Number(el.dataset.d);
-    calCursor = calView() === 'month'
+    calCursor = monthly()
       ? new Date(calCursor.getFullYear(), calCursor.getMonth() + d, 1)
       : addDays(calCursor, d * 7);
   },
   'cal-today': () => { calCursor = new Date(); },
-  'cal-view': (el) => { state.settings.calPick = el.dataset.v; save(); },
+  'cal-view': (el) => { state.settings.calPick = el.dataset.v; save(); setFab(currentRoute()); },
   'cal-who': (el) => { state.settings.calWho = el.dataset.who; save(); },
   'cal-chores': () => { state.settings.calChores = !state.settings.calChores; save(); },
   'open-day': (el) => openDaySheet(el.dataset.d),
@@ -3429,6 +3577,50 @@ const actions = {
     if (!e?.series || !confirm(`Delete all ${seriesOf(e).length} days of "${e.title}"?`)) return;
     state.events = state.events.filter((x) => x.series !== e.series);
     closeSheet();
+  },
+
+  'open-plan-day': (el) => openPlanDay(el.dataset.d),
+  'add-plan': (el) => openPlanSheet(null, el.dataset.d || isoDay(new Date())),
+  'edit-plan': (el) => openPlanSheet(state.itinerary.find((a) => a.id === el.dataset.id)),
+  'plan-back': (el) => { planDraft = null; if (el.dataset.d) openPlanDay(el.dataset.d); else closeSheet(); },
+  'del-photo': (el) => {
+    planDraft.photos = planDraft.photos.filter((id) => id !== el.dataset.photoId);
+    planDraft.fresh.delete(el.dataset.photoId);
+    redrawDraftPhotos();
+  },
+  'view-photo': (el) => viewPhoto(el.dataset.photoId),
+  'save-plan': (el) => {
+    const title = $('#pl-title').value.trim();
+    const date = $('#pl-date').value;
+    const start = $('#pl-start').value || '';
+    const end = $('#pl-end').value || '';
+    if (!title || !date) { toast('Add what it is and the day'); return; }
+    if (end && !start) { toast('Add a start time too'); return; }
+    if (start && end && end <= start) { toast('It has to end after it starts'); return; }
+    const data = { title: title.slice(0, 80), date, start, end, place: $('#pl-place').value.trim().slice(0, 160), note: $('#pl-note').value.trim().slice(0, PLAN_NOTE_MAX), contact: $('#pl-contact').value.trim().slice(0, PLAN_CONTACT_MAX), photos: [...planDraft.photos] };
+    // Empty fields are left out, so they don't take room in the synced document.
+    for (const k of ['place', 'note', 'contact']) if (!data[k]) delete data[k];
+    for (const k of ['photos']) if (!data[k].length) delete data[k];
+    const existing = state.itinerary.find((a) => a.id === el.dataset.id);
+    const before = existing?.photos || [];
+    if (existing) {
+      for (const k of ['place', 'note', 'contact', 'photos']) delete existing[k];
+      Object.assign(existing, data);
+    } else state.itinerary.push({ id: `i${Date.now()}`, ...data });
+    const { fresh } = planDraft;
+    planDraft = null;
+    for (const [id, d] of fresh) if (data.photos?.includes(id)) photos.add(id, d);
+    before.filter((id) => !data.photos?.includes(id)).forEach((id) => photos.drop(id));
+    calCursor = new Date(`${date}T12:00`);
+    openPlanDay(date);
+  },
+  'del-plan': (el) => {
+    const a = state.itinerary.find((x) => x.id === el.dataset.id);
+    if (!a || !confirm(`Delete "${a.title}"?`)) return;
+    state.itinerary = state.itinerary.filter((x) => x !== a);
+    (a.photos || []).forEach((id) => photos.drop(id));
+    planDraft = null;
+    openPlanDay(a.date);
   },
 
   'add-task': (el) => openTaskSheet(null, el.dataset.who),
@@ -3932,7 +4124,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -3975,6 +4167,11 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   if (!['receipt-file', 'receipt-money'].includes(e.target.id) || !e.target.files[0]) return;
   (e.target.id === 'receipt-file' ? scanReceipt : scanExpense)(e.target.files[0]);
+  e.target.value = '';
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'plan-photo' || !e.target.files.length) return;
+  addDraftPhotos(e.target.files);
   e.target.value = '';
 });
 document.addEventListener('change', async (e) => {

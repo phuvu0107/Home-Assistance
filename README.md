@@ -20,6 +20,8 @@ A simple top panel with the time, the date and the weather now. Its sky changes 
 ### Calendar
 List, Week (a time grid) and Month views. Phones open on List and bigger screens on Week. Each event shows who it's for, its start time and its title. The + button adds an event, tapping an event edits or deletes it, and tapping an empty slot in Week view adds one at that hour. Turn on **Important** in an event's sheet to mark it with a red dot everywhere it shows up. Add a **Note** for details only the person who taps it should see, like a gate code: lists show a small note icon, the words appear in a bubble when someone taps the icon, and the recap email leaves them out. The **Chores** toggle adds each day's chores to the calendar.
 
+**Itinerary** is a fourth view for plans like a trip or a day out. It shows the month; tap a day to see that day's activities in time order, and add, edit or delete them there (the + button adds one too). Each activity has a start and end time, where it is (tap to open it in Google Maps), notes, contacts as free text (phone numbers in it are tap to call) and up to six pictures of where to go (tap to see one full screen). The whole household shares the itinerary. Pictures are shrunk on the device and each is stored as its own document beside the household's, so they don't fill up the one shared document everything else lives in.
+
 Events earn stars like chores (5 unless you pick another amount in the event's sheet). Tick an event off on Home or with **Mark done** in its sheet once it has happened. An event for both of you, or for anyone, gives each of you the stars.
 
 | Week | Month |
@@ -179,6 +181,7 @@ python3 -m http.server 8000
 - `sync.js`, `sync-config.js`, `firebase.js` – household sync (Firebase Firestore)
 - `account.js`, `firestore.rules` – Google sign-in, invite codes, and who may read each household (rules tested in `tests/rules.emulator.mjs`)
 - `social.js` – friends, the feed and groups (rules tested in `tests/social.emulator.mjs`, helpers in `tests/social.test.mjs`)
+- `photos.js` – itinerary pictures: shrinking, the copy kept on each device, and syncing them (tested in `tests/photos.test.mjs`)
 - `people.js` – the household's people and who owes whom (tested in `tests/people.test.mjs`)
 - `avatars/` – Phu's and Nhi's avatars
 - `sw.js`, `manifest.webmanifest`, `icons/` – installable PWA and offline cache
