@@ -1166,6 +1166,16 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .sheet .field > .seg.bk-kind { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
 .sheet .field > .seg.bk-kind button { padding: 8px 4px; white-space: normal; line-height: 1.25; text-align: center; }
 .task.bk.done .bk-emoji { opacity: .6; }
+.bk-pic { flex: none; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: var(--card); cursor: zoom-in; }
+.bk-shot { position: relative; display: grid; place-content: center; justify-items: center; gap: 4px; min-height: 140px; border-radius: 14px; overflow: hidden; cursor: pointer; }
+.bk-shot.empty { border: 1.5px dashed var(--card-border); color: var(--text-2); text-align: center; padding: 16px; }
+.bk-shot.empty .ico { font-size: 26px; }
+.bk-shot.empty small { color: var(--text-3); }
+.bk-shot .pl-photo { width: 100%; max-height: 260px; }
+.bk-retake .ico { font-size: 14px; }
+.bk-shot.has { display: block; }
+.bk-retake { position: absolute; right: 8px; bottom: 8px; padding: 6px 10px; border-radius: 999px; background: rgb(0 0 0 / .55); color: #fff; font-size: 13px; }
+.sheet .btn:disabled { opacity: .45; cursor: not-allowed; }
 .love { color: var(--rose-fg); font-weight: 600; white-space: nowrap; }
 .love-total { display: flex; align-items: baseline; gap: 10px; margin-bottom: 18px; padding: 14px 16px; border-radius: 14px; background: var(--muted-surface); }
 .love-total b { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }

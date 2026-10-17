@@ -181,7 +181,7 @@ python3 -m http.server 8000
 - `sync.js`, `sync-config.js`, `firebase.js` – household sync (Firebase Firestore)
 - `account.js`, `firestore.rules` – Google sign-in, invite codes, and who may read each household (rules tested in `tests/rules.emulator.mjs`)
 - `social.js` – friends, the feed and groups (rules tested in `tests/social.emulator.mjs`, helpers in `tests/social.test.mjs`)
-- `photos.js` – itinerary pictures: shrinking, the copy kept on each device, and syncing them (tested in `tests/photos.test.mjs`)
+- `photos.js` – itinerary and bucket list check-in pictures: shrinking, the copy kept on each device, and syncing them (tested in `tests/photos.test.mjs`)
 - `people.js` – the household's people and who owes whom (tested in `tests/people.test.mjs`)
 - `avatars/` – Phu's and Nhi's avatars
 - `sw.js`, `manifest.webmanifest`, `icons/` – installable PWA and offline cache
