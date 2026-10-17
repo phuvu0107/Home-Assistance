@@ -120,6 +120,9 @@ export async function joinWithCode(uid, typed) {
   const { home, expires } = s.data();
   if (expires.toMillis() < Date.now()) return 'expired';
   await joinHome(uid, home, code);
+  // A code works once. Rules published before this change don't allow it; the code then
+  // simply runs out after its week, as before.
+  await fs.deleteDoc(fs.doc(db, `invites/${code}`)).catch(() => {});
   return home;
 }
 

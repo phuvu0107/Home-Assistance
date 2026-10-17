@@ -907,7 +907,7 @@ body.dome-open .fab { opacity: 0; transform: scale(.6); pointer-events: none; }
 .lb-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
 .lb-recent { gap: 4px; }
 .lb-row { display: flex; align-items: center; gap: 12px; padding: 6px 2px; min-width: 0; }
-.lb-row span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lb-row > span:not(.av):not(.av-pair) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .lb-row b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lb-row small { color: var(--text-3); font-size: 12px; }
 .lb-row em { font-style: normal; font-weight: 700; color: var(--amber-fg); font-variant-numeric: tabular-nums; }
@@ -1185,6 +1185,11 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
   .cal-bar .chip-toggle { order: 4; flex: none; justify-content: center; width: 42px; height: 42px; padding: 0; font-size: 0; gap: 0; }
   .cal-bar .chip-toggle .ico { font-size: 19px; }
   .cal-bar .seg button { padding: 8px 6px; }
+}
+/* Small phones: names get their own full row, and the List/Week/Month switch moves up beside Today. */
+@media (max-width: 420px) {
+  .cal-bar .seg:not(.cal-who) { order: 4; flex: 1; min-width: 0; width: auto; }
+  .cal-bar .seg.cal-who { order: 5; flex: 1 0 100%; }
 }
 
 /* Private notes on events and chores: an icon in lists, the words in a bubble once tapped. */
