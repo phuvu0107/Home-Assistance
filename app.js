@@ -1514,7 +1514,7 @@ views.calendar = () => {
 // from events, so they earn no stars and stay off Home. Pictures live in their own documents
 // (photos.js); an activity only lists their ids.
 const PLAN_NOTE_MAX = 500;
-const PLAN_CONTACTS_MAX = 5;
+const PLAN_CONTACT_MAX = 300;
 const PLAN_PHOTOS_MAX = 6;
 const plansOn = (iso) => (state.itinerary || []).filter((a) => a.date === iso)
   .sort((a, b) => (a.start || '99').localeCompare(b.start || '99') || String(a.id).localeCompare(String(b.id)));
@@ -1522,6 +1522,8 @@ const planTime = (a, t) => fmtTime(new Date(`${a.date}T${t}`));
 const planWhen = (a) => (a.start ? `${planTime(a, a.start)}${a.end ? ` – ${planTime(a, a.end)}` : ''}` : 'Any time');
 const mapsLink = (place) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`;
 const telLink = (phone) => `tel:${phone.replace(/[^\d+*#]/g, '')}`;
+// Contacts are free text; anything that looks like a phone number becomes tap to call.
+const withCallLinks = (text) => esc(text).replace(/\+?\d[\d\s().-]{5,}\d/g, (n) => `<a href="${telLink(n)}">${n}</a>`);
 // A picture, filled in once it has loaded (fillPhotos).
 const photoImg = (id, cls = 'pl-photo') => `<img class="${cls}" data-photo="${esc(id)}" alt="" ${photos.peek(id) ? `src="${photos.peek(id)}"` : ''}>`;
 function fillPhotos(root = document) {
@@ -1556,18 +1558,13 @@ function itineraryView() {
 
 // One activity in the day's list, with everything attached to it.
 function planCard(a) {
-  // Tapping a contact calls them, on a device that can.
-  const contacts = (a.contacts || []).map((c) => {
-    const inner = `${icon(c.phone ? 'phone' : 'users')}${esc(c.name || c.phone)}${c.name && c.phone ? `<span>${esc(c.phone)}</span>` : ''}`;
-    return c.phone ? `<a class="chip pl-contact" href="${telLink(c.phone)}">${inner}</a>` : `<span class="chip pl-contact">${inner}</span>`;
-  }).join('');
   return `<div class="pl-card">
     <button class="pl-head" data-action="edit-plan" data-id="${esc(a.id)}">
       <span class="pl-time">${icon('clock')}${planWhen(a)}</span>
       <b>${esc(a.title)}</b>${icon('chevron', 'chev')}</button>
     ${a.place ? `<a class="pl-place" href="${mapsLink(a.place)}" target="_blank" rel="noopener">${icon('pin')}<span>${esc(a.place)}</span></a>` : ''}
     ${a.note ? `<p class="pl-note">${esc(a.note)}</p>` : ''}
-    ${contacts ? `<div class="pl-contacts">${contacts}</div>` : ''}
+    ${a.contact ? `<p class="pl-contact">${icon('phone')}<span>${withCallLinks(a.contact)}</span></p>` : ''}
     ${a.photos?.length ? `<div class="pl-photos">${a.photos.map((id) => `<button class="pl-thumb" data-action="view-photo" data-photo-id="${esc(id)}" aria-label="See picture">${photoImg(id)}</button>`).join('')}</div>` : ''}
   </div>`;
 }
@@ -1587,10 +1584,6 @@ function openPlanDay(iso) {
 
 // The activity being edited: its pictures, and the new ones not saved yet (id -> data URL).
 let planDraft = null;
-const contactRow = (c = {}) => `<div class="pl-crow">
-    <input class="input" data-c-name maxlength="40" placeholder="Name" value="${esc(c.name || '')}" aria-label="Contact name">
-    <input class="input" data-c-phone type="tel" maxlength="24" placeholder="Phone" value="${esc(c.phone || '')}" aria-label="Phone number">
-    <button class="btn-round sm" data-action="del-contact" aria-label="Remove contact">${icon('x')}</button></div>`;
 function draftPhotosHtml() {
   const list = planDraft.photos.map((id) => `<div class="pl-thumb">${planDraft.fresh.has(id) ? `<img class="pl-photo" src="${planDraft.fresh.get(id)}" alt="">` : photoImg(id)}
     <button class="pl-x" data-action="del-photo" data-photo-id="${esc(id)}" aria-label="Remove picture">${icon('x')}</button></div>`).join('');
@@ -1607,7 +1600,7 @@ function nextSlot(iso) {
 }
 function openPlanSheet(a, date) {
   const fromDay = $('#sheet').dataset.kind === 'plan-day' && !$('#sheet').hidden;
-  const p = a || { id: '', title: '', date, ...nextSlot(date), place: '', note: '', contacts: [], photos: [] };
+  const p = a || { id: '', title: '', date, ...nextSlot(date), place: '', note: '', contact: '', photos: [] };
   planDraft = { id: p.id, photos: [...(p.photos || [])], fresh: new Map() };
   openSheet(`${sheetHead(a ? 'Edit activity' : 'New activity', 'calendar')}
     <div class="field"><label for="pl-title">What</label><input class="input" id="pl-title" maxlength="80" value="${esc(p.title)}" placeholder="e.g. Breakfast at the market"></div>
@@ -1618,8 +1611,7 @@ function openPlanSheet(a, date) {
     </div>
     <div class="field"><label for="pl-place">Where</label><input class="input" id="pl-place" maxlength="160" value="${esc(p.place || '')}" placeholder="Address or place name"></div>
     <div class="field"><label for="pl-note">Notes</label><textarea class="input" id="pl-note" rows="3" maxlength="${PLAN_NOTE_MAX}" placeholder="Tickets, what to bring, booking number">${esc(p.note || '')}</textarea></div>
-    <div class="field"><label>Contacts</label><div id="pl-contacts">${(p.contacts || []).map(contactRow).join('')}</div>
-      <button class="btn ghost sm" data-action="add-contact">${icon('plus')} Add contact</button></div>
+    <div class="field"><label for="pl-contact">Contacts</label><textarea class="input" id="pl-contact" rows="2" maxlength="${PLAN_CONTACT_MAX}" placeholder="e.g. Tour guide Minh 0912 345 678">${esc(p.contact || '')}</textarea></div>
     <div class="field"><label>Pictures of where to go</label><div class="pl-photos edit" id="pl-photos">${draftPhotosHtml()}</div></div>
     <div class="sheet-actions">
       ${a ? `<button class="btn danger" data-action="del-plan" data-id="${esc(p.id)}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
@@ -3177,13 +3169,6 @@ const actions = {
   'add-plan': (el) => openPlanSheet(null, el.dataset.d || isoDay(new Date())),
   'edit-plan': (el) => openPlanSheet(state.itinerary.find((a) => a.id === el.dataset.id)),
   'plan-back': (el) => { planDraft = null; if (el.dataset.d) openPlanDay(el.dataset.d); else closeSheet(); },
-  'add-contact': () => {
-    const box = $('#pl-contacts');
-    if (box.children.length >= PLAN_CONTACTS_MAX) { toast(`Up to ${PLAN_CONTACTS_MAX} contacts per activity`); return; }
-    box.insertAdjacentHTML('beforeend', contactRow());
-    box.lastElementChild.querySelector('input').focus();
-  },
-  'del-contact': (el) => el.closest('.pl-crow').remove(),
   'del-photo': (el) => {
     planDraft.photos = planDraft.photos.filter((id) => id !== el.dataset.photoId);
     planDraft.fresh.delete(el.dataset.photoId);
@@ -3198,17 +3183,14 @@ const actions = {
     if (!title || !date) { toast('Add what it is and the day'); return; }
     if (end && !start) { toast('Add a start time too'); return; }
     if (start && end && end <= start) { toast('It has to end after it starts'); return; }
-    const contacts = [...document.querySelectorAll('#pl-contacts .pl-crow')]
-      .map((r) => ({ name: r.querySelector('[data-c-name]').value.trim().slice(0, 40), phone: r.querySelector('[data-c-phone]').value.trim().slice(0, 24) }))
-      .filter((c) => c.name || c.phone).slice(0, PLAN_CONTACTS_MAX);
-    const data = { title: title.slice(0, 80), date, start, end, place: $('#pl-place').value.trim().slice(0, 160), note: $('#pl-note').value.trim().slice(0, PLAN_NOTE_MAX), contacts, photos: [...planDraft.photos] };
+    const data = { title: title.slice(0, 80), date, start, end, place: $('#pl-place').value.trim().slice(0, 160), note: $('#pl-note').value.trim().slice(0, PLAN_NOTE_MAX), contact: $('#pl-contact').value.trim().slice(0, PLAN_CONTACT_MAX), photos: [...planDraft.photos] };
     // Empty fields are left out, so they don't take room in the synced document.
-    for (const k of ['place', 'note']) if (!data[k]) delete data[k];
-    for (const k of ['contacts', 'photos']) if (!data[k].length) delete data[k];
+    for (const k of ['place', 'note', 'contact']) if (!data[k]) delete data[k];
+    for (const k of ['photos']) if (!data[k].length) delete data[k];
     const existing = state.itinerary.find((a) => a.id === el.dataset.id);
     const before = existing?.photos || [];
     if (existing) {
-      for (const k of ['place', 'note', 'contacts', 'photos']) delete existing[k];
+      for (const k of ['place', 'note', 'contact', 'photos']) delete existing[k];
       Object.assign(existing, data);
     } else state.itinerary.push({ id: `i${Date.now()}`, ...data });
     const { fresh } = planDraft;
@@ -3726,7 +3708,7 @@ const actions = {
 };
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
-const NO_RERENDER = new Set(['open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'add-contact', 'del-contact', 'del-photo', 'view-photo', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set(['open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
