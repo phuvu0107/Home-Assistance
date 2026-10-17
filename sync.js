@@ -118,9 +118,17 @@ function backend() {
   return backendP;
 }
 
+// Firestore refuses a document over 1 MiB. The sealed data is checked against a little less
+// before writing, so a full household is reported as full rather than as a vague error.
+export const SYNC_LIMIT = 1040000;
+// Firestore's own refusals of an oversized document, in case one slips past that check.
+const TOO_BIG = /exceeds the maximum allowed size|is longer than \d+ bytes|invalid nested entity/i;
+
 /* ---------- Public API ---------- */
 // status: off | connecting | new (no household yet for this passphrase) | ok | offline | badpass
 //         | moved (this passphrase household moved to sign-in; extra: { home, invite }) | error
+//         | full (the household's data has reached the 1 MiB cap and changes here can't be sent)
+// ok also carries size: how many bytes the household's data took up at the last sync.
 export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) {
   let path = null; let codec = null; let key = null; let base = null; let unwatch = null;
   let dirty = false; let pushing = false; let timer = null;
@@ -153,20 +161,25 @@ export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) 
       // Nothing changed since the last sync (a tap that only opened a sheet, say).
       if (!force && base && sameDoc(mine, base)) return;
       const be = await backend();
-      let merged = null;
+      let merged = null; let size = 0;
       await be.update(path, async (remote) => {
         merged = remote ? merge(await codec.open(remote.box), mine) : mine;
-        return { box: await codec.seal(merged), at: Date.now() };
+        const box = await codec.seal(merged);
+        size = JSON.stringify(box).length; // sealed data is plain ASCII, so characters are bytes
+        if (size > SYNC_LIMIT) throw Object.assign(new Error('Household data is full'), { full: true });
+        return { box, at: Date.now() };
       });
       base = merged; onBase(base);
       // Bring in anything the other device changed at the same moment.
       if (JSON.stringify(toItemsComparable(merged.items)) !== JSON.stringify(toItemsComparable(mine.items))) {
         onRemote((state) => applyItems(state, merged.items));
       }
-      status('ok', { at: Date.now() });
+      status('ok', { at: Date.now(), size });
     } catch (e) {
       dirty = true;
-      status(navigator.onLine === false ? 'offline' : 'error', { message: String(e?.message || e) });
+      const message = String(e?.message || e);
+      // The whole household shares one database document, which can't grow past 1 MiB.
+      status(navigator.onLine === false ? 'offline' : e?.full || TOO_BIG.test(message) ? 'full' : 'error', { message });
     } finally {
       pushing = false;
       if (dirty && navigator.onLine !== false) schedule(5000);
@@ -200,7 +213,7 @@ export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) 
         const local = base ? JSON.stringify(toItemsComparable(base.items)) : '';
         base = doc; onBase(base);
         if (JSON.stringify(toItemsComparable(doc.items)) !== local) onRemote((state) => applyItems(state, doc.items));
-        status('ok', { at: Date.now() });
+        status('ok', { at: Date.now(), size: JSON.stringify(remote.box).length });
       } catch { status(key ? 'badpass' : 'error'); }
     }, () => status('offline'));
   }

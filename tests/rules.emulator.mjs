@@ -60,6 +60,15 @@ test('people only see their own pointer; invites delete by their maker', async (
   await assertSucceeds(deleteDoc(doc(db('ann'), 'invites/ANNCODE11')));
 });
 
+test('joining uses the invite up; outsiders cannot delete it', async () => {
+  await assertSucceeds(setDoc(doc(db('ann'), 'homes/h3'), { members: { ann: true }, name: 'Home' }));
+  await assertSucceeds(setDoc(doc(db('ann'), 'invites/ONCEONLY1'), { home: 'h3', by: 'ann', expires: inDays(7) }));
+  await assertFails(deleteDoc(doc(db('eve'), 'invites/ONCEONLY1')));
+  await assertSucceeds(updateDoc(doc(db('bob'), 'homes/h3'), { 'members.bob': true, invite: 'ONCEONLY1' }));
+  await assertSucceeds(deleteDoc(doc(db('bob'), 'invites/ONCEONLY1')));
+  await assertFails(updateDoc(doc(db('eve'), 'homes/h3'), { 'members.eve': true, invite: 'ONCEONLY1' }));
+});
+
 test('old passphrase households keep working', async () => {
   const id = 'a'.repeat(64);
   await assertSucceeds(setDoc(doc(db(null), `households/${id}`), { box: { v: 1 }, at: 1 }));
