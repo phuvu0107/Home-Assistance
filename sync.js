@@ -1,5 +1,5 @@
 // Shared household sync: the household's people, events, tasks, stars (and who earned them when), expenses, fridge items,
-// thank-you notes, sticky notes and Fitbit numbers stay the same on every device.
+// thank-you notes, sticky notes, itinerary and Fitbit numbers stay the same on every device.
 //
 // A household signed in with Google keeps its data at homes/{home}/data/main in Firebase
 // Firestore, and the database's rules (firestore.rules) let only its members read or change it.
@@ -45,9 +45,17 @@ const passCodec = (key) => ({ seal: (obj) => seal(key, obj), open: (box) => open
 // Where a household's data lives: a passphrase household by its hash, a signed-in one by its id.
 const passPath = (id) => `households/${id}`;
 const homePath = (home) => `homes/${home}/data/main`;
+// Itinerary pictures are too big for the household's one document, so each is a document of its
+// own beside it: in a signed-in household under homes/{home}/data, which the rules already keep to
+// its members; in a passphrase household named by a hash, like the household itself, and sealed
+// with the same key.
+async function photoPath(path, id) {
+  if (!path.startsWith('households/')) return path.replace(/\/main$/, `/photo-${id}`);
+  return passPath(await householdId(`${path}:photo:${id}`));
+}
 
 /* ---------- State <-> items ---------- */
-const LISTS = { e: 'events', t: 'tasks', x: 'expenses', l: 'log', f: 'fridge', k: 'thanks', n: 'notes', b: 'bucket', p: 'members' };
+const LISTS = { e: 'events', t: 'tasks', x: 'expenses', l: 'log', f: 'fridge', k: 'thanks', n: 'notes', b: 'bucket', p: 'members', i: 'itinerary' };
 const strip = ({ u, ...rest }) => rest;
 // Items this version of the app reads and writes. Anything else in the household doc came from a
 // newer version (a screen that hasn't reloaded since an update is still on the old one), so it is
@@ -286,6 +294,26 @@ export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) 
     resumeHome(home, savedBase) {
       base = savedBase || null;
       return this.connectHome(home);
+    },
+    // One itinerary picture. False when this device isn't syncing with a household right now.
+    async putPhoto(id, data) {
+      if (!path) return false;
+      const be = await backend(); const at = path; const how = codec;
+      const box = await how.seal({ photo: data });
+      await be.update(await photoPath(at, id), async () => ({ box, at: Date.now() }));
+      return true;
+    },
+    async getPhoto(id) {
+      if (!path) return null;
+      const be = await backend(); const how = codec;
+      const doc = await be.read(await photoPath(path, id));
+      return doc?.box ? (await how.open(doc.box)).photo || null : null;
+    },
+    // A passphrase household's documents can't be deleted, so a removed picture is emptied instead.
+    async dropPhoto(id) {
+      if (!path) return;
+      const be = await backend();
+      await be.update(await photoPath(path, id), async () => ({ gone: true, at: Date.now() }));
     },
     disconnect() { stop(); key = null; base = null; onBase(null); status('off'); },
     changed: () => schedule(),
