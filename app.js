@@ -1494,7 +1494,7 @@ views.calendar = () => {
   const v = calView();
   return `
   <div class="card cal-card">
-    <div class="cal-bar">
+    <div class="cal-bar${v === 'trip' ? ' trip' : ''}">
       <button class="btn-round" data-action="cal-move" data-d="-1" aria-label="Previous">${icon('chevronLeft')}</button>
       <button class="btn-round" data-action="cal-move" data-d="1" aria-label="Next">${icon('chevron')}</button>
       <h2>${calTitle()}</h2>
@@ -1517,7 +1517,7 @@ const PLAN_NOTE_MAX = 500;
 const PLAN_CONTACT_MAX = 300;
 const PLAN_PHOTOS_MAX = 6;
 const plansOn = (iso) => (state.itinerary || []).filter((a) => a.date === iso)
-  .sort((a, b) => (a.start || '99').localeCompare(b.start || '99') || String(a.id).localeCompare(String(b.id)));
+  .sort((a, b) => (a.start || '').localeCompare(b.start || '') || String(a.id).localeCompare(String(b.id))); // Any time first, like all-day events
 const planTime = (a, t) => fmtTime(new Date(`${a.date}T${t}`));
 const planWhen = (a) => (a.start ? `${planTime(a, a.start)}${a.end ? ` – ${planTime(a, a.end)}` : ''}` : 'Any time');
 const mapsLink = (place) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place)}`;
@@ -1550,6 +1550,7 @@ function itineraryView() {
     return `<div class="day ${d.getMonth() !== m ? 'other' : ''} ${iso === todayIso ? 'today' : ''}${acts.length ? ' has-plans' : ''}" data-action="open-plan-day" data-d="${iso}">
       <span class="day-num">${d.getDate()}</span>
       <div class="day-evs">${acts.slice(0, 3).map(planChip).join('')}${acts.length > 3 ? `<span class="more">+${acts.length - 3} more</span>` : ''}</div>
+      ${acts.length ? `<span class="pl-count" aria-label="${acts.length} planned">${acts.length}</span>` : ''}
     </div>`;
   }).join('');
   return `<p class="hint pl-hint">Tap a day to see its plans or add one.</p>
@@ -1573,7 +1574,7 @@ function planDayHtml(iso) {
   const acts = plansOn(iso);
   return `${sheetHead(new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }), 'calendar')}
     ${acts.length ? `<div class="pl-list">${acts.map(planCard).join('')}</div>` : '<p class="muted">Nothing planned yet.</p>'}
-    <div class="sheet-actions"><button class="btn" data-action="add-plan" data-d="${iso}">${icon('plus')} Add activity</button></div>`;
+    <div class="sheet-actions pl-day-actions"><button class="btn" data-action="add-plan" data-d="${iso}">${icon('plus')} Add activity</button></div>`;
 }
 function openPlanDay(iso) {
   openSheet(planDayHtml(iso));
@@ -1604,8 +1605,8 @@ function openPlanSheet(a, date) {
   planDraft = { id: p.id, photos: [...(p.photos || [])], fresh: new Map() };
   openSheet(`${sheetHead(a ? 'Edit activity' : 'New activity', 'calendar')}
     <div class="field"><label for="pl-title">What</label><input class="input" id="pl-title" maxlength="80" value="${esc(p.title)}" placeholder="e.g. Breakfast at the market"></div>
-    <div class="field-row">
-      <div class="field"><label for="pl-date">Day</label><input class="input" type="date" id="pl-date" value="${p.date}"></div>
+    <div class="field"><label for="pl-date">Day</label><input class="input" type="date" id="pl-date" value="${p.date}"></div>
+    <div class="field-row pl-times">
       <div class="field"><label for="pl-start">Starts</label><input class="input" type="time" id="pl-start" value="${p.start || ''}"></div>
       <div class="field"><label for="pl-end">Ends</label><input class="input" type="time" id="pl-end" value="${p.end || ''}"></div>
     </div>
@@ -1639,10 +1640,14 @@ async function addDraftPhotos(files) {
 async function viewPhoto(id) {
   const box = Object.assign(document.createElement('div'), { id: 'photo-view', className: 'photo-view' });
   box.innerHTML = `<img alt=""><button class="btn-round close" aria-label="Close">${icon('x')}</button>`;
-  box.addEventListener('click', () => box.remove());
+  // Escape closes the picture only, leaving the day's list open behind it.
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); } };
+  const close = () => { box.remove(); document.removeEventListener('keydown', onKey, true); };
+  box.addEventListener('click', close);
+  document.addEventListener('keydown', onKey, true);
   document.body.append(box);
   const data = await photos.get(id);
-  if (data) box.querySelector('img').src = data; else { box.remove(); toast("That picture hasn't arrived on this screen yet"); }
+  if (data) box.querySelector('img').src = data; else { close(); toast("That picture hasn't arrived on this screen yet"); }
 }
 
 /* ---------- Tasks ---------- */
