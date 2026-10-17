@@ -55,6 +55,9 @@ Fitbit data for each of you: steps today, last night's sleep with deep and REM t
 
 ![Health page](docs/screenshots/health.png)
 
+### Friends
+A small social network next to your household, on its own tab. Sign in with Google and you get a **friend code**; anyone signed in, from any household, can add you with it, and you're friends once you tap **Accept**. The **Feed** shows your posts and your friends' posts, each with likes and comments, and a post reaches the friends you have when you write it. **Groups** bring together people from any household (family, a trip, a dinner club): make one, tap **Invite** for a 7-day code, and everyone who joins shares the group's feed, **Plans** (with who's going), a **Bucket list** and **Money**, where costs split evenly and **Settle up** records who paid whom back. Nothing from your household (calendar, chores, money, notes) is shared with friends or groups; all of this is stored apart from it, and who can read what is decided by `firestore.rules`. Change the name friends see with **Change name**. Publish the updated `firestore.rules` before using Friends.
+
 ### Summary email
 A GitHub job emails the household at 7 AM, noon, 5 PM and 9 PM Pacific: the morning one has the day's events, weather, tasks, yesterday's stars, the Money balance and yesterday's energy; noon and 5 PM cover what's left of the day; 9 PM recaps today's stars and shows tomorrow. See [Summary email](#summary-email-setup).
 
@@ -177,6 +180,7 @@ python3 -m http.server 8000
 - `receipt.js` – fridge kinds and the receipt reader
 - `sync.js`, `sync-config.js`, `firebase.js` – household sync (Firebase Firestore)
 - `account.js`, `firestore.rules` – Google sign-in, invite codes, and who may read each household (rules tested in `tests/rules.emulator.mjs`)
+- `social.js` – friends, the feed and groups (rules tested in `tests/social.emulator.mjs`, helpers in `tests/social.test.mjs`)
 - `photos.js` – itinerary pictures: shrinking, the copy kept on each device, and syncing them (tested in `tests/photos.test.mjs`)
 - `people.js` – the household's people and who owes whom (tested in `tests/people.test.mjs`)
 - `avatars/` – Phu's and Nhi's avatars
