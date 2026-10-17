@@ -3345,6 +3345,7 @@ function openSheet(html) {
   $('#sheet').classList.remove('closing');
   $('#sheet-backdrop').classList.remove('closing');
   delete $('#sheet').dataset.kind;
+  delete $('#sheet').dataset.back;
   $('#sheet').innerHTML = html;
   $('#sheet').hidden = false;
   $('#sheet-backdrop').hidden = false;
@@ -3439,6 +3440,11 @@ function daySheetHtml(iso) {
     <div class="sheet-actions"><button class="btn" data-action="add-event" data-d="${iso}">${icon('plus')} Add event</button></div>`;
 }
 
+// An event opened from a day pop-up returns to that day (showing the change) instead of closing.
+function closeOrBack(day = $('#sheet').dataset.back) {
+  if (day) openDaySheet(day); else closeSheet();
+}
+
 // Ticked from the day pop-up: redraw it so the tick shows there too.
 function redrawDaySheet() {
   const sheet = $('#sheet');
@@ -3528,13 +3534,21 @@ const actions = {
   'cal-who': (el) => { state.settings.calWho = el.dataset.who; save(); },
   'cal-chores': () => { state.settings.calChores = !state.settings.calChores; save(); },
   'open-day': (el) => openDaySheet(el.dataset.d),
-  'add-event': (el) => openEventSheet(null, el.dataset.d),
+  'add-event': (el) => {
+    const day = !$('#sheet').hidden && $('#sheet').dataset.kind === 'day' ? $('#sheet').dataset.d : '';
+    openEventSheet(null, el.dataset.d);
+    if (day) $('#sheet').dataset.back = day;
+  },
   'add-event-at': (el, e) => {
     const y = e.clientY - el.getBoundingClientRect().top;
     const h = Math.min(DAY_END - 1, DAY_START + Math.floor(y / HOUR_PX));
     openEventSheet(null, el.dataset.d, `${String(h).padStart(2, '0')}:00`);
   },
-  'edit-event': (el) => openEventSheet(state.events.find((x) => x.id === el.dataset.id)),
+  'edit-event': (el) => {
+    const day = !$('#sheet').hidden && $('#sheet').dataset.kind === 'day' ? $('#sheet').dataset.d : '';
+    openEventSheet(state.events.find((x) => x.id === el.dataset.id));
+    if (day) $('#sheet').dataset.back = day; // from a day pop-up: Mark done and Save go back to it
+  },
   'save-event': (el) => {
     const title = $('#ev-title').value.trim();
     const date = $('#ev-date').value;
@@ -3560,7 +3574,7 @@ const actions = {
       if (series) toast(`Added ${dates.length} days`);
     }
     calCursor = new Date(`${date}T12:00`);
-    closeSheet();
+    closeOrBack($('#sheet').dataset.back && date);
   },
   'toggle-event': (el) => {
     const e = state.events.find((x) => x.id === el.dataset.id);
@@ -3574,7 +3588,7 @@ const actions = {
     }
     awardStars(e, 'event', !eventDone(e));
     if (eventDone(e)) burst(`[data-action="toggle-event"][data-id="${e.id}"]:not(.btn)`);
-    if (el.dataset.close) closeSheet();
+    if (el.dataset.close) closeOrBack();
     redrawDaySheet();
   },
   'pick-repeat': (el) => {
