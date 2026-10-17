@@ -676,6 +676,10 @@ label.btn { cursor: pointer; }
 .field label { font-size: 13px; color: var(--text-2); font-weight: 600; }
 .input, textarea.input, select.input { border: 1px solid var(--card-border); background: var(--muted-surface); border-radius: 12px; padding: 12px 14px; font-size: 16px; outline: none; width: 100%; }
 .input:focus { border-color: var(--accent); }
+/* iPhone Safari gives date and time inputs a built-in width that ignores width: 100%,
+   so they ran past the sheet's edge and the Ends time overlapped Starts. */
+.input[type="date"], .input[type="time"] { -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; display: block; height: 51px; text-align: left; }
+.input[type="date"]::-webkit-date-and-time-value, .input[type="time"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
 .hint { font-size: 13px; color: var(--text-3); line-height: 1.5; }
 .setting-row { display: flex; align-items: center; gap: 16px; padding: 14px 0; border-top: 1px solid var(--card-border); }
 .setting-row:first-child { border-top: 0; }
@@ -1237,6 +1241,8 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 @media (max-width: 600px) { .cal .pl-chip b { display: none; } .pl-thumb { width: 80px; height: 80px; } }
 .pl-count { display: none; }
 .pl-times .field { min-width: 0; flex-basis: 0; }
+.pl-times .input { padding-inline: 8px; }
+.pl-times .input::-webkit-calendar-picker-indicator { margin-inline-start: 0; }
 /* The day's Add button stays in reach however long the list gets. */
 .pl-day-actions { position: sticky; bottom: -24px; margin: 8px -24px -24px; padding: 12px 24px 24px; background: linear-gradient(to bottom, transparent, var(--card) 14px); }
 @media (max-width: 600px) {
