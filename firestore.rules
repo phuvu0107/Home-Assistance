@@ -52,7 +52,8 @@ service cloud.firestore {
       allow get: if signedIn();
       allow create: if isMember(request.resource.data.home) && request.resource.data.by == request.auth.uid
         && code.size() >= 8 && request.resource.data.expires < request.time + duration.value(8, 'd');
-      allow delete: if signedIn() && resource.data.by == request.auth.uid;
+      // Its maker can take it back; whoever joins with it uses it up, so a code works once.
+      allow delete: if signedIn() && (resource.data.by == request.auth.uid || isMember(resource.data.home));
     }
 
     match /users/{uid} {

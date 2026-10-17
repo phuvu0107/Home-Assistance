@@ -1,5 +1,5 @@
 import { icon, hydrateIcons } from './icons.js';
-import { createSync, syncAvailable } from './sync.js';
+import { createSync, syncAvailable, SYNC_LIMIT } from './sync.js';
 import { accountAvailable, createInvite, joinHome, joinWithCode, myHome, myHomes, renameHome, showCode, signIn as accountSignIn, signOut as accountSignOut, startHome, useHomeFor, watchUser } from './account.js';
 import { FRIDGE_CATS, guessCat, learnFromReceipt, readExpense, readReceipt } from './receipt.js';
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
@@ -903,7 +903,11 @@ function feedbackLink() {
   const body = `\n\n\n---\nPage: ${page}\nScreen: ${window.innerWidth}x${window.innerHeight}\nVersion: ${appVersion || 'local'}`;
   return `mailto:${FEEDBACK_EMAIL || ''}?subject=${encodeURIComponent('Home Assistance feedback')}&body=${encodeURIComponent(body)}`;
 }
-function sendFeedback() { location.href = feedbackLink(); }
+// The fridge screen often has no email app set up, so the address is offered to copy as well.
+function sendFeedback() {
+  location.href = feedbackLink();
+  if (FEEDBACK_EMAIL) toast(`No email app? Write to ${FEEDBACK_EMAIL}`, ['Copy', () => navigator.clipboard?.writeText(FEEDBACK_EMAIL).then(() => toast('Email address copied'), () => {})]);
+}
 function navEnd(e, cancelled) {
   const g = navGesture;
   if (e.pointerId !== g.id) return;
@@ -1333,6 +1337,11 @@ function forecastCard() {
   </div>`;
 }
 
+// On Home too, since nobody visits Settings when sync quietly stops.
+function houseFullBanner() {
+  if (houseSync.state !== 'full' && !(houseSync.state === 'ok' && houseFill >= 0.9)) return '';
+  return `<a class="sync-banner" href="#/settings">${icon('users')}<span>${houseMessage().text}</span><b>Settings ${icon('arrowRight')}</b></a>`;
+}
 views.home = () => {
   const today = isoDay(new Date());
   const evs = eventsOn(today);
@@ -1341,7 +1350,7 @@ views.home = () => {
   const tasks = tasksToday().sort((a, b) => isDone(a) - isDone(b) || order.indexOf(a.who) - order.indexOf(b.who));
   const lead = leadLine();
   const next = state.events.filter((e) => e.date > today).sort(byStart).slice(0, 4);
-  return `${thanksInbox()}${bucketInbox()}${glanceRow()}${notesBoard()}
+  return `${houseFullBanner()}${thanksInbox()}${bucketInbox()}${glanceRow()}${notesBoard()}
   <div class="grid-home">
     <div class="card a-today">
       <div class="card-head">${icon('checkSquare')}<h2>Today</h2>${lead ? `<a class="link" href="#/tasks">${lead} ${icon('arrowRight')}</a>` : ''}</div>
@@ -1420,7 +1429,7 @@ function weekView() {
       ${timed.map(({ e, start, end, lane, lanes }) => {
         const top = ((start - DAY_START * 60) / 60) * HOUR_PX;
         const height = Math.max(26, ((end - start) / 60) * HOUR_PX - 3);
-        return `<button class="wk-ev${eventDone(e) ? ' done' : ''} ${e.who ? `c-${e.who === 'both' ? 'purple' : userOf(e.who).color}` : 'c-purple'}${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}"
+        return `<button class="wk-ev${eventDone(e) ? ' done' : ''} c-${userOf(e.who)?.color || 'purple'}${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}"
           style="top:${top}px;height:${height}px;left:calc(${(lane / lanes) * 100}% + 2px);width:calc(${100 / lanes}% - 4px)">
           <span class="wk-ev-top">${eventDone(e) ? icon('check', 'ev-done') : avatar(e.who, 'xs')}<b>${timeLabel(e)}</b>${impTag(e)}</span><span class="wk-ev-title">${esc(e.title)}</span></button>`;
       }).join('')}${nowLine}</div>`;
@@ -2515,6 +2524,9 @@ const savedHouseBase = () => { try { return JSON.parse(localStorage.getItem(HOUS
 let housePass = readLocal(HOUSE_PASS_KEY);
 let houseHome = readLocal(HOUSE_HOME_KEY);
 let houseSync = { state: housePass || houseHome ? 'connecting' : 'off' };
+// How full the household's shared data is (0 to 1), from the last sync. Everything shares one
+// database document with a hard 1 MiB cap, so screens warn well before it fills.
+let houseFill = 0;
 let houseTyped = ''; // passphrase waiting on "start a new household"
 // Signing in: who is signed in on this device (known once Firebase has checked), and the sign-in
 // sheet's own state.
@@ -2546,28 +2558,34 @@ const house = createSync({
     if (calmToRender()) renderView(); // an open sheet re-renders the page when it closes
   },
   onStatus: (st) => {
+    const wasFull = houseFullBanner();
     houseSync = st;
+    if (st.size) houseFill = st.size / SYNC_LIMIT;
     if (st.state === 'ok') photos.flush();
     // The saved passphrase stopped working: ask for it again.
     if (st.state === 'badpass' && housePass && !houseSheetOpen()) openHouseSheet();
     // Another screen moved this household to sign-in: follow it there.
     if (st.state === 'moved') { houseMoved = { home: st.home, invite: st.invite }; houseUsePass = false; followMove(); }
-    if (currentRoute() === 'settings' && calmToRender()) renderView();
+    if ((currentRoute() === 'settings' || currentRoute() === 'home' && houseFullBanner() !== wasFull) && calmToRender()) renderView();
   },
   onBase: (b) => { try { b ? localStorage.setItem(HOUSE_BASE_KEY, JSON.stringify(b)) : localStorage.removeItem(HOUSE_BASE_KEY); } catch { /* ignore */ } },
 });
 onSaved = () => { if (house.connected) house.changed(); };
 const photos = createPhotos(house);
+const FILL_WARN = 0.8;
+const fullText = 'Household data is full, so changes made here are not syncing. Delete old events, expenses or notes to make room.';
 function houseMessage() {
   const at = houseSync.at ? ago(houseSync.at) : '';
   switch (houseSync.state) {
-    case 'ok': return { ok: true, text: house.mode === 'home' ? `Synced with everyone in your household. Last sync ${at}.` : `Synced with every device on this passphrase. Last sync ${at}.` };
+    case 'ok': if (houseFill >= FILL_WARN) return { ok: false, text: `Household data is ${Math.round(houseFill * 100)}% full. Deleting old events, expenses or notes makes room before it stops syncing.` };
+      return { ok: true, text: house.mode === 'home' ? `Synced with everyone in your household. Last sync ${at}.` : `Synced with every device on this passphrase. Last sync ${at}.` };
     case 'connecting': return { ok: true, text: 'Connecting…' };
     case 'new': return { ok: false, text: 'No household uses this passphrase yet. Check it for typos, or start a new household with what is on this device.' };
     case 'offline': return { ok: false, text: 'Offline. Changes are saved here and will sync when the connection is back.' };
     case 'badpass': return { ok: false, text: "That passphrase doesn't unlock this household's data." };
     case 'moved': return { ok: false, text: 'This household moved to sign-in. Sign in with Google to keep this device in sync.' };
     case 'error': return { ok: false, text: "Couldn't reach the sync service. It will keep trying." };
+    case 'full': return { ok: false, text: fullText };
     default: return { ok: false, text: 'Not syncing. Events, tasks and expenses stay on this device only.' };
   }
 }
