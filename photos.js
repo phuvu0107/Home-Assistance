@@ -1,4 +1,4 @@
-// Pictures on itinerary activities. A picture is far too big for the household document (which
+// Pictures on itinerary activities and bucket list check-ins. A picture is far too big for the household document (which
 // holds everything else and tops out at 1 MiB), so each one is shrunk on this device, kept here in
 // IndexedDB, and sent to the household as its own document. Activities only carry the picture ids.
 

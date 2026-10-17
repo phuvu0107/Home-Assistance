@@ -1995,7 +1995,9 @@ const knownIds = () => new Set([...(state.thanks || []), ...(state.notes || []),
 /* =========================================================
    Bucket list: trips, dinners and places to do together
    ========================================================= */
-// state.bucket items: { id, text, kind, by, at, doneAt, doneBy, from, seen }, synced as b: items.
+// state.bucket items: { id, text, kind, by, at, doneAt, doneBy, from, seen, photo }, synced as b: items.
+// An item is only ticked off by checking in with a picture of it; photo is that picture's id
+// (photos.js). Items ticked off before check-ins existed have no picture and stay done.
 // doneBy is who went (phu, nhi or both); from is who ticked it off, on their own phone or by picking
 // themselves on the fridge. The other person gets a strip on Home, a toast and the badge until
 // they open it, and the recap email mentions it for two days.
@@ -2025,10 +2027,12 @@ const wentLine = (b) => (b.doneBy === 'both' ? 'Together' : userOf(b.doneBy)?.na
 function bucketRow(b) {
   const done = !!b.doneAt;
   const sub = done ? `${wentLine(b)} · ${dayLabel(isoDay(new Date(b.doneAt)))}` : `Added by ${esc(userOf(b.by)?.name || 'someone')} ${ago(b.at)}`;
+  const lead = b.photo ? `<button class="bk-pic" data-action="view-photo" data-photo-id="${esc(b.photo)}" aria-label="See the check-in picture">${photoImg(b.photo)}</button>`
+    : `<span class="bk-emoji" aria-hidden="true">${kindOf(b)[0]}</span>`;
   return `<div class="task bk${done ? ' done' : ''}">
-    <span class="bk-emoji" aria-hidden="true">${kindOf(b)[0]}</span>
+    ${lead}
     <button class="task-body" data-action="edit-bucket" data-id="${b.id}"><b>${esc(b.text)}</b><small>${sub}${loveTag(b)}</small></button>
-    <button class="check ${done ? 'on' : ''}" data-action="tick-bucket" data-id="${b.id}" aria-label="${done ? 'Put back on the list' : 'Tick off'}: ${esc(b.text)}" aria-pressed="${done}">${icon('check')}</button>
+    <button class="check ${done ? 'on' : ''}" data-action="tick-bucket" data-id="${b.id}" aria-label="${done ? 'Put back on the list' : 'Check in'}: ${esc(b.text)}" aria-pressed="${done}">${icon('check')}</button>
   </div>`;
 }
 
@@ -2090,15 +2094,23 @@ function openBucketSheet(b) {
   $('#sheet').dataset.kind = 'bucket-edit';
 }
 
-// Ticking off asks who went. Most things are done together, so that is picked unless this is someone's own phone.
+// Ticking off is a check-in: it needs a picture of the two of you doing it, and asks who went.
+// Most things are done together, so that is picked unless this is someone's own phone.
+let bucketPic = null; // { id, data } for the check-in sheet that is open
+function bkPicHtml() {
+  return bucketPic ? `<label class="bk-shot has"><img class="pl-photo" src="${bucketPic.data}" alt="Check-in picture"><span class="bk-retake">${icon('camera')} Retake</span><input type="file" id="bk-photo" accept="image/*" capture="environment" hidden></label>`
+    : `<label class="bk-shot empty">${icon('camera')}<b>Add a picture</b><small>Take one now or pick one from the day</small><input type="file" id="bk-photo" accept="image/*" capture="environment" hidden></label>`;
+}
 function openBucketTick(b) {
-  openSheet(`${sheetHead('Ticked off!', 'sparkles')}
+  bucketPic = null;
+  openSheet(`${sheetHead('Check in', 'sparkles')}
     <p class="thx-for"><span class="bk-emoji">${kindOf(b)[0]}</span><span><b>${esc(b.text)}</b> · +${loveOf(b)} love points</span></p>
+    <div class="field"><label>Picture</label><div id="bk-shot">${bkPicHtml()}</div></div>
     <div class="field"><label>Who went</label>${whoPicker('both', 'both')}</div>
     ${members().length > 1 ? `<p class="hint">${me() && otherOf(me()) ? `${esc(userOf(otherOf(me())).name)} gets a note on their screen` : members().length === 2 ? 'The other person gets a note on their screen' : 'Everyone else gets a note on their screen'} unless you went together.</p>` : ''}
     <div class="sheet-actions">
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
-      <button class="btn" data-action="done-bucket" data-id="${b.id}">${icon('check')} Tick it off</button>
+      <button class="btn" data-action="done-bucket" data-id="${b.id}" disabled>${icon('check')} Tick it off</button>
     </div>`);
   $('#sheet').dataset.kind = 'bucket-tick';
 }
@@ -3767,24 +3779,32 @@ const actions = {
     if (!b) return;
     const at = state.bucket.indexOf(b);
     state.bucket = state.bucket.filter((x) => x !== b);
+    const pic = b.photo && photos.peek(b.photo);
+    if (b.photo) photos.drop(b.photo);
     closeSheet();
-    toast('Removed from the list', ['Undo', () => { state.bucket.splice(at, 0, b); save(); renderView(); }]);
+    toast('Removed from the list', ['Undo', () => { state.bucket.splice(at, 0, b); if (pic) photos.add(b.photo, pic); save(); renderView(); }]);
   },
   'tick-bucket': (el) => {
     const b = state.bucket.find((x) => x.id === el.dataset.id);
     if (!b) return;
     if (!b.doneAt) { openBucketTick(b); return; }
     const was = { ...b };
-    for (const k of ['doneAt', 'doneBy', 'from', 'seen']) delete b[k];
-    toast('Back on the list', ['Undo', () => { Object.assign(b, was); save(); renderView(); }]);
+    // Putting it back on the list throws the check-in picture away; the next check-in takes a new one.
+    const pic = b.photo && photos.peek(b.photo);
+    if (b.photo) photos.drop(b.photo);
+    for (const k of ['doneAt', 'doneBy', 'from', 'seen', 'photo']) delete b[k];
+    toast('Back on the list', ['Undo', () => { Object.assign(b, was); if (pic) photos.add(b.photo, pic); save(); renderView(); }]);
   },
   'done-bucket': (el) => {
     const b = state.bucket.find((x) => x.id === el.dataset.id);
     if (!b) return;
+    if (!bucketPic) { toast('Add a picture to check in'); return; }
     const doneBy = pickedWho() || 'both';
     // Whoever ticked it off: this phone's owner, or on the fridge the one person who went.
     const from = me() || (userOf(doneBy) ? doneBy : '');
-    Object.assign(b, { doneAt: Date.now(), doneBy, ...(from && { from }) });
+    Object.assign(b, { doneAt: Date.now(), doneBy, photo: bucketPic.id, ...(from && { from }) });
+    photos.add(bucketPic.id, bucketPic.data);
+    bucketPic = null;
     burst(`[data-action="tick-bucket"][data-id="${b.id}"]`);
     closeSheet();
     toast(`Ticked off ${b.text} · +${loveOf(b)} love points ❤️`);
@@ -4191,6 +4211,18 @@ document.addEventListener('change', (e) => {
   if (e.target.id !== 'plan-photo' || !e.target.files.length) return;
   addDraftPhotos(e.target.files);
   e.target.value = '';
+});
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 'bk-photo' || !e.target.files[0]) return;
+  const f = e.target.files[0];
+  e.target.value = '';
+  try {
+    bucketPic = { id: `ph${Date.now()}${Math.random().toString(36).slice(2, 6)}`, data: await shrink(f) };
+  } catch (err) { toast(err.message || "Couldn't read that picture"); return; }
+  const box = $('#bk-shot');
+  if (box) box.innerHTML = bkPicHtml();
+  const go = $('#sheet [data-action="done-bucket"]');
+  if (go) go.disabled = false;
 });
 document.addEventListener('change', async (e) => {
   if (e.target.id !== 'energy-file') return;
