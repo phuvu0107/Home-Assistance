@@ -726,7 +726,7 @@ const PAGES = [
   { id: 'tasks', label: 'Chores', icon: 'checkSquare', main: true },
   { id: 'friends', label: 'Friends', icon: 'users', main: true },
   { id: 'fridge', label: 'Kitchen', icon: 'fridge' },
-  { id: 'piggy', label: 'Money', icon: 'piggy' },
+  { id: 'piggy', label: 'Piggy Bank', icon: 'piggy' },
   { id: 'bucket', label: 'Bucket list', icon: 'sparkles' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
   { id: 'energy', label: 'Energy', icon: 'zap' },
@@ -2945,7 +2945,7 @@ views.piggy = () => {
   const share = (u) => (st.total ? (st.paid[u.id] / st.total) * 100 : 0);
   // Boxes for this month go near the top; with none, a short hint sits at the bottom instead.
   const boxes = boxesForMonth(state.boxes, state.expenses, key, isoDay(new Date())).length ? boxesCard(key) : '';
-  return `<div class="section-title">Money</div>
+  return `<div class="section-title">Piggy Bank</div>
   <div class="month-nav">
     <button class="btn-round" data-action="piggy-move" data-d="-1" aria-label="Previous month">${icon('chevronLeft')}</button>
     <div class="piggy-month"><h2>${monthName(key)}</h2><span>${monthRange(key)}</span></div>
@@ -3013,7 +3013,7 @@ function openBoxView(b) {
   const share = (u) => (st.total ? (st.paid[u.id] / st.total) * 100 : 0);
   const owes = showSplit && members().length > 1 && st.transfers.length
     ? `<div class="box-owes">${st.transfers.map((t) => `<div>${avatar(t.from, 'sm')}<span>For this box, ${userOf(t.from)?.name} owes ${userOf(t.to)?.name} <b>${fmtCash(t.amount)}</b></span></div>`).join('')}
-      <div class="hint">This is already in each month's balance on Money, so settle up there.</div></div>` : '';
+      <div class="hint">This is already in each month's balance on Piggy Bank, so settle up there.</div></div>` : '';
   openSheet(`${sheetHead(esc(b.name), 'box')}
     <div class="spend box-spend">
       <div class="spend-top"><b>${fmtCash(st.total)}</b><span>${[boxDays(b), `${st.count} expense${st.count === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}</span></div>
@@ -3028,14 +3028,23 @@ function openBoxView(b) {
     </div>`);
 }
 
-// The month's spending by category, biggest first. Expenses from before categories are Other.
-function categoryCard(list) {
+// Spending by category, biggest first. Tapping a category opens the expenses in it, newest first.
+// Expenses from before categories are Other.
+function categoryList(list) {
   const cats = categoryTotals(list);
   const sum = cats.reduce((n, c) => n + c.total, 0);
+  const showSplit = state.settings.showSplit !== false;
+  const inCat = (id) => list.filter((x) => expenseCat(x) === id).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  return `<div class="trend-places">${cats.map((c) => `<details class="cat-group">
+    <summary class="trend-place"><span class="ex-main"><b>${EXPENSE_CATS[c.id].join(' ')}</b><small>${c.count} expense${c.count === 1 ? '' : 's'} · ${Math.round((c.total / sum) * 100)}%</small></span>
+      <span class="trend-pbar"><i style="width:${((c.total / cats[0].total) * 100).toFixed(1)}%"></i></span><span class="ex-amt">${fmtCash(c.total)}</span>${icon('chevron', 'chev')}</summary>
+    <div class="list cat-items">${inCat(c.id).map((x) => `<div class="cat-item"><span>${dayLabel(x.date)}</span>${expenseRow(x, showSplit)}</div>`).join('')}</div>
+  </details>`).join('')}</div>`;
+}
+function categoryCard(list) {
   return `<div class="card money-cats">
     <div class="card-head">${icon('chart')}<h2>By category</h2></div>
-    <div class="trend-places">${cats.map((c) => `<div class="trend-place"><span class="ex-main"><b>${EXPENSE_CATS[c.id].join(' ')}</b><small>${c.count} expense${c.count === 1 ? '' : 's'} · ${Math.round((c.total / sum) * 100)}%</small></span>
-      <span class="trend-pbar"><i style="width:${((c.total / cats[0].total) * 100).toFixed(1)}%"></i></span><span class="ex-amt">${fmtCash(c.total)}</span></div>`).join('')}</div>
+    ${categoryList(list)}
   </div>`;
 }
 
@@ -3059,7 +3068,6 @@ function trendCard(key, months) {
       <span class="trend-bar"><span style="height:${h.toFixed(1)}%">${parts}</span>${avgLine}</span>
       <span class="trend-m">${short(mo.key)}</span></button>`;
   }).join('');
-  const places = t.places.slice(0, 5);
   return `<div class="card money-trend">
     <div class="card-head">${icon('chart')}<h2>Month by month</h2></div>
     <div class="trend-tiles">
@@ -3069,9 +3077,8 @@ function trendCard(key, months) {
     </div>
     <div class="trend-chart">${bars}</div>
     ${members().length > 1 ? `<div class="spend-key">${members().map((u) => `<span><i class="key bar-${u.color}"></i>${u.name}</span>`).join('')}<span><i class="key avg"></i>Average</span></div>` : ''}
-    ${places.length ? `<h3 class="trend-sub">Where it went · ${short(t.months[0].key)} – ${short(key)}</h3>
-    <div class="trend-places">${places.map((p) => `<div class="trend-place"><span class="ex-main"><b>${esc(p.name)}</b><small>${p.count} time${p.count === 1 ? '' : 's'}</small></span>
-      <span class="trend-pbar"><i style="width:${((p.total / places[0].total) * 100).toFixed(1)}%"></i></span><span class="ex-amt">${fmtCash(p.total)}</span></div>`).join('')}</div>` : ''}
+    ${t.spent.length ? `<h3 class="trend-sub">Where it went · ${short(t.months[0].key)} – ${short(key)}</h3>
+    ${categoryList(t.spent)}` : ''}
     ${months.length > 1 ? `<h3 class="trend-sub">Every month</h3>
     <div class="list">${months.map((m) => { const s2 = expenseStats(expensesIn(m)); return `<button class="row month-row${m === key ? ' on' : ''}" data-action="piggy-goto" data-m="${m}">
       <span class="ex-main"><b>${monthName(m)}</b><small>${members().map((u) => `${u.name} ${fmtCash(s2.paid[u.id])}`).join(' · ')}</small></span><span class="ex-amt">${fmtCash(s2.total)}</span></button>`; }).join('')}</div>` : ''}

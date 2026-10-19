@@ -1367,3 +1367,10 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .box-owes { display: grid; gap: 8px; margin-bottom: 14px; padding: 12px 14px; border-radius: 14px; background: var(--muted-surface); }
 .box-owes > div:not(.hint) { display: flex; align-items: center; gap: 10px; }
 .box-owes .hint { margin: 0; }
+
+.cat-group > summary { list-style: none; cursor: pointer; grid-template-columns: minmax(0, 1.4fr) minmax(40px, 1fr) minmax(84px, auto) 18px; }
+.cat-group > summary::-webkit-details-marker { display: none; }
+.cat-group > summary .chev { color: var(--text-3); transition: transform .2s; }
+.cat-group[open] > summary .chev { transform: rotate(90deg); }
+.cat-items { margin: 10px 0 6px; gap: 6px; }
+.cat-item > span { display: block; font-size: 12px; color: var(--text-2); margin: 0 0 4px 4px; }
