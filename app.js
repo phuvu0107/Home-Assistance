@@ -797,7 +797,12 @@ function moveInk() {
 /* ---------- More: a half circle that opens out of the More tab ----------
    Tap More, then tap a page. Or hold More, slide up, then left or right: a ring follows the finger
    and the page under it opens on release. Sliding along the bar picks a main tab the same way. */
-const ARC = [160, 137, 113, 90, 67, 43, 20]; // degrees, left to right, one per item in the half circle
+// Angles in degrees, left to right, one per item: spread evenly and centred on straight up, so adding
+// or removing a page needs no hand-set positions. Few items sit closer together than the full sweep.
+const ARC = DOME.map((_, i, all) => {
+  const span = Math.min(140, 35 * (all.length - 1));
+  return all.length < 2 ? 90 : 90 + span / 2 - (i * span) / (all.length - 1);
+});
 const UP = MORE.findIndex((p) => p.id === 'settings'); // straight up from More
 let domeOpen = false;
 let dome = null; // geometry of the open half circle, in screen pixels
