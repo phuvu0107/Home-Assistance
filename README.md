@@ -147,20 +147,20 @@ Changes show up on the other screens within a second or two. Edits made offline 
 
 ## Summary email setup
 
-`.github/workflows/daily-email.yml` runs `sync/daily_email.py`, which reads the household's sync document and sends the email over SMTP. It does nothing until these Actions secrets are added:
+Each household turns its own email on in **Settings › Connections › Summary email**: flip **Email this household** on and list who gets it (up to 10 addresses). It goes out at 7:30 AM, noon, 5 PM and 9 PM on the clock of the screen that saved it, with the weather for that screen's location. Turning it off or changing the list takes effect from the next email. The setting lives on the household's record (`homes/{id}.email`), and each email is marked there once sent (`emailSent`).
+
+`.github/workflows/daily-email.yml` runs `sync/daily_email.py` every hour. It signs in as a service account, finds every household with the email on, and sends each one's email when it comes due. Whoever runs the site adds these Actions secrets once:
 
 | Secret | What it is |
 | --- | --- |
-| `HOME_ID` | The household's id, shown in **Settings › Connections › Summary email** |
-| `FIREBASE_SERVICE_ACCOUNT` | A key that can read the household: Firebase console › **Project settings › Service accounts › Generate new private key**, and paste the whole file |
-| `HOUSEHOLD_PASSPHRASE` | Only for a household still on a passphrase, instead of the two above |
+| `FIREBASE_SERVICE_ACCOUNT` | A key that can read the households: Firebase console › **Project settings › Service accounts › Generate new private key**, and paste the whole file |
 | `EMAIL_SMTP_USER` | The Gmail address that sends the email |
 | `EMAIL_SMTP_PASSWORD` | An [app password](https://myaccount.google.com/apppasswords) for that account |
-| `EMAIL_TO` | Who gets it, comma separated |
+| `HOME_ID` | Optional: the household that gets the PG&E energy line (with `ENERGY_PASSPHRASE`). Until that household turns the email on in Settings, it keeps getting it at `EMAIL_TO` |
 
-It also uses the existing `FIREBASE_CONFIG` and, for the energy line, `ENERGY_PASSPHRASE`. Each email opens with the weather (tomorrow's for the 9 PM recap): high and low with the hour each one hits, sunrise, sunset and the chance of rain, and is flagged high importance. Run **Daily summary email** from the Actions tab to send one right away. Times follow the clock in `EMAIL_TIMEZONE` (default `America/Los_Angeles`), summer and winter time alike.
+Each email opens with the weather (tomorrow's for the 9 PM recap): high and low with the hour each one hits, sunrise, sunset and the chance of rain, and is flagged high importance. To send one right away, run **Daily summary email** from the Actions tab with the household's id (shown under the email setting; blank means `HOME_ID`).
 
-GitHub can start scheduled runs hours late, so the workflow runs every hour and each run waits for the next email's time, up to 5½ hours ahead. Scheduled runs go one at a time and a marker in the Actions cache keeps each email from going out twice. An email more than an hour past its time is skipped.
+GitHub can start scheduled runs hours late, so the workflow starts every hour and each run keeps sending emails as they come due for 5½ hours. Scheduled runs go one at a time, and the `emailSent` mark keeps each email from going out twice. An email more than an hour past its time is skipped.
 
 ## Deploying
 

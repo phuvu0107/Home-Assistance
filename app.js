@@ -1,6 +1,6 @@
 import { icon, hydrateIcons } from './icons.js';
 import { createSync, syncAvailable, SYNC_LIMIT } from './sync.js';
-import { accountAvailable, createInvite, joinHome, joinWithCode, myHome, myHomes, renameHome, showCode, signIn as accountSignIn, signOut as accountSignOut, startHome, useHomeFor, watchUser } from './account.js';
+import { accountAvailable, createInvite, homeEmail, joinHome, joinWithCode, myHome, myHomes, renameHome, saveHomeEmail, showCode, signIn as accountSignIn, signOut as accountSignOut, startHome, useHomeFor, watchUser } from './account.js';
 import { FRIDGE_CATS, guessCat, learnFromReceipt, readExpense, readReceipt } from './receipt.js';
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
@@ -2569,6 +2569,37 @@ let houseAdding = false; // the sheet is for joining or starting another househo
 let houseHomes = []; // [{ id, name }] the signed-in person's households
 try { houseHomes = JSON.parse(localStorage.getItem(HOUSE_HOMES_KEY)) || []; } catch { houseHomes = []; }
 const homeName = (id) => houseHomes.find((h) => h.id === id)?.name || 'Home';
+// The household's summary email settings, read from its record when Settings opens:
+// { home, on, to: [addresses], ... }, or { home, loading: true } while that's under way.
+let houseEmail = null;
+function loadHouseEmail() {
+  // Offline? Try again when Settings opens after a while, not on every render.
+  if (!houseHome || !account.user || houseEmail?.home === houseHome && !(houseEmail.failed < Date.now() - 30e3)) return;
+  const home = houseHome;
+  houseEmail = { home, loading: true };
+  homeEmail(home).then((e) => { houseEmail = { home, ...(e || {}) }; }, () => { houseEmail = { home, loading: true, failed: Date.now() }; })
+    .then(() => { if (currentRoute() === 'settings' && calmToRender()) renderView(); });
+}
+// Saves the household's email settings, with this screen's time zone and weather place, so the
+// email goes out on the household's clock with its own forecast.
+async function saveEmail(change) {
+  if (!houseHome || !houseEmail || houseEmail.loading) return;
+  const { home, loading, ...was } = houseEmail;
+  const typed = $('#email-to')?.value;
+  const next = { ...was, to: typed === undefined ? was.to || [] : emailList(typed), ...change };
+  if (next.on === undefined) next.on = next.to.length > 0; // the first Save turns it on
+  if (next.on && !next.to.length) { toast('Add who gets it first'); return; }
+  const { lat, lon, name } = state.settings.place;
+  Object.assign(next, { tz: Intl.DateTimeFormat().resolvedOptions().timeZone, lat, lon, place: name, unit: state.settings.unit });
+  try {
+    await saveHomeEmail(home, next);
+    houseEmail = { home, ...next };
+    toast(next.on ? `Summary email on for ${next.to.length === 1 ? next.to[0] : `${next.to.length} people`}` : 'Summary email off');
+  } catch (e) { toast(accountError(e)); }
+  renderView();
+}
+// Addresses typed into "Who gets it": any mix of commas, spaces and new lines.
+const emailList = (v) => [...new Set(String(v || '').split(/[\s,;]+/).filter((a) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a)))].slice(0, 10);
 try {
   const inv = JSON.parse(localStorage.getItem(HOUSE_INVITE_KEY));
   if (inv?.home === houseHome && inv.expires > Date.now()) houseInvite = inv;
@@ -3436,8 +3467,34 @@ const connRow = (id, ic, title, status, ok, body) => `<details class="conn" data
   <summary><span class="ibox ${ok ? 'c-green-ico' : 'c-amber-ico'}">${icon(ic)}</span><span class="conn-text"><b>${title}</b><small>${status}</small></span>${icon('chevron', 'chev')}</summary>
   <div class="conn-body">${body}</div></details>`;
 
+// Settings › Connections › Summary email: the household turns its own email on and says who gets it.
+function emailConn() {
+  const e = houseEmail?.home === houseHome ? houseEmail : null;
+  const on = !!(e?.on && e.to?.length);
+  const status = !houseHome || !account.user ? 'Needs a signed-in household' : e?.failed ? "Couldn't check, offline?" : !e || e.loading ? 'Checking…'
+    : on ? `On · ${e.to.length === 1 ? e.to[0] : `${e.to.length} people`}` : e.on === undefined ? 'Not turned on here yet' : 'Off';
+  const body = !houseHome || !account.user
+    ? `<p class="hint">Sign in and join or start a household (in <b>Sync across devices</b> above), then turn the email on here.</p>`
+    : `<p class="hint">Emails everyone you list at 7:30 AM, noon, 5 PM and 9 PM with what's on, open chores, stars, the shopping list and anything in the fridge to use up.</p>
+      <div class="setting-row"><div><b>Email this household</b></div>
+        <button class="switch" role="switch" aria-checked="${on}" data-action="email-toggle" aria-label="Email this household"${!e || e.loading ? ' disabled' : ''}></button></div>
+      <div class="field"><label for="email-to">Who gets it</label>
+        <div style="display:flex;gap:8px"><input class="input" id="email-to" type="text" inputmode="email" autocomplete="off" placeholder="you@example.com, them@example.com" value="${esc((e?.to || []).join(', '))}">
+        <button class="btn" data-action="email-save"${!e || e.loading ? ' disabled' : ''}>Save</button></div>
+        <div class="hint">Up to 10 addresses. Times and weather follow ${esc(state.settings.place.name)} and this screen's clock (${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}); saving here updates them.</div></div>
+      <div class="setting-row"><div><b>Household id</b><div class="hint"><code class="alerts-topic">${esc(houseHome)}</code></div></div>
+        <button class="btn ghost" data-action="email-copy-id">Copy</button></div>
+      <details class="setup"><summary>For whoever runs the site (one time)</summary><ol class="hint">
+        <li>On the Gmail account that sends, create an <b>app password</b> (Google Account › Security › 2-Step Verification › App passwords).</li>
+        <li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add <code>EMAIL_SMTP_USER</code> (that Gmail address), <code>EMAIL_SMTP_PASSWORD</code> (the app password) and <code>FIREBASE_SERVICE_ACCOUNT</code> (Firebase console › <b>Project settings › Service accounts › Generate new private key</b>, the whole file).</li>
+        <li>To send one now, run <b>Daily summary email</b> in the repo's <b>Actions</b> tab with this household id.</li>
+      </ol></details>`;
+  return connRow('email', 'bell', 'Summary email', status, on, body);
+}
+
 views.settings = () => {
   const s = state.settings;
+  loadHouseEmail();
   const pge = syncMessage();
   const fit = healthPeople();
   return `
@@ -3484,13 +3541,7 @@ views.settings = () => {
           ${energyDays().length ? `<button class="btn ghost" data-action="clear-energy">${icon('trash')} Remove data</button>` : ''}
         </div>`)}
       ${connRow('fitbit', 'heart', 'Fitbit health', !healthAvailable() ? 'Not set up for this site' : fit.length ? `${fit.map((u) => u.name).join(' and ')} connected` : 'Nobody connected yet', healthAvailable() && fit.length > 0, healthBody())}
-      ${connRow('email', 'bell', 'Summary email', '7 AM, noon, 5 PM and 9 PM', true, `
-        <p class="hint">A GitHub job emails the household with what's on, open chores, stars and anything in the fridge to use up.</p>
-        <details class="setup"><summary>Turn it on (one time)</summary><ol class="hint">
-          <li>On the sending Gmail account, create an <b>app password</b> (Google Account › Security › 2-Step Verification › App passwords).</li>
-          <li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add <code>EMAIL_SMTP_USER</code> (that Gmail address), <code>EMAIL_SMTP_PASSWORD</code> (the app password), <code>EMAIL_TO</code> (who gets it, comma separated) and ${houseHome ? `<code>HOME_ID</code> (<code>${esc(houseHome)}</code>, this household). Then add <code>FIREBASE_SERVICE_ACCOUNT</code>: in the Firebase console, open <b>Project settings › Service accounts</b>, choose <b>Generate new private key</b> and paste the whole file.` : '<code>HOUSEHOLD_PASSPHRASE</code> (the passphrase you sync with).'}</li>
-          <li>To try it now, run <b>Daily summary email</b> in the repo's <b>Actions</b> tab.</li>
-        </ol></details>`)}
+      ${emailConn()}
     </div>
     <h3 class="set-group">Danger zone</h3>
     <div class="card">
@@ -4228,6 +4279,9 @@ const actions = {
     } else toast(r === 'offline' ? unsyncedNote : houseMessage().text);
     renderView();
   },
+  'email-save': (el) => saveEmail({ to: emailList(el.closest('.field')?.querySelector('#email-to')?.value) }),
+  'email-toggle': () => saveEmail({ on: !houseEmail?.on }),
+  'email-copy-id': () => Promise.resolve(navigator.clipboard?.writeText(houseHome)).then(() => toast(navigator.clipboard ? 'Copied' : houseHome), () => toast(houseHome)),
   'house-rename': async (el) => {
     const name = cleanName(el.closest('.field')?.querySelector('#house-name')?.value || '').slice(0, 40);
     if (!name || !houseHome) return;

@@ -91,6 +91,19 @@ export async function renameHome(home, name) {
   await fs.updateDoc(fs.doc(db, `homes/${home}`), { name });
 }
 
+// The household's summary email ({ on, to: [addresses], tz, lat, lon, unit }), or null if it was
+// never set. A GitHub job reads it to know who to email and when (sync/daily_email.py).
+export async function homeEmail(home) {
+  const { fs, db } = await firebase();
+  const s = await fs.getDoc(fs.doc(db, `homes/${home}`));
+  return s.exists() ? s.data().email || null : null;
+}
+
+export async function saveHomeEmail(home, email) {
+  const { fs, db } = await firebase();
+  await fs.updateDoc(fs.doc(db, `homes/${home}`), { email });
+}
+
 // A new household with this person as its only member.
 export async function startHome(uid, name = 'Home') {
   const { fs, db } = await firebase();
