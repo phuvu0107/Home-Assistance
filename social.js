@@ -34,6 +34,14 @@ export function feedFor(posts, uid, friendIds) {
 // A group's money: everyone in the group shares each expense evenly unless it says otherwise.
 export const groupMoney = (items, ids) => expenseStats(items.filter((x) => x.type === 'expense'), ids);
 
+// What Friends shows before and after Firebase says who is signed in. Restoring a sign-in
+// takes a few seconds after the page loads, so until then a device that was signed in last
+// time waits ('checking') instead of flashing the sign-in button.
+export function friendsGate(account, wasSignedIn) {
+  if (account.user) return 'in';
+  return !account.ready && wasSignedIn ? 'checking' : 'signin';
+}
+
 /* ---------- Database ---------- */
 
 const db = async () => firebase();
