@@ -68,6 +68,11 @@ A GitHub job emails the household at 7 AM, noon, 5 PM and 9 PM Pacific: the morn
 ### Settings
 Grouped into Display (weather city, °F/°C, light/dark/auto theme, 24-hour clock, keep screen on, show who owes whom), Household (who lives here, who uses this device, sync across devices) and Connections, where PG&E, Fitbit and the summary email each open into their own row with a status and setup steps. Energy, Health and Settings live under **More**.
 
+### Admin
+For whoever runs the site, opened from the top of Settings and shown to nobody else. **Monitors** flag trouble: the hourly job not reporting, summary emails failing or not going out, a household near its 1 MiB data limit, old passphrase households still in use, and site settings not filled in. **Stats** count households, the people in them, Google accounts, friendships, groups and posts, list each household's data size, and show the latest summary emails. **Site setup** holds the one-time steps for the summary email, Fitbit, the feedback address and PG&E, which used to sit in Settings.
+
+To turn it on, add the Actions secret `ADMIN_EMAILS` (the Google accounts that may open it, commas between them) and publish the updated `firestore.rules`. The Daily summary email job (`sync/admin_report.py`) writes the numbers and the admin list each hour with its service account; the rules let only those accounts read them, and nobody write them from the app.
+
 ![Settings page](docs/screenshots/settings.png)
 
 ### Works on any screen
@@ -186,6 +191,7 @@ python3 -m http.server 8000
 - `receipt.js` – fridge kinds and the receipt reader
 - `sync.js`, `sync-config.js`, `firebase.js` – household sync (Firebase Firestore)
 - `account.js`, `firestore.rules` – Google sign-in, invite codes, and who may read each household (rules tested in `tests/rules.emulator.mjs`)
+- `admin.js` – the Admin page's data and checks (tested in `tests/admin.test.mjs`; the numbers come from `sync/admin_report.py`)
 - `social.js` – friends, the feed and groups (rules tested in `tests/social.emulator.mjs`, helpers in `tests/social.test.mjs`)
 - `photos.js` – itinerary and bucket list check-in pictures: shrinking, the copy kept on each device, and syncing them (tested in `tests/photos.test.mjs`)
 - `people.js` – the household's people and who owes whom (tested in `tests/people.test.mjs`)

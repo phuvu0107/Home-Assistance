@@ -34,7 +34,7 @@ jobs:
       - name: Collect site files
         run: |
           mkdir -p _site/data
-          cp -r index.html styles.css app.js icons.js people.js schedule.js alerts.js firebase.js account.js social.js receipt.js receipt-words.js sync.js photos.js sync-config.js health.js health-config.js feedback-config.js sw.js manifest.webmanifest icons avatars _site/
+          cp -r index.html styles.css app.js icons.js people.js schedule.js alerts.js firebase.js account.js admin.js social.js receipt.js receipt-words.js sync.js photos.js sync-config.js health.js health-config.js feedback-config.js sw.js manifest.webmanifest icons avatars _site/
           # Open screens check this and reload themselves after a deploy.
           echo "${{ github.sha }}" > _site/version.txt
       - name: Add household sync config

@@ -46,6 +46,7 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           SEND_HOME: ${{ inputs.home }}
           SLOT: ${{ inputs.slot }}
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
           # The energy line is off while PG&E sync is paused; uncomment both to bring it back.
           # ENERGY_PASSPHRASE: ${{ secrets.ENERGY_PASSPHRASE }}
           # ENERGY_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/energy.enc.json
