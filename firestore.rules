@@ -41,6 +41,8 @@ service cloud.firestore {
           && request.resource.data.members[request.auth.uid] == true
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'invite'])
           && validInvite(request.resource.data.invite, home);
+      // Deleting an account: a household nobody else is in goes with it.
+      allow delete: if isMember(home) && resource.data.members.keys().hasOnly([request.auth.uid]);
 
       match /data/{doc} {
         allow read, write: if isMember(home);
@@ -143,6 +145,8 @@ service cloud.firestore {
         || request.resource.data.members[request.auth.uid] == true
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'names', 'invite'])
           && validGroupInvite(request.resource.data.invite, g));
+      // Deleting an account: a group nobody else is in goes with it.
+      allow delete: if signedIn() && resource.data.members.keys().hasOnly([request.auth.uid]);
 
       // The group's feed, plans, bucket list and money, and the comments on its posts. (Under
       // items/, because a bare {rest=**} would also match the group itself.)

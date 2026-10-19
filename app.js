@@ -1,6 +1,6 @@
 import { icon, hydrateIcons } from './icons.js';
 import { createSync, syncAvailable, SYNC_LIMIT } from './sync.js';
-import { accountAvailable, createInvite, homeEmail, joinHome, joinWithCode, myHome, myHomes, renameHome, saveHomeEmail, showCode, signIn as accountSignIn, signOut as accountSignOut, startHome, useHomeFor, watchUser } from './account.js';
+import { accountAvailable, confirmIdentity, createInvite, deleteAccount, deletionPreview, homeEmail, joinHome, joinWithCode, myHome, myHomes, renameHome, saveHomeEmail, showCode, signIn as accountSignIn, signOut as accountSignOut, startHome, useHomeFor, watchUser } from './account.js';
 import { FRIDGE_CATS, guessCat, learnFromReceipt, readExpense, readReceipt } from './receipt.js';
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
@@ -731,9 +731,11 @@ const PAGES = [
   { id: 'settings', label: 'Settings', icon: 'settings' },
   { id: 'energy', label: 'Energy', icon: 'zap' },
   { id: 'health', label: 'Health', icon: 'heart' },
+  // A small link at the foot of the half circle rather than a page of its own in it.
+  { id: 'privacy', label: 'Privacy', icon: 'shield', link: true },
 ];
 const MAIN = PAGES.filter((p) => p.main);
-const MORE = PAGES.filter((p) => !p.main);
+const MORE = PAGES.filter((p) => !p.main && !p.link);
 // The half circle holds the More pages plus Send feedback, which opens an email instead of a page.
 const FEEDBACK = { id: 'feedback', label: 'Feedback', icon: 'mail' };
 const DOME = [...MORE, FEEDBACK];
@@ -806,7 +808,8 @@ function buildDome() {
   el.innerHTML = `<div class="dome-disc" style="left:${dome.cx - R}px;top:${dome.cy - R}px;width:${2 * R}px;height:${R}px"></div>
     <div class="dome-arm" style="left:${dome.cx}px;top:${dome.cy}px;--r:${dome.r}px;--lens:${dome.lens}px"><span class="dome-lens"></span></div>
     ${DOME.map((p, i) => `<a class="orb${p.id === r ? ' on' : ''}" role="menuitem" href="${p === FEEDBACK ? feedbackLink() : `#/${p.id}`}" data-i="${i}" style="--orb:${dome.orb}px;--d:${Math.abs(i - (DOME.length - 1) / 2)};left:${dome.xs[i].toFixed(1)}px;top:${(dome.cy - dome.r * Math.sin(rad(ARC[i]))).toFixed(1)}px">${icon(p.icon)}<span class="orb-lbl">${p.label}</span></a>`).join('')}
-    <div class="dome-hint" style="left:${dome.cx}px;top:${dome.cy - 18}px">Slide left or right</div>`;
+    <div class="dome-hint" style="left:${dome.cx}px;top:${dome.cy - 18}px">Slide left or right</div>
+    <a class="dome-link${r === 'privacy' ? ' on' : ''}" href="#/privacy" style="left:${dome.cx}px;top:${dome.cy - (big ? 46 : 38)}px">${icon('shield')}Privacy</a>`;
   el.classList.toggle('big', big);
   // Revealed by a circle growing out of the More tab.
   const mb = $('#tabs [data-page="more"]').getBoundingClientRect();
@@ -882,6 +885,7 @@ function navTrack(e) {
   if (bar !== null) placeInk(tabBox(tabs[bar])); else moveInk();
 }
 function navStart(e) {
+  if (e.target.closest('.dome-link')) return; // an ordinary link
   if (navGesture.id !== null || (e.pointerType === 'mouse' && e.button !== 0)) return;
   const pop = domeSlot(e.clientX, e.clientY);
   const bar = pop === null ? barSlot(e.clientX, e.clientY) : null;
@@ -931,6 +935,7 @@ for (const el of [$('#tabs'), $('#dome')]) {
   el.addEventListener('pointercancel', (e) => navEnd(e, true));
   // Taps are handled above; only keyboard presses (detail 0) go through as clicks.
   el.addEventListener('click', (e) => {
+    if (e.target.closest('.dome-link')) { closeDome(); return; }
     if (e.detail !== 0) { e.preventDefault(); return; }
     if (e.target.closest('[data-page="more"]')) { e.preventDefault(); domeOpen ? closeDome() : (openDome(), $('#dome .orb')?.focus()); }
   });
@@ -3551,11 +3556,99 @@ views.settings = () => {
     </div>
     <h3 class="set-group">Danger zone</h3>
     <div class="card">
-      <p class="hint">Display settings stay on this device. Events, chores and expenses are shared with your other devices when sync is on. Weather comes from Open-Meteo.</p>
-      <button class="btn danger" data-action="reset">${icon('trash')} Clear events and chores</button>
+      <p class="hint">Display settings stay on this device. Events, chores and expenses are shared with your other devices when sync is on. <a href="#/privacy">What is kept and who sees it</a></p>
+      <div class="danger-btns">
+        <button class="btn danger" data-action="reset">${icon('trash')} Clear events and chores</button>
+        ${account.user ? `<button class="btn danger" data-action="acct-delete">${icon('trash')} Delete my account</button>` : ''}
+      </div>
     </div>
   </div>`;
 };
+
+// What the app keeps, who sees it and how to delete it. Also the app's privacy policy: it shows
+// before anyone is set up, so #/privacy can be linked from outside the app.
+views.privacy = () => {
+  const u = account.user;
+  const sec = (title, ic, body) => `<div class="card privacy-sec"><h3 class="privacy-h">${icon(ic)}${title}</h3>${body}</div>`;
+  return `
+  <div class="settings privacy">
+  <div class="section-title">Privacy</div>
+  <p class="hint privacy-lead">This page says what the app keeps about you, who can see it, and how to delete it. Last changed October 19, 2026.</p>
+  ${sec('The short version', 'shieldCheck', `<ul class="privacy-list">
+    <li>Your household's events, chores, money and notes are seen only by the people in your household.</li>
+    <li>There are no ads, no tracking and no analytics, and nothing is sold or shared for marketing.</li>
+    <li>You can delete your account and everything that is only yours at any time, from this page or Settings.</li>
+  </ul>`)}
+  ${sec('What is kept', 'lock', `<ul class="privacy-list">
+    <li><b>Your sign-in.</b> Your Google account's name, email address and an account id, so you can sign in on any device. The app never sees your Google password.</li>
+    <li><b>Your household.</b> Whatever you add: events, chores and stars, the kitchen and shopping lists, expenses and receipt pictures, money boxes, the bucket list and check-in pictures, the itinerary with its places, contacts and pictures, thank-yous, notes, and each person's name, color and picture.</li>
+    <li><b>Health, if you connect it.</b> Steps, sleep, resting heart rate and weight from Fitbit, read with your permission. You can disconnect in Settings › Connections.</li>
+    <li><b>Friends, if you use it.</b> Your Friends name and code, who your friends are, your posts, comments and likes, and the groups you are in with their plans, bucket list and shared money.</li>
+    <li><b>Summary email, if your household turns it on.</b> The addresses it goes to, and your household's time zone and weather place.</li>
+    <li><b>On this device.</b> Display settings, a copy of your household so it works offline, and pictures you've seen.</li>
+  </ul>`)}
+  ${sec('Who sees it', 'users', `<ul class="privacy-list">
+    <li>Everything in a household is shared with everyone in that household, on every device they sign in on. Hidden notes are hidden on screen, not from the people in the household.</li>
+    <li>A post on Friends is seen by the friends you had when you posted it. Everything in a group is seen by everyone in the group.</li>
+    <li>Friends and groups never see your household's data.</li>
+    <li>The data is kept by Google Firebase, protected by sign-in rules that let only those people in. It is not end-to-end encrypted, so whoever runs the app could reach it to fix a problem you report.</li>
+  </ul>`)}
+  ${sec('Other services the app uses', 'plug', `<ul class="privacy-list">
+    <li><b>Google Firebase</b> for sign-in and storing the data above.</li>
+    <li><b>Open-Meteo</b> gets the weather place you picked (a city's location) to show the forecast. Nothing else about you.</li>
+    <li><b>Google Health</b> (Fitbit), only when someone connects their own account.</li>
+    <li><b>ntfy</b> sends phone alerts, only if you turn them on. An alert says who did what, never what a note says.</li>
+    <li><b>GitHub</b> hosts the app, runs the job that sends the summary email and, for a household that set it up, reads its PG&amp;E energy use.</li>
+    <li>Receipts are read on this device. The picture only leaves it if you keep it on the expense.</li>
+  </ul>`)}
+  ${sec('Deleting your data', 'trash', `<ul class="privacy-list">
+    <li><b>Delete my account</b> deletes your sign-in, your Friends name, code, friendships, posts and comments, and takes you out of every household and group.</li>
+    <li>A household or group nobody else is in is deleted with everything in it.</li>
+    <li>A household or group other people still use stays for them, so their calendar and money still add up. Your summary email address is taken off it. To remove what you added there, edit or delete it before you go, or ask someone in the household.</li>
+    <li>Invite codes you made stop working within a week. This device's copy is cleared; other devices keep theirs until they are cleared in Settings.</li>
+    <li>Deleting happens straight away and can't be undone.</li>
+  </ul>
+  ${u ? `<button class="btn danger" data-action="acct-delete">${icon('trash')} Delete my account</button>`
+    : '<p class="hint">Sign in (Settings › Household) to delete your account.</p>'}`)}
+  ${sec('Questions', 'mail', `<p class="hint">Write to us with Feedback in the More menu${FEEDBACK_EMAIL ? ` or at <a href="${feedbackLink()}">${esc(FEEDBACK_EMAIL)}</a>` : ''}. If this page changes, the date at the top changes too.</p>`)}
+  </div>`;
+};
+
+// Delete my account: what it will do, then a typed DELETE to go ahead.
+let delAcct = null; // { homes, busy, note } while the sheet is open
+function openDeleteSheet() {
+  const d = delAcct || {};
+  const homes = d.homes;
+  const list = !homes ? '<p class="hint">Checking your households…</p>'
+    : !homes.length ? '<p class="hint">You are not in a household.</p>'
+    : `<ul class="privacy-list">${homes.map((h) => `<li><b>${esc(h.name)}</b>: ${h.gone ? "you're the only one in it, so it is deleted with everything in it."
+      : `stays for the ${h.others === 1 ? 'other person' : `${h.others} others`} in it. You are taken out.`}</li>`).join('')}</ul>`;
+  openSheet(`${sheetHead('Delete my account', 'trash')}
+    <p class="house-intro">This deletes your sign-in, your Friends profile, posts and comments, and takes you out of every household and group. It can't be undone.</p>
+    ${list}
+    ${d.note ? `<div class="sync-banner">${icon('users')}<span>${esc(d.note)}</span></div>` : ''}
+    <div class="field"><label for="del-confirm">Type DELETE to confirm</label>
+      <input class="input" id="del-confirm" autocomplete="off" autocapitalize="characters" spellcheck="false" data-nofocus></div>
+    <p class="hint">Google will ask you to pick your account once more.</p>
+    <div class="sheet-actions">
+      <button class="btn ghost" data-action="close-sheet" ${d.busy ? 'disabled' : ''}>Cancel</button>
+      <button class="btn danger" data-action="acct-delete-go" ${d.busy || !homes ? 'disabled' : ''}>${d.busy ? 'Deleting…' : 'Delete my account'}</button>
+    </div>`);
+  $('#sheet').dataset.kind = 'delete';
+}
+const deleteSheetOpen = () => !$('#sheet').hidden && $('#sheet').dataset.kind === 'delete';
+// This device forgets the account and the household it was showing.
+async function forgetHere() {
+  stopSocial();
+  // An old passphrase household on this screen isn't the account's, so it stays as it is.
+  const signedInHome = house.mode === 'home' || (!!houseHome && house.mode !== 'pass');
+  if (house.mode === 'home') house.disconnect();
+  houseHome = ''; writeLocal(HOUSE_HOME_KEY, '');
+  houseInvite = null; writeLocal(HOUSE_INVITE_KEY, '');
+  setHomes([]); houseAdding = false; houseNote = '';
+  if (signedInHome) { emptyHousehold(); await photos.clearHere().catch(() => {}); }
+  try { await accountSignOut(); } catch { /* signed out here anyway */ }
+}
 
 let wkScroll = null;
 // Replays a CSS entrance animation on an element.
@@ -3576,7 +3669,8 @@ function renderView(anim) {
   const y = window.scrollY;
   const prev = $('#wk-scroll');
   if (prev) wkScroll = prev.scrollTop;
-  view.innerHTML = members().length ? views[r]() : views.setup();
+  // Privacy reads the same before anyone is set up, so its link works as the app's privacy policy.
+  view.innerHTML = members().length || r === 'privacy' ? views[r]() : views.setup();
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
   window.scrollTo(0, y);
@@ -4227,6 +4321,33 @@ const actions = {
     if (!houseSheetOpen()) toast('Signed out. This device keeps its copy but stops syncing.');
     refreshHouse();
   },
+  'acct-delete': async () => {
+    if (!account.user) return;
+    delAcct = {}; openDeleteSheet();
+    try { delAcct.homes = await deletionPreview(account.user.uid); } catch { delAcct.note = "Couldn't check your households. Are you offline?"; }
+    if (deleteSheetOpen()) openDeleteSheet();
+  },
+  'acct-delete-go': async () => {
+    const u = account.user;
+    if (!u || !delAcct?.homes || delAcct.busy) return;
+    if ($('#del-confirm')?.value.trim().toUpperCase() !== 'DELETE') { delAcct.note = 'Type DELETE in the box first.'; openDeleteSheet(); return; }
+    delAcct.busy = true; delAcct.note = ''; openDeleteSheet();
+    let done = null;
+    try {
+      const who = await confirmIdentity();
+      if (who === 'cancelled') delAcct.note = 'Nothing was deleted.';
+      else done = await deleteAccount(u.uid, u.email);
+    } catch (e) {
+      delAcct.note = e?.code === 'auth/user-mismatch' ? `Pick ${u.email} in the Google window. Nothing was deleted.`
+        : `Couldn't finish (${String(e?.code || e?.message || e).replace(/^auth\//, '')}). Try again; anything already deleted stays deleted.`;
+    }
+    if (!done) { delAcct.busy = false; if (deleteSheetOpen()) openDeleteSheet(); return; }
+    await forgetHere();
+    delAcct = null; closeSheet();
+    toast(done === 'relogin' ? 'Your data is deleted. To delete the sign-in too, sign in again and tap Delete my account once more.'
+      : 'Your account is deleted.');
+    render();
+  },
   'acct-start': async () => {
     const u = account.user;
     if (!u || houseBusy) return;
@@ -4519,7 +4640,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');

@@ -96,6 +96,8 @@ export function createPhotos(sync) {
       return loading.get(id);
     },
     peek: (id) => mem.get(id) || '',
+    // Forgets every picture kept on this device (after deleting an account).
+    async clearHere() { mem.clear(); for (const id of await local.all()) await local.del(id); },
     // Sends pictures added while offline or before this device joined a household.
     async flush() {
       if (!sync.connected || !unsent) return;

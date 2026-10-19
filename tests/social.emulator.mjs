@@ -102,3 +102,14 @@ test('household data stays closed to friends and group members', async () => {
   await assertSucceeds(setDoc(doc(db('ann'), 'homes/h1/data/main'), { items: {} }));
   await assertFails(getDoc(doc(db('bob'), 'homes/h1/data/main')));
 });
+
+test('deleting an account: a group nobody else is in can be deleted', async () => {
+  await assertSucceeds(setDoc(doc(db('ann'), 'groups/solo'), { name: 'Solo', members: { ann: true }, names: { ann: 'Ann' } }));
+  await assertSucceeds(setDoc(doc(db('ann'), 'groupInvites/SOLOCODE1'), { group: 'solo', by: 'ann', expires: Timestamp.fromMillis(Date.now() + 864e5) }));
+  await assertSucceeds(updateDoc(doc(db('bob'), 'groups/solo'), { 'members.bob': true, 'names.bob': 'Bob', invite: 'SOLOCODE1' }));
+  await assertFails(deleteDoc(doc(db('ann'), 'groups/solo')));
+  await assertFails(deleteDoc(doc(db('eve'), 'groups/solo')));
+  await assertSucceeds(updateDoc(doc(db('bob'), 'groups/solo'), { 'members.bob': deleteField(), 'names.bob': deleteField() }));
+  await assertFails(deleteDoc(doc(db('bob'), 'groups/solo')));
+  await assertSucceeds(deleteDoc(doc(db('ann'), 'groups/solo')));
+});
