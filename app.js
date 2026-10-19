@@ -5,7 +5,7 @@ import { FRIDGE_CATS, guessCat, learnFromReceipt, readExpense, readReceipt } fro
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
 import FEEDBACK_EMAIL from './feedback-config.js';
-import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
+import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, friendsGate, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { createPhotos, shrink } from './photos.js';
 import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, WEEKDAYS } from './schedule.js';
 import { categoryTotals, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newMember, PERSON_COLORS, sortMembers } from './people.js';
@@ -2228,7 +2228,10 @@ views.friends = () => {
     return `<div class="section-title">Friends</div><div class="card"><p class="empty-line">Friends needs household sync. Set it up in Settings › Sync across devices.</p></div>`;
   }
   startSocial();
-  if (!account.user) {
+  // A device in a signed-in household from before this was remembered counts as signed in too.
+  const gate = friendsGate(account, !!(readLocal(SIGNED_IN_KEY) || houseHome));
+  if (gate === 'checking') return `<div class="section-title">Friends</div><div class="card"><p class="empty-line">Loading…</p></div>`;
+  if (gate === 'signin') {
     return `<div class="section-title">Friends</div><div class="card soc-intro">
       <p>Add friends from any household, share posts with them, and make groups for trips, dinners and shared costs. Nothing from your household is shared.</p>
       <button class="btn" data-action="acct-signin">${busyLabel('signin', 'Sign in with Google', 'Signing in…')}</button></div>`;
@@ -2546,6 +2549,7 @@ const HOUSE_BASE_KEY = 'home-dashboard.household-base.v1';
 const HOUSE_HOME_KEY = 'home-dashboard.home.v1'; // the signed-in household this device syncs with
 const HOUSE_INVITE_KEY = 'home-dashboard.invite.v1';
 const HOUSE_HOMES_KEY = 'home-dashboard.homes.v1'; // every household the signed-in person is in
+const SIGNED_IN_KEY = 'home-dashboard.signed-in.v1'; // someone was signed in last time this page ran
 const readLocal = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
 const writeLocal = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch { /* ignore */ } };
 const savedHouseBase = () => { try { return JSON.parse(localStorage.getItem(HOUSE_BASE_KEY)); } catch { return null; } };
@@ -2809,6 +2813,8 @@ let accountChecked = false;
 async function onAccount(u) {
   const first = !accountChecked; accountChecked = true;
   account = { ready: true, user: u };
+  writeLocal(SIGNED_IN_KEY, u ? '1' : '');
+  socialRedraw(); // Friends waits for this on page load
   if (u) {
     refreshHomes();
     if (houseMoved) { await followMove(); return; }

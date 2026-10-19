@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanCode, feedFor, groupMoney, newestFirstId, pairId, showCode } from '../social.js';
+import { cleanCode, feedFor, friendsGate, groupMoney, newestFirstId, pairId, showCode } from '../social.js';
 
 test('ids sort newest first', () => {
   const ids = [1700000000000, 1800000000000, 1750000000000].map((t) => newestFirstId(t));
@@ -34,4 +34,12 @@ test('group money splits evenly and settles up', () => {
   assert.deepEqual(m.transfers, [{ from: 'cat', to: 'ann', amount: 120 }, { from: 'bob', to: 'ann', amount: 60 }]);
   const after = groupMoney([...items, { type: 'expense', kind: 'settle', paidBy: 'cat', to: 'ann', amount: 120 }], ['ann', 'bob', 'cat']);
   assert.deepEqual(after.transfers, [{ from: 'bob', to: 'ann', amount: 60 }]);
+});
+
+test('Friends waits for sign-in to restore instead of flashing the sign-in button', () => {
+  const loading = { ready: false, user: null };
+  assert.equal(friendsGate(loading, true), 'checking');
+  assert.equal(friendsGate(loading, false), 'signin');
+  assert.equal(friendsGate({ ready: true, user: null }, true), 'signin');
+  assert.equal(friendsGate({ ready: true, user: { uid: 'me' } }, true), 'in');
 });
