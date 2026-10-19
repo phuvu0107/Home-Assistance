@@ -112,3 +112,33 @@ export function transfersFor(balance, ids) {
   }
   return out;
 }
+
+// Spending month by month, for the `count` months up to and including `last` ('YYYY-MM'),
+// oldest first. Months with nothing logged are still there, at zero, so gaps show.
+// `places` is where the money went over those months: the biggest totals by name, case ignored.
+export function monthTrend(list, ids, last, count = 6) {
+  const [y, m] = last.split('-').map(Number);
+  const keys = Array.from({ length: count }, (_, i) => {
+    const d = new Date(y, m - count + i, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const months = keys.map((key) => {
+    const st = expenseStats(list.filter((x) => x.date?.startsWith(key)), ids);
+    return { key, total: st.total, paid: st.paid, count: list.filter((x) => x.kind !== 'settle' && x.date?.startsWith(key)).length };
+  });
+  const byName = new Map();
+  for (const x of list) {
+    if (x.kind === 'settle' || !keys.includes(x.date?.slice(0, 7))) continue;
+    const name = String(x.title || '').trim();
+    const k = name.toLowerCase();
+    const p = byName.get(k) || { name, total: 0, count: 0 };
+    p.total += x.amount; p.count += 1;
+    byName.set(k, p);
+  }
+  const places = [...byName.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+  // The average leaves out months before anything was logged, so a new household isn't dragged down.
+  const from = months.findIndex((mo) => mo.count);
+  const used = from < 0 ? [] : months.slice(from);
+  const average = used.length ? used.reduce((n, mo) => n + mo.total, 0) / used.length : 0;
+  return { months, places, average, max: Math.max(0, ...months.map((mo) => mo.total)) };
+}

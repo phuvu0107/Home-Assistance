@@ -78,3 +78,27 @@ test('names read naturally', () => {
   assert.equal(joinNames(['Phu', 'Nhi']), 'Phu and Nhi');
   assert.equal(joinNames(['An', 'Binh', 'Chi']), 'An, Binh and Chi');
 });
+
+test('money trend lists every month up to the shown one, with gaps at zero', async () => {
+  const { monthTrend } = await import('../people.js');
+  const list = [
+    { date: '2026-08-03', amount: 40, paidBy: 'phu', split: true, title: 'Costco' },
+    { date: '2026-08-20', amount: 10, paidBy: 'nhi', split: true, title: 'costco ' },
+    { date: '2026-10-01', amount: 30, paidBy: 'both', split: true, title: 'Rent' },
+    { date: '2026-10-02', amount: 5, paidBy: 'nhi', to: 'phu', kind: 'settle' },
+    { date: '2025-01-01', amount: 999, paidBy: 'phu', title: 'Long ago' },
+  ];
+  const t = monthTrend(list, two, '2026-10', 6);
+  assert.deepEqual(t.months.map((m) => m.key), ['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10']);
+  assert.deepEqual(t.months.map((m) => m.total), [0, 0, 0, 50, 0, 30]);
+  assert.deepEqual(t.months.at(-1).paid, { phu: 15, nhi: 15 });
+  assert.equal(t.months.at(-1).count, 1); // the settle-up isn't spending
+  assert.equal(t.average, 80 / 3); // August to October
+  assert.equal(t.max, 50);
+  assert.deepEqual(t.places.map((p) => [p.name, p.total, p.count]), [['Costco', 50, 2], ['Rent', 30, 1]]);
+});
+test('money trend crosses the new year', async () => {
+  const { monthTrend } = await import('../people.js');
+  assert.deepEqual(monthTrend([], two, '2027-02', 4).months.map((m) => m.key), ['2026-11', '2026-12', '2027-01', '2027-02']);
+  assert.equal(monthTrend([], two, '2027-02', 4).average, 0);
+});

@@ -1,4 +1,4 @@
-// Pictures on itinerary activities. A picture is far too big for the household document (which
+// Pictures on itinerary activities, bucket list check-ins and money receipts. A picture is far too big for the household document (which
 // holds everything else and tops out at 1 MiB), so each one is shrunk on this device, kept here in
 // IndexedDB, and sent to the household as its own document. Activities only carry the picture ids.
 
@@ -12,11 +12,12 @@ export function fitSize(w, h, max = MAX_SIDE) {
   return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) };
 }
 
-// A photo from the camera or the gallery, as a small JPEG data URL.
-export async function shrink(file) {
+// A photo from the camera or the gallery, as a small JPEG data URL. Receipts ask for a bigger
+// `side` so the small print stays readable; the size cap still holds.
+export async function shrink(file, maxSide = MAX_SIDE) {
   const img = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => null);
   if (!img) throw new Error("That file isn't a picture this screen can read");
-  let side = MAX_SIDE; let q = 0.72; let out = '';
+  let side = maxSide; let q = 0.72; let out = '';
   for (let i = 0; i < 6; i++) {
     const { w, h } = fitSize(img.width, img.height, side);
     const c = Object.assign(document.createElement('canvas'), { width: w, height: h });
