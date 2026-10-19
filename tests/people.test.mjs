@@ -95,7 +95,7 @@ test('money trend lists every month up to the shown one, with gaps at zero', asy
   assert.equal(t.months.at(-1).count, 1); // the settle-up isn't spending
   assert.equal(t.average, 80 / 3); // August to October
   assert.equal(t.max, 50);
-  assert.deepEqual(t.places.map((p) => [p.name, p.total, p.count]), [['Costco', 50, 2], ['Rent', 30, 1]]);
+  assert.deepEqual(t.spent.map((x) => x.title), ['Costco', 'costco ', 'Rent']); // not the settle-up or 2025
 });
 test('money trend crosses the new year', async () => {
   const { monthTrend } = await import('../people.js');
