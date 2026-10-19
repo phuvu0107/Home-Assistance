@@ -41,7 +41,7 @@ What's in the fridge in one list, sorted so whatever to use soonest is on top, w
 ![Kitchen page](docs/screenshots/kitchen.png)
 
 ### Money
-Shared expenses, one month at a time (the 1st through the last day). It opens with who owes whom and a **Settle up** button, then the month's total, a bar showing what each person paid, and the log grouped by day. Past months are listed below. Log the day, what it was, the amount and who paid. Expenses can be marked as personal so they stay out of the split, or as paid by **Both** (each paid half) so nobody owes anything on them. Turn off **Show who owes whom** in Settings to hide the balance.
+Shared expenses, one month at a time (the 1st through the last day). It opens with who owes whom and a **Settle up** button, then the month's total, a bar showing what each person paid, and the log grouped by day. Past months are listed below. Log the day, what it was, the amount, who paid and a category (Groceries, Dining out, Transport, Bills, Home, Health, Shopping, Fun, Travel or Other; it guesses one from the name). A **By category** card shows what the month went on; expenses logged before categories count as Other. Expenses can be marked as personal so they stay out of the split, or as paid by **Both** (each paid half) so nobody owes anything on them. Turn off **Show who owes whom** in Settings to hide the balance.
 
 ![Money page](docs/screenshots/piggy.png)
 

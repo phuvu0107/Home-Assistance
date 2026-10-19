@@ -142,3 +142,46 @@ export function monthTrend(list, ids, last, count = 6) {
   const average = used.length ? used.reduce((n, mo) => n + mo.total, 0) / used.length : 0;
   return { months, places, average, max: Math.max(0, ...months.map((mo) => mo.total)) };
 }
+
+// General spending categories, in the order the picker shows them. An expense keeps the id in
+// `cat`; one without it (logged before categories) or with an id this version doesn't know counts
+// as Other.
+export const EXPENSE_CATS = {
+  groceries: ['🛒', 'Groceries'], dining: ['🍽️', 'Dining out'], transport: ['🚗', 'Transport'],
+  bills: ['💡', 'Bills'], home: ['🏠', 'Home'], health: ['💊', 'Health'], shopping: ['🛍️', 'Shopping'],
+  fun: ['🎉', 'Fun'], travel: ['✈️', 'Travel'], other: ['📦', 'Other'],
+};
+export const expenseCat = (x) => (x?.cat && x.cat !== 'other' && EXPENSE_CATS[x.cat] ? x.cat : 'other');
+
+// A first guess from what was typed or the store a receipt came from; the person can change it.
+const CAT_WORDS = {
+  groceries: 'grocery groceries market supermarket costco safeway trader joe joes foods sprouts aldi kroger hmart walmart produce',
+  dining: 'restaurant dinner lunch breakfast brunch cafe coffee starbucks pho boba tea pizza sushi burger taco bar takeout doordash ubereats grubhub chipotle mcdonald bakery',
+  bills: 'rent mortgage pg&e pge electric electricity water internet wifi comcast xfinity verizon t-mobile tmobile insurance netflix spotify subscription utility utilities bill',
+  transport: 'gas fuel chevron shell arco uber lyft parking toll bart caltrain bus train carwash tesla charging',
+  home: 'depot lowes ikea furniture cleaning repair hardware garden plants decor home',
+  health: 'pharmacy cvs walgreens doctor dentist clinic hospital medicine gym vitamins health',
+  shopping: 'amazon clothes clothing shoes mall gift gifts electronics bestbuy uniqlo',
+  fun: 'movie movies cinema concert tickets game games bowling museum fun',
+  travel: 'hotel airbnb flight airline airport trip travel vacation',
+};
+export function guessExpenseCat(title) {
+  const text = ` ${String(title || '').toLowerCase().replace(/[^a-z0-9&-]+/g, ' ')} `;
+  for (const [cat, words] of Object.entries(CAT_WORDS)) {
+    if (words.split(' ').some((w) => text.includes(` ${w} `) || (w.length > 4 && text.includes(` ${w}`)))) return cat;
+  }
+  return 'other';
+}
+
+// Spending by category, biggest first, leaving settle-ups out. Categories with nothing are left off.
+export function categoryTotals(list) {
+  const by = new Map();
+  for (const x of list) {
+    if (x.kind === 'settle') continue;
+    const id = expenseCat(x);
+    const c = by.get(id) || { id, total: 0, count: 0 };
+    c.total += x.amount; c.count += 1;
+    by.set(id, c);
+  }
+  return [...by.values()].sort((a, b) => b.total - a.total || Object.keys(EXPENSE_CATS).indexOf(a.id) - Object.keys(EXPENSE_CATS).indexOf(b.id));
+}

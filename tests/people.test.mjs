@@ -102,3 +102,29 @@ test('money trend crosses the new year', async () => {
   assert.deepEqual(monthTrend([], two, '2027-02', 4).months.map((m) => m.key), ['2026-11', '2026-12', '2027-01', '2027-02']);
   assert.equal(monthTrend([], two, '2027-02', 4).average, 0);
 });
+
+test('expenses without a known category count as Other', async () => {
+  const { categoryTotals, expenseCat } = await import('../people.js');
+  assert.equal(expenseCat({ title: 'Old one' }), 'other');
+  assert.equal(expenseCat({ cat: 'pets' }), 'other'); // a category from a newer version
+  assert.equal(expenseCat({ cat: 'dining' }), 'dining');
+  const list = [
+    { amount: 40, cat: 'groceries' }, { amount: 10, cat: 'groceries' }, { amount: 30 },
+    { amount: 25, cat: 'dining' }, { kind: 'settle', amount: 99, paidBy: 'a', to: 'b' },
+  ];
+  assert.deepEqual(categoryTotals(list), [
+    { id: 'groceries', total: 50, count: 2 }, { id: 'other', total: 30, count: 1 }, { id: 'dining', total: 25, count: 1 },
+  ]);
+});
+test('a first category guess from the name', async () => {
+  const { guessExpenseCat } = await import('../people.js');
+  assert.equal(guessExpenseCat('Costco'), 'groceries');
+  assert.equal(guessExpenseCat("TRADER JOE'S #123"), 'groceries');
+  assert.equal(guessExpenseCat('Pho Hoa dinner'), 'dining');
+  assert.equal(guessExpenseCat('PG&E'), 'bills');
+  assert.equal(guessExpenseCat('Rent'), 'bills');
+  assert.equal(guessExpenseCat('Chevron'), 'transport');
+  assert.equal(guessExpenseCat('Home Depot'), 'home');
+  assert.equal(guessExpenseCat('Walgreens'), 'health');
+  assert.equal(guessExpenseCat('Something else'), 'other');
+});

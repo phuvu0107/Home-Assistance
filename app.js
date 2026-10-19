@@ -7,7 +7,7 @@ import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, 
 import FEEDBACK_EMAIL from './feedback-config.js';
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { createPhotos, shrink } from './photos.js';
-import { cleanName, expenseStats as moneyStats, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newMember, PERSON_COLORS, sortMembers } from './people.js';
+import { categoryTotals, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -2894,7 +2894,7 @@ function expenseRow(x, showSplit) {
   const note = both ? `Each paid ${members().length === 2 ? 'half' : 'a share'}` : x.split ? (showSplit ? `Split · ${fmtCash(x.amount / Math.max(1, members().length))} each` : 'Split') : `Just ${u?.name}`;
   return `<button class="row expense" data-action="edit-expense" data-id="${x.id}">
     ${avatar(x.paidBy, 'md')}
-    <span class="ex-main"><b>${esc(x.title)}</b><small>${both ? `${everyoneLabel()} paid` : `${u?.name} paid`} · ${note}</small></span>
+    <span class="ex-main"><b><span class="ex-cat-ico" title="${EXPENSE_CATS[expenseCat(x)][1]}">${EXPENSE_CATS[expenseCat(x)][0]}</span> ${esc(x.title)}</b><small>${both ? `${everyoneLabel()} paid` : `${u?.name} paid`} · ${note}</small></span>
     ${x.receipt ? `<span class="ex-receipt" aria-label="Has a receipt">${icon('receipt')}</span>` : ''}
     <span class="ex-amt">${fmtCash(x.amount)}</span></button>`;
 }
@@ -2943,8 +2943,20 @@ views.piggy = () => {
       <div class="list">${xs.map((x) => expenseRow(x, showSplit)).join('')}</div></div>`).join('')
     : `<div class="piggy-empty">${icon('piggy')}<p>Nothing logged for ${monthName(key)} yet.</p><div class="fr-empty-btns"><button class="btn" data-action="add-expense">${icon('plus')} Add an expense</button><label class="btn ghost">${icon('receipt')} Scan receipt<input type="file" id="receipt-money" accept="image/*" hidden></label></div></div>`}
   </div>
+  ${list.length ? categoryCard(list) : ''}
   ${months.length ? trendCard(key, months) : ''}`;
 };
+
+// The month's spending by category, biggest first. Expenses from before categories are Other.
+function categoryCard(list) {
+  const cats = categoryTotals(list);
+  const sum = cats.reduce((n, c) => n + c.total, 0);
+  return `<div class="card money-cats">
+    <div class="card-head">${icon('chart')}<h2>By category</h2></div>
+    <div class="trend-places">${cats.map((c) => `<div class="trend-place"><span class="ex-main"><b>${EXPENSE_CATS[c.id].join(' ')}</b><small>${c.count} expense${c.count === 1 ? '' : 's'} · ${Math.round((c.total / sum) * 100)}%</small></span>
+      <span class="trend-pbar"><i style="width:${((c.total / cats[0].total) * 100).toFixed(1)}%"></i></span><span class="ex-amt">${fmtCash(c.total)}</span></div>`).join('')}</div>
+  </div>`;
+}
 
 // How spending moves over the months: the six up to the one shown, each person's share stacked
 // in their colour, the average, the change from the month before and where the money went.
@@ -3010,11 +3022,13 @@ async function attachReceipt(file) {
 function openExpenseSheet(ex, scan) {
   const today = isoDay(new Date());
   const inMonth = piggyMonth === monthKey(new Date()) ? today : isoDay(monthBounds(piggyMonth)[0]);
-  const x = ex || { id: '', title: scan?.store || '', amount: scan?.amount ?? '', date: scan ? scan.date || today : inMonth, paidBy: members()[0].id, split: true };
+  const x = ex || { id: '', title: scan?.store || '', amount: scan?.amount ?? '', date: scan ? scan.date || today : inMonth, paidBy: members()[0].id, split: true, cat: guessExpenseCat(scan?.store) };
+  const cat = expenseCat(x);
   moneyDraft = scan?.picture ? { receipt: newPhotoId(), fresh: scan.picture } : { receipt: ex?.receipt || '', fresh: null };
   openSheet(`${sheetHead(ex ? 'Edit expense' : scan ? 'From your receipt' : 'New expense', 'piggy')}
     ${scan ? `<p class="hint">${scan.amount ? 'Check what the reader got, then pick who paid.' : "The total wasn't readable, so type it in."}</p>` : ''}
     <div class="field"><label for="ex-title">What was it?</label><input class="input" id="ex-title" value="${esc(x.title)}" placeholder="e.g. Groceries"></div>
+    <div class="field"><label>Category</label><div class="seg ex-cat" id="ex-cat"${ex ? ' data-picked="1"' : ''}>${Object.entries(EXPENSE_CATS).map(([k, [e, l]]) => `<button class="${k === cat ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${e} ${l}</button>`).join('')}</div></div>
     <div class="field-row">
       <div class="field"><label for="ex-amount">Amount</label><input class="input" id="ex-amount" type="number" inputmode="decimal" step="0.01" min="0" value="${x.amount}" placeholder="0.00"></div>
       <div class="field"><label for="ex-date">Day</label><input class="input" type="date" id="ex-date" value="${x.date}"></div>
@@ -3595,6 +3609,7 @@ const actions = {
   'toggle-important': (el) => el.setAttribute('aria-checked', String(el.getAttribute('aria-checked') !== 'true')),
   'pick-seg': (el) => {
     el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
+    el.parentElement.dataset.picked = '1'; // stops the expense category following the name
     if (el.parentElement.classList.contains('emoji-pick')) burstOn(el);
   },
 
@@ -4201,7 +4216,7 @@ const actions = {
     const amount = Math.round(Number($('#ex-amount').value) * 100) / 100;
     const date = $('#ex-date').value;
     if (!title || !(amount > 0) || !date) { toast('Add what it was, the amount and the day'); return; }
-    const data = { title, amount, date, paidBy: pickedWho() || members()[0].id, split: $('#ex-split').getAttribute('aria-checked') === 'true' };
+    const data = { title, amount, date, paidBy: pickedWho() || members()[0].id, split: $('#ex-split').getAttribute('aria-checked') === 'true', cat: $('#ex-cat .on')?.dataset.v || 'other' };
     const existing = state.expenses.find((x) => x.id === el.dataset.id);
     const { receipt, fresh } = moneyDraft || {};
     if (receipt) data.receipt = receipt;
@@ -4289,6 +4304,11 @@ document.addEventListener('input', (e) => {
   if (e.target.id === 'fr-cat') e.target.dataset.picked = '1';
   const cat = $('#fr-cat');
   if (e.target.id === 'fr-name' && cat && !cat.dataset.picked && !$('#sheet [data-action="del-fridge"]')) cat.value = guessCat(e.target.value);
+  const exCat = $('#ex-cat');
+  if (e.target.id === 'ex-title' && exCat && !exCat.dataset.picked) {
+    const g = guessExpenseCat(e.target.value);
+    exCat.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === g));
+  }
 });
 document.addEventListener('change', (e) => {
   if (!['receipt-file', 'receipt-money'].includes(e.target.id) || !e.target.files[0]) return;
