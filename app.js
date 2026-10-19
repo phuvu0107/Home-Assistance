@@ -7,7 +7,7 @@ import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, 
 import FEEDBACK_EMAIL from './feedback-config.js';
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { createPhotos, shrink } from './photos.js';
-import { cleanName, expenseStats as moneyStats, joinNames, legacyMembersFor, MAX_MEMBERS, newMember, PERSON_COLORS, sortMembers } from './people.js';
+import { cleanName, expenseStats as moneyStats, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -1647,9 +1647,9 @@ async function addDraftPhotos(files) {
   redrawDraftPhotos();
 }
 
-// Full screen, tap anywhere to close.
-async function viewPhoto(id) {
-  const box = Object.assign(document.createElement('div'), { id: 'photo-view', className: 'photo-view' });
+// Full screen, tap anywhere to close. `data` is a picture not saved yet; a tall receipt scrolls.
+async function viewPhoto(id, data = null, tall = false) {
+  const box = Object.assign(document.createElement('div'), { id: 'photo-view', className: `photo-view${tall ? ' tall' : ''}` });
   box.innerHTML = `<img alt=""><button class="btn-round close" aria-label="Close">${icon('x')}</button>`;
   // Escape closes the picture only, leaving the day's list open behind it.
   const onKey = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); } };
@@ -1657,8 +1657,8 @@ async function viewPhoto(id) {
   box.addEventListener('click', close);
   document.addEventListener('keydown', onKey, true);
   document.body.append(box);
-  const data = await photos.get(id);
-  if (data) box.querySelector('img').src = data; else { close(); toast("That picture hasn't arrived on this screen yet"); }
+  const src = data || await photos.get(id);
+  if (src) box.querySelector('img').src = src; else { close(); toast("That picture hasn't arrived on this screen yet"); }
 }
 
 /* ---------- Tasks ---------- */
@@ -2895,6 +2895,7 @@ function expenseRow(x, showSplit) {
   return `<button class="row expense" data-action="edit-expense" data-id="${x.id}">
     ${avatar(x.paidBy, 'md')}
     <span class="ex-main"><b>${esc(x.title)}</b><small>${both ? `${everyoneLabel()} paid` : `${u?.name} paid`} · ${note}</small></span>
+    ${x.receipt ? `<span class="ex-receipt" aria-label="Has a receipt">${icon('receipt')}</span>` : ''}
     <span class="ex-amt">${fmtCash(x.amount)}</span></button>`;
 }
 
@@ -2942,18 +2943,75 @@ views.piggy = () => {
       <div class="list">${xs.map((x) => expenseRow(x, showSplit)).join('')}</div></div>`).join('')
     : `<div class="piggy-empty">${icon('piggy')}<p>Nothing logged for ${monthName(key)} yet.</p><div class="fr-empty-btns"><button class="btn" data-action="add-expense">${icon('plus')} Add an expense</button><label class="btn ghost">${icon('receipt')} Scan receipt<input type="file" id="receipt-money" accept="image/*" hidden></label></div></div>`}
   </div>
-  ${months.length > 1 ? `<div class="card">
-    <div class="card-head">${icon('piggy')}<h2>By month</h2></div>
-    <div class="list">${months.map((m) => { const s2 = expenseStats(expensesIn(m)); return `<button class="row month-row${m === key ? ' on' : ''}" data-action="piggy-goto" data-m="${m}">
-      <span class="ex-main"><b>${monthName(m)}</b><small>${members().map((u) => `${u.name} ${fmtCash(s2.paid[u.id])}`).join(' · ')}</small></span><span class="ex-amt">${fmtCash(s2.total)}</span></button>`; }).join('')}</div>
-  </div>` : ''}`;
+  ${months.length ? trendCard(key, months) : ''}`;
 };
 
-// `scan` is what a receipt photo gave ({ store, amount, date }), to check before adding.
+// How spending moves over the months: the six up to the one shown, each person's share stacked
+// in their colour, the average, the change from the month before and where the money went.
+// Tapping a month opens it.
+const TREND_MONTHS = 6;
+function trendCard(key, months) {
+  const t = monthTrend(state.expenses, members().map((u) => u.id), key, TREND_MONTHS);
+  const now = t.months.at(-1); const prev = t.months.at(-2);
+  const short = (k) => monthBounds(k)[0].toLocaleDateString([], { month: 'short' });
+  const whole = (n) => fmtCash(Math.round(n)).replace(/\.00$/, '');
+  const change = prev.total ? (now.total - prev.total) / prev.total : null;
+  const top = t.months.reduce((a, mo) => (mo.total > a.total ? mo : a), t.months[0]);
+  const avgLine = t.average ? `<i class="trend-avg" style="bottom:${((t.average / t.max) * 100).toFixed(1)}%"></i>` : '';
+  const bars = t.months.map((mo) => {
+    const h = t.max ? (mo.total / t.max) * 100 : 0;
+    const parts = mo.total ? members().map((u) => `<i class="bar-${u.color}" style="height:${((mo.paid[u.id] / mo.total) * 100).toFixed(1)}%"></i>`).join('') : '';
+    return `<button class="trend-col${mo.key === key ? ' on' : ''}" data-action="piggy-goto" data-m="${mo.key}" aria-label="${monthName(mo.key)}: ${fmtCash(mo.total)}">
+      <small>${mo.total ? whole(mo.total) : ''}</small>
+      <span class="trend-bar"><span style="height:${h.toFixed(1)}%">${parts}</span>${avgLine}</span>
+      <span class="trend-m">${short(mo.key)}</span></button>`;
+  }).join('');
+  const places = t.places.slice(0, 5);
+  return `<div class="card money-trend">
+    <div class="card-head">${icon('chart')}<h2>Month by month</h2></div>
+    <div class="trend-tiles">
+      <div><small>Average a month</small><b>${whole(t.average)}</b></div>
+      <div><small>vs ${monthName(prev.key).split(' ')[0]}</small><b class="${change === null ? '' : change > 0 ? 'up' : 'down'}">${change === null ? '–' : `${change > 0 ? '+' : ''}${Math.round(change * 100)}%`}</b></div>
+      <div><small>Biggest month</small><b>${top.total ? `${short(top.key)} · ${whole(top.total)}` : '–'}</b></div>
+    </div>
+    <div class="trend-chart">${bars}</div>
+    ${members().length > 1 ? `<div class="spend-key">${members().map((u) => `<span><i class="key bar-${u.color}"></i>${u.name}</span>`).join('')}<span><i class="key avg"></i>Average</span></div>` : ''}
+    ${places.length ? `<h3 class="trend-sub">Where it went · ${short(t.months[0].key)} – ${short(key)}</h3>
+    <div class="trend-places">${places.map((p) => `<div class="trend-place"><span class="ex-main"><b>${esc(p.name)}</b><small>${p.count} time${p.count === 1 ? '' : 's'}</small></span>
+      <span class="trend-pbar"><i style="width:${((p.total / places[0].total) * 100).toFixed(1)}%"></i></span><span class="ex-amt">${fmtCash(p.total)}</span></div>`).join('')}</div>` : ''}
+    ${months.length > 1 ? `<h3 class="trend-sub">Every month</h3>
+    <div class="list">${months.map((m) => { const s2 = expenseStats(expensesIn(m)); return `<button class="row month-row${m === key ? ' on' : ''}" data-action="piggy-goto" data-m="${m}">
+      <span class="ex-main"><b>${monthName(m)}</b><small>${members().map((u) => `${u.name} ${fmtCash(s2.paid[u.id])}`).join(' · ')}</small></span><span class="ex-amt">${fmtCash(s2.total)}</span></button>`; }).join('')}</div>` : ''}
+  </div>`;
+}
+
+// The expense being edited: its receipt picture id, and the picture itself when it is new.
+// A receipt is its own document like itinerary pictures (photos.js); the expense keeps the id.
+const RECEIPT_SIDE = 1800;
+let moneyDraft = null;
+function receiptBoxHtml() {
+  const { receipt, fresh } = moneyDraft;
+  if (!receipt) return `<label class="pl-thumb pl-add rc-thumb">${icon('receipt')}<span>Add photo</span><input type="file" id="ex-receipt-file" accept="image/*" hidden></label>`;
+  return `<div class="pl-thumb rc-thumb"><button class="rc-open" data-action="view-receipt" aria-label="See receipt">${fresh ? `<img class="pl-photo" src="${fresh}" alt="">` : photoImg(receipt)}</button>
+    <button class="pl-x" data-action="del-receipt" aria-label="Remove receipt">${icon('x')}</button></div>`;
+}
+function redrawReceipt() { const box = $('#ex-receipt'); if (box) { box.innerHTML = receiptBoxHtml(); fillPhotos(box); } }
+const newPhotoId = () => `ph${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+async function attachReceipt(file) {
+  if (!moneyDraft) return;
+  try {
+    const data = await shrink(file, RECEIPT_SIDE);
+    moneyDraft.receipt = newPhotoId(); moneyDraft.fresh = data;
+    redrawReceipt();
+  } catch (e) { toast(e.message || "Couldn't read that picture"); }
+}
+
+// `scan` is what a receipt photo gave ({ store, amount, date, picture }), to check before adding.
 function openExpenseSheet(ex, scan) {
   const today = isoDay(new Date());
   const inMonth = piggyMonth === monthKey(new Date()) ? today : isoDay(monthBounds(piggyMonth)[0]);
   const x = ex || { id: '', title: scan?.store || '', amount: scan?.amount ?? '', date: scan ? scan.date || today : inMonth, paidBy: members()[0].id, split: true };
+  moneyDraft = scan?.picture ? { receipt: newPhotoId(), fresh: scan.picture } : { receipt: ex?.receipt || '', fresh: null };
   openSheet(`${sheetHead(ex ? 'Edit expense' : scan ? 'From your receipt' : 'New expense', 'piggy')}
     ${scan ? `<p class="hint">${scan.amount ? 'Check what the reader got, then pick who paid.' : "The total wasn't readable, so type it in."}</p>` : ''}
     <div class="field"><label for="ex-title">What was it?</label><input class="input" id="ex-title" value="${esc(x.title)}" placeholder="e.g. Groceries"></div>
@@ -2964,12 +3022,15 @@ function openExpenseSheet(ex, scan) {
     <div class="field"><label>Who paid?</label>${whoPicker(x.paidBy, members().length > 1 ? 'both' : false)}${members().length > 1 ? `<div class="hint">${everyoneLabel()} means ${members().length === 2 ? 'each of you paid half' : 'everyone paid an equal share'}, so nobody owes anything on it.</div>` : ''}</div>
     <div class="setting-row imp-row"><div><b>Split ${splitWord()}</b><div class="hint">Counts toward what each of you owes. Turn off for a personal expense.</div></div>
       <button class="switch" id="ex-split" role="switch" aria-checked="${!!x.split}" data-action="toggle-important"></button></div>
+    <div class="field"><label>Receipt</label><div class="pl-photos edit" id="ex-receipt">${receiptBoxHtml()}</div>
+      ${scan?.picture ? '<div class="hint">Saved with this expense so you can look at it later.</div>' : ''}</div>
     <div class="sheet-actions">
       ${ex ? `<button class="btn danger" data-action="del-expense" data-id="${x.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
       <button class="btn" data-action="save-expense" data-id="${x.id}">${ex ? 'Save' : 'Add expense'}</button>
     </div>`);
   if (!ex && !scan) setTimeout(() => $('#ex-title')?.focus(), 50);
+  fillPhotos($('#sheet'));
 }
 async function scanExpense(file) {
   openSheet(`${sheetHead('Reading receipt', 'receipt')}
@@ -2977,8 +3038,10 @@ async function scanExpense(file) {
     <div class="rc-bar"><i id="rc-progress"></i></div>`);
   $('#sheet').dataset.kind = 'receipt-money';
   try {
+    // The picture is kept with the expense, so shrink it while the reader works.
+    const picture = shrink(file, RECEIPT_SIDE).catch(() => null);
     const found = await readExpense(file, (p) => { const b = $('#rc-progress'); if (b) b.style.width = `${Math.round(p * 100)}%`; });
-    if ($('#sheet').dataset.kind === 'receipt-money') openExpenseSheet(null, found);
+    if ($('#sheet').dataset.kind === 'receipt-money') openExpenseSheet(null, { ...found, picture: await picture });
   } catch (err) {
     closeSheet();
     toast(err.message || "Couldn't read that photo");
@@ -3633,6 +3696,8 @@ const actions = {
     redrawDraftPhotos();
   },
   'view-photo': (el) => viewPhoto(el.dataset.photoId),
+  'view-receipt': () => { if (moneyDraft?.receipt) viewPhoto(moneyDraft.receipt, moneyDraft.fresh, true); },
+  'del-receipt': () => { if (moneyDraft) { moneyDraft.receipt = ''; moneyDraft.fresh = null; redrawReceipt(); } },
   'save-plan': (el) => {
     const title = $('#pl-title').value.trim();
     const date = $('#pl-date').value;
@@ -4138,8 +4203,15 @@ const actions = {
     if (!title || !(amount > 0) || !date) { toast('Add what it was, the amount and the day'); return; }
     const data = { title, amount, date, paidBy: pickedWho() || members()[0].id, split: $('#ex-split').getAttribute('aria-checked') === 'true' };
     const existing = state.expenses.find((x) => x.id === el.dataset.id);
-    if (existing) Object.assign(existing, data);
-    else state.expenses.push({ id: `x${Date.now()}`, ...data });
+    const { receipt, fresh } = moneyDraft || {};
+    if (receipt) data.receipt = receipt;
+    if (existing) {
+      if (existing.receipt && existing.receipt !== receipt) photos.drop(existing.receipt);
+      if (!receipt) delete existing.receipt;
+      Object.assign(existing, data);
+    } else state.expenses.push({ id: `x${Date.now()}`, ...data });
+    if (receipt && fresh) photos.add(receipt, fresh);
+    moneyDraft = null;
     piggyMonth = date.slice(0, 7);
     closeSheet();
   },
@@ -4155,6 +4227,8 @@ const actions = {
     toast(expenseStats(expensesIn(piggyMonth)).transfers.length ? `${from.name} is square with ${to.name}` : 'All square');
   },
   'del-expense': (el) => {
+    const gone = state.expenses.find((x) => x.id === el.dataset.id);
+    if (gone?.receipt) photos.drop(gone.receipt);
     state.expenses = state.expenses.filter((x) => x.id !== el.dataset.id);
     closeSheet();
   },
@@ -4176,7 +4250,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -4224,6 +4298,11 @@ document.addEventListener('change', (e) => {
 document.addEventListener('change', (e) => {
   if (e.target.id !== 'plan-photo' || !e.target.files.length) return;
   addDraftPhotos(e.target.files);
+  e.target.value = '';
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'ex-receipt-file' || !e.target.files[0]) return;
+  attachReceipt(e.target.files[0]);
   e.target.value = '';
 });
 document.addEventListener('change', async (e) => {
