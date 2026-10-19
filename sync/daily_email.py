@@ -110,8 +110,45 @@ def home_state(home, account_json):
     return state_from(json.loads(fields["box"]["mapValue"]["fields"]["json"]["stringValue"])["items"])
 
 
+# When chores come due; the same rules as schedule.js in the app.
+def chore_start(t, today):
+    days, every = t.get("days") or [], t.get("every")
+    sunday = lambda d: d - dt.timedelta(days=(d.weekday() + 1) % 7)
+    if t.get("repeat") == "daily":
+        if not days:
+            return today
+        return next((today - dt.timedelta(days=i) for i in range(7) if (today - dt.timedelta(days=i)).isoweekday() % 7 in days), today)
+    if t.get("repeat") == "weekly":
+        if every == "month":
+            return today.replace(day=1)
+        n = max(1, min(4, int(every or 1)))
+        week = sunday(today)
+        start = sunday(dt.date.fromisoformat(t["from"])) if t.get("from") else week
+        return week - dt.timedelta(weeks=((week - start).days // 7) % n)
+    return None
+
+
+def chore_done(t, today):
+    start = chore_start(t, today)
+    return bool(t.get("doneOn")) and (start is None or t["doneOn"] >= start.isoformat())
+
+
+def chore_open(t, today):
+    # A weekday chore added after its day this week isn't owed until the next one.
+    due = not (t.get("repeat") == "daily" and t.get("days") and t.get("from") and chore_start(t, today).isoformat() < t["from"])
+    return due and not chore_done(t, today)
+
+
+def chore_owner(t, today, ids):
+    # Turn-taking chores pass on after the stretch they were done in, even if no screen has done it yet.
+    who = t.get("who")
+    if t.get("turns") and t.get("doneOn") and t.get("turned") != t["doneOn"] and not chore_done(t, today) and who in ids and len(ids) > 1:
+        return ids[(ids.index(who) + 1) % len(ids)]
+    return who
+
+
 def state_from(items):
-    lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge", "k": "thanks", "n": "notes", "b": "bucket", "p": "members"}
+    lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge", "k": "thanks", "n": "notes", "b": "bucket", "p": "members", "g": "shopping"}
     state = {name: [v for k, v in items.items() if k.startswith(p + ":")] for p, name in lists.items()}
     state["stars"] = items.get("stars", {}).get("value", {})
     return state
@@ -252,15 +289,9 @@ def build(state, now, energy, sky, slot="morning"):
         title = "Today" if slot == "morning" else "Still to come today"
         sections.append((title, [event_line(e) for e in events] or ["Nothing else on the calendar." if slot != "morning" else "Nothing on the calendar."]))
 
-    def open_task(t):
-        if t.get("repeat") == "daily":
-            return t.get("doneOn") != iso
-        if t.get("repeat") == "weekly":
-            return (t.get("doneOn") or "") < week_start
-        return not t.get("doneOn")
     task_lines = []
     for uid, name in USERS.items():
-        mine = [t for t in state["tasks"] if t.get("who") == uid and open_task(t)]
+        mine = [t for t in state["tasks"] if chore_owner(t, today, list(USERS)) == uid and chore_open(t, today)]
         if mine:
             task_lines.append(f"{name}: " + ", ".join(t["title"] + (" (important)" if t.get("important") else "") for t in mine))
     task_count = sum(len(l.split(": ", 1)[1].split(", ")) for l in task_lines)
@@ -311,6 +342,9 @@ def build(state, now, energy, sky, slot="morning"):
     if ticked:
         went = lambda b: "together" if b.get("doneBy") == "both" else f"by {USERS.get(b.get('doneBy'), 'someone')}"
         sections.insert(1 if unread else 0, ("Ticked off the bucket list", [f"🎉 {b.get('text', '')} ({went(b)}, +{LOVE.get(b.get('kind'), 15)} love points)" for b in ticked]))
+    shopping = [g.get("name", "") for g in state.get("shopping", [])]
+    if shopping and slot in ("midday", "evening"):  # on the way home
+        sections.append(("Shopping list", shopping[:20] + ([f"and {len(shopping) - 20} more"] if len(shopping) > 20 else [])))
     notes = sorted((n for n in state.get("notes", []) if not n.get("until") or n["until"] >= iso), key=lambda n: -n.get("at", 0))
     if notes and slot in ("morning", "night"):
         sections.append(("Notes on the fridge", [f"{USERS.get(n.get('by'), '')}: {' '.join(n.get('text', '').split())}" for n in notes[:8]]))
@@ -342,7 +376,7 @@ THEMES = {  # soft background tint, accent, small label above the greeting
     "night": ("#f2f3f9", "#4338ca", "Tonight's recap"),
 }
 ICONS = {"Today": "📅", "Still to come today": "⏳", "Tomorrow": "📅", "Tasks": "✅", "Tasks still open": "✅", "Stars": "⭐",
-         "Today's stars": "⭐", "Use soon from the fridge": "🥬", "Piggy Bank": "🐷", "Energy": "⚡", "Coming up this week": "🗓️"}
+         "Today's stars": "⭐", "Use soon from the fridge": "🥬", "Piggy Bank": "🐷", "Energy": "⚡", "Coming up this week": "🗓️", "Shopping list": "🛒"}
 FONT = "-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
 
 

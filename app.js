@@ -7,6 +7,7 @@ import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, 
 import FEEDBACK_EMAIL from './feedback-config.js';
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { createPhotos, shrink } from './photos.js';
+import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, WEEKDAYS } from './schedule.js';
 import { categoryTotals, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
@@ -46,6 +47,7 @@ function defaultState() {
     notes: [],
     bucket: [],
     itinerary: [],
+    shopping: [],
     health: {},
   };
 }
@@ -102,18 +104,18 @@ function fmtTime(date, withMinutes = true) {
   });
 }
 
-// A short note at the bottom of the screen. `undo` is an optional [label, fn] button.
-function toast(msg, undo) {
+// A short note at the bottom of the screen. Each extra argument is a [label, fn] button.
+function toast(msg, ...btns) {
   const el = $('#toast');
   el.textContent = msg;
-  if (undo) {
-    const b = Object.assign(document.createElement('button'), { className: 'toast-btn', textContent: undo[0] });
-    b.onclick = (e) => { e.stopPropagation(); el.hidden = true; undo[1](); };
+  for (const [label, fn] of btns.filter(Boolean)) {
+    const b = Object.assign(document.createElement('button'), { className: 'toast-btn', textContent: label });
+    b.onclick = (e) => { e.stopPropagation(); el.hidden = true; fn(); };
     el.append(b);
   }
   el.hidden = false;
   clearTimeout(toast.t);
-  toast.t = setTimeout(() => { el.hidden = true; }, undo ? 4500 : 2200);
+  toast.t = setTimeout(() => { el.hidden = true; }, btns.some(Boolean) ? 4500 : 2200);
 }
 
 function partOfDay(h) {
@@ -1187,15 +1189,27 @@ function weekStrip() {
 }
 
 /* ---------- Tasks ---------- */
-const REPEAT_LABEL = { daily: 'Daily', weekly: 'Weekly', once: 'Once' };
 const weekStartIso = () => { const d = new Date(); return isoDay(addDays(d, -d.getDay())); };
 
-// Daily tasks reset each day and weekly tasks each Sunday; one-off tasks stay done.
-function isDone(t) {
-  if (!t.doneOn) return false;
-  if (t.repeat === 'daily') return t.doneOn === isoDay(new Date());
-  if (t.repeat === 'weekly') return t.doneOn >= weekStartIso();
-  return true;
+// Daily chores reset each day (or on their weekdays), weekly ones each Sunday (or every few
+// weeks), monthly ones on the 1st; one-off chores stay done. See schedule.js.
+const isDone = (t) => choreDone(t, isoDay(new Date()));
+// Still to do now: not done, and not a weekday chore whose first day hasn't come yet.
+const isOwed = (t) => !isDone(t) && choreDue(t, isoDay(new Date()));
+// What the chore row says about when it comes up.
+function whenLabel(t) {
+  const today = isoDay(new Date());
+  if (choreKind(t) === 'days' && (isDone(t) || !choreDue(t, today))) {
+    const d = nextDay(t, isoDay(addDays(new Date(), 1)));
+    return `Next ${d === isoDay(addDays(new Date(), 1)) ? 'tomorrow' : WEEKDAYS[new Date(`${d}T12:00`).getDay()]}`;
+  }
+  return choreLabel(t);
+}
+// Chores that take turns move to the next person once the day, week or month they were done in
+// is over. Every screen works out the same person, so it doesn't matter which one does it first.
+function passTurns() {
+  const ids = members().map((u) => u.id);
+  return state.tasks.filter((t) => passTurn(t, ids, isoDay(new Date()))).length > 0;
 }
 const tasksFor = (id) => state.tasks.filter((t) => t.who === id);
 
@@ -1249,7 +1263,7 @@ function repairLog() {
 const tasksToday = () => {
   const today = isoDay(new Date());
   const order = members().map((u) => u.id);
-  return state.tasks.filter((t) => !isDone(t) || t.doneOn === today)
+  return state.tasks.filter((t) => isOwed(t) || t.doneOn === today)
     .sort((a, b) => order.indexOf(a.who) - order.indexOf(b.who) || isDone(a) - isDone(b));
 };
 
@@ -1269,7 +1283,7 @@ function taskCard(t, u, face = false) {
     ${face ? avatar(u.id, 'sm') : ''}
     <button class="task-body" data-action="edit-task" data-id="${t.id}">
       <b>${esc(t.title)}${impTag(t)}${noteTag(t, 'task')}</b>
-      <small>${face ? `${u.name} · ` : ''}${REPEAT_LABEL[t.repeat]} <span class="stars">${icon('star')}${t.stars}</span></small>
+      <small>${face ? `${u.name} · ` : ''}${whenLabel(t)}${t.turns ? ' · takes turns' : ''} <span class="stars">${icon('star')}${t.stars}</span></small>
     </button>
     ${face && done ? thankBtn(`${t.id}@${t.doneOn}@${t.who}`, t.who, t.title) : ''}
     <button class="check ${done ? 'on' : ''}" data-action="toggle-task" data-id="${t.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}" aria-pressed="${done}">${icon('check')}</button>
@@ -1302,16 +1316,18 @@ function todayEvent(e) {
 // what to use up in the kitchen, then today's list and what's coming.
 function glanceRow() {
   const people = members().map((u) => {
-    const left = tasksFor(u.id).filter((t) => !isDone(t)).length;
+    const left = tasksFor(u.id).filter(isOwed).length;
     return `<a class="glance" href="#/tasks">${avatar(u.id, 'sm')}<span><b>${left || icon('check')}</b><small>${u.name} · ${left ? `${left === 1 ? 'chore' : 'chores'} left` : 'all done'}</small></span></a>`;
   });
   const soon = (state.fridge || []).filter((it) => daysLeft(it) !== null && daysLeft(it) <= 2).length;
   const kitchen = (state.fridge || []).length
     ? `<a class="glance" href="#/fridge"><span class="ibox c-amber-ico">${icon('fridge')}</span><span><b>${soon || icon('check')}</b><small>${soon ? 'to use soon' : 'kitchen all fresh'}</small></span></a>` : '';
+  const buy = (state.shopping || []).length;
+  const shop = buy ? `<a class="glance" href="#/fridge"><span class="ibox c-green-ico">${icon('cart')}</span><span><b>${buy}</b><small>to buy</small></span></a>` : '';
   // Someone in more than one household sees which one this is; tapping it goes to switching.
   const where = houseHomes.length > 1 && houseHome
     ? `<a class="glance" href="#/settings"><span class="ibox c-purple-ico">${icon('home')}</span><span><b>${esc(homeName(houseHome))}</b><small>household · switch</small></span></a>` : '';
-  return `<div class="glances">${where}${people.join('')}${kitchen}</div>`;
+  return `<div class="glances">${where}${people.join('')}${kitchen}${shop}</div>`;
 }
 
 // Who's ahead this week, as one line for the Today card.
@@ -2565,7 +2581,7 @@ const house = createSync({
     announceArrivals(before);
     // Rebuilt Leaderboard entries and carried-over members are sent back to the household;
     // otherwise just keep a copy here.
-    if (ensureMembers() | repairLog()) save();
+    if (ensureMembers() | repairLog() | passTurns()) save();
     else try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
     if (calmToRender()) renderView(); // an open sheet re-renders the page when it closes
   },
@@ -3083,12 +3099,44 @@ function fridgeRow(it) {
     <span class="fr-qty${d !== null && d <= 0 ? ' late' : ''}">×${it.qty}</span>
     <button class="btn-round sm" data-action="use-fridge" data-id="${it.id}" aria-label="Use one ${esc(it.name)}">${icon('minus')}</button></div>`;
 }
+/* The shopping list: things to buy, shared by the household. Running out of something in the
+   kitchen offers to add it, and a scanned grocery receipt ticks off what it bought. */
+const SHOP_MAX = 60; // characters per item
+const shopKey = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/s\b/g, '');
+function addToShopping(name) {
+  name = cleanName(name).slice(0, SHOP_MAX);
+  state.shopping ||= [];
+  if (!name || state.shopping.some((x) => shopKey(x.name) === shopKey(name))) return false;
+  state.shopping.push({ id: `g${Date.now()}`, name, by: me(), at: Date.now() });
+  return true;
+}
+// Receipt lines are short and shouty ("ORG BANANAS"), so a list item counts as bought when every
+// word of it shows up in a kept receipt name, or the other way round.
+function tickOffShopping(names) {
+  const keys = names.map((n) => shopKey(n).split(' '));
+  const bought = (state.shopping || []).filter((x) => {
+    const want = shopKey(x.name).split(' ');
+    return keys.some((k) => want.every((w) => k.includes(w)) || k.every((w) => want.includes(w)));
+  });
+  state.shopping = (state.shopping || []).filter((x) => !bought.includes(x));
+  return bought;
+}
+function shoppingCard() {
+  const list = state.shopping || [];
+  return `<div class="card shop-card"><div class="card-head">${icon('cart')}<h2>Shopping list</h2>${list.length ? `<span class="hint">${list.length} to buy</span>` : ''}</div>
+    <div class="shop-new"><input class="input" id="shop-new" data-draft="shop" maxlength="${SHOP_MAX}" value="${esc(social.drafts.shop || '')}" placeholder="Add something to buy" aria-label="Add something to buy" autocomplete="off">
+      <button class="btn" data-action="add-shop" aria-label="Add to the shopping list">${icon('plus')}</button></div>
+    ${list.length ? `<div class="fr-list shop-list">${list.map((x) => `<div class="fr-row shop-row">
+      <button class="check" data-action="got-shop" data-id="${x.id}" aria-label="Got ${esc(x.name)}">${icon('check')}</button>
+      <span class="fr-main"><b>${esc(x.name)}</b>${userOf(x.by) ? `<small>Added by ${esc(userOf(x.by).name)}</small>` : ''}</span></div>`).join('')}</div>`
+    : '<p class="muted shop-empty">Nothing to buy. Things you run out of can be added with one tap.</p>'}</div>`;
+}
 // One list, soonest use-by first, so nothing shows twice. Chips at the top narrow it to one kind.
 let fridgeCat = 'all';
 views.fridge = () => {
   const items = state.fridge || [];
   if (!items.length) {
-    return `<div class="section-title">Kitchen</div><div class="card fr-empty">${icon('fridge')}<p>Nothing logged yet. Add what's in the fridge, or snap a grocery receipt and the items get added for you.</p>
+    return `<div class="section-title">Kitchen</div>${shoppingCard()}<div class="card fr-empty">${icon('fridge')}<p>Nothing logged yet. Add what's in the fridge, or snap a grocery receipt and the items get added for you.</p>
       <div class="fr-empty-btns"><button class="btn" data-action="add-fridge">${icon('plus')} Add an item</button><label class="btn ghost">${icon('receipt')} Scan receipt<input type="file" id="receipt-file" accept="image/*" hidden></label></div></div>`;
   }
   const cats = FRIDGE_CATS.filter((c) => items.some((it) => catOf(it.cat).id === c.id));
@@ -3098,6 +3146,7 @@ views.fridge = () => {
   const soon = items.filter((it) => daysLeft(it) !== null && daysLeft(it) <= 2).length;
   const chip = (id, label, n) => `<button class="chip${fridgeCat === id ? ' on' : ''}" data-action="fridge-cat" data-v="${id}">${label}<span>${n}</span></button>`;
   return `<div class="section-title">Kitchen<span class="spacer"></span><span class="hint">${soon ? `${soon} to use soon` : 'All fresh'}</span></div>
+  ${shoppingCard()}
   <div class="chips fr-chips">${chip('all', 'All', items.length)}${cats.map((c) => chip(c.id, c.label, items.filter((it) => catOf(it.cat).id === c.id).length)).join('')}</div>
   <div class="card"><div class="fr-list">${shown.map(fridgeRow).join('')}</div></div>`;
 };
@@ -3496,27 +3545,17 @@ function openEventSheet(ev, date, time = '') {
 // A repeating event is saved as one event per day, linked by a shared series id. Each day can
 // then be ticked, earn stars and be edited on its own, and screens on older versions of the app
 // simply see ordinary events.
-const REPEATS = { '': 'Never', daily: 'Every day', weekly: 'Every week' };
-const REPEAT_STEP = { daily: 1, weekly: 7 };
 const MAX_REPEATS = 60; // all events share one synced document, so keep a series small
 const seriesOf = (e) => (e.series ? state.events.filter((x) => x.series === e.series).sort(byStart) : [e]);
-const defaultUntil = (date, rep) => (date ? isoDay(addDays(new Date(`${date}T12:00`), rep === 'weekly' ? 28 : 6)) : '');
 
 function repeatFields(date) {
-  return `<div class="field"><label>Repeats</label><div class="seg" id="ev-repeat">${Object.entries(REPEATS).map(([k, l]) => `<button class="${k ? '' : 'on'}" data-action="pick-repeat" data-v="${k}">${l}</button>`).join('')}</div></div>
+  return `<div class="field"><label>Repeats</label><div class="seg wrap" id="ev-repeat">${Object.entries(REPEATS).map(([k, l]) => `<button class="${k ? '' : 'on'}" data-action="pick-repeat" data-v="${k}">${l}</button>`).join('')}</div></div>
     <div class="field" id="ev-until-field" hidden><label for="ev-until">Repeats until</label><input class="input" type="date" id="ev-until" min="${date}"></div>`;
 }
 function seriesNote(e) {
   const all = seriesOf(e);
   if (all.length < 2) return '';
   return `<p class="hint">Repeats ${all.length} times, ${dayLabel(all[0].date)} to ${dayLabel(all[all.length - 1].date)}. Changes and Delete apply to this day only.</p>`;
-}
-// The days a new event lands on: its own date, then every day or week up to the end day.
-function repeatDates(date, rep, until) {
-  if (!rep) return [date];
-  const out = [];
-  for (let d = new Date(`${date}T12:00`); isoDay(d) <= until; d = addDays(d, REPEAT_STEP[rep])) out.push(isoDay(d));
-  return out;
 }
 
 function daySheetHtml(iso) {
@@ -3568,12 +3607,19 @@ function openDaySheet(iso) {
 
 function openTaskSheet(task, who = members()[0].id) {
   const t = task || { id: '', title: '', who, repeat: 'daily', stars: 5 };
+  const kind = choreKind(t);
+  const days = t.days?.length ? t.days : [new Date().getDay()];
+  const every = Number(t.every) || 1;
   openSheet(`${sheetHead(task ? 'Edit chore' : 'New chore', 'checkSquare')}
     <div class="field"><label for="task-title">Chore</label><input class="input" id="task-title" value="${esc(t.title)}" placeholder="e.g. Take out trash"></div>
     <div class="field"><label>Assigned to</label>${whoPicker(t.who, false)}</div>
     ${impRow(t.important)}
+    <div class="field"><label>Repeats</label><div class="seg wrap" id="task-repeat">${Object.entries(CHORE_REPEATS).map(([k, l]) => `<button class="${kind === k ? 'on' : ''}" data-action="pick-chore-repeat" data-v="${k}">${l}</button>`).join('')}</div></div>
+    <div class="field" id="task-days-field"${kind === 'days' ? '' : ' hidden'}><label>On</label><div class="seg" id="task-days">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<button class="${days.includes(d) ? 'on' : ''}" data-action="pick-weekday" data-v="${d}" aria-pressed="${days.includes(d)}">${WEEKDAYS[d]}</button>`).join('')}</div></div>
+    <div class="field" id="task-every-field"${kind === 'weekly' ? '' : ' hidden'}><label>Every</label><div class="seg" id="task-every">${[1, 2, 3, 4].map((n) => `<button class="${every === n ? 'on' : ''}" data-action="pick-seg" data-v="${n}">${n === 1 ? 'Week' : `${n} weeks`}</button>`).join('')}</div></div>
+    ${members().length > 1 ? `<div class="setting-row imp-row"><div><b>Take turns</b><div class="hint">Once it's done, it moves to the next person when it comes up again. Assigned to is whose turn it is now.</div></div>
+      <button class="switch" id="task-turns" role="switch" aria-checked="${!!t.turns}" data-action="toggle-important"></button></div>` : ''}
     <div class="field-row">
-      <div class="field"><label>Repeats</label><div class="seg" id="task-repeat">${Object.entries(REPEAT_LABEL).map(([k, l]) => `<button class="${t.repeat === k ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${l}</button>`).join('')}</div></div>
       <div class="field"><label>Stars</label><div class="seg" id="task-stars">${[1, 3, 5, 10].map((n) => `<button class="${t.stars === n ? 'on' : ''}" data-action="pick-seg" data-v="${n}">${n}</button>`).join('')}</div></div>
     </div>
     ${noteField(t)}
@@ -3582,6 +3628,17 @@ function openTaskSheet(task, who = members()[0].id) {
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
       <button class="btn" data-action="save-task" data-id="${t.id}">${task ? 'Save' : 'Add chore'}</button>
     </div>`);
+}
+const CHORE_REPEATS = { daily: 'Daily', days: 'Some days', weekly: 'Weekly', monthly: 'Monthly', once: 'Once' };
+// The sheet's pick, in the shape older versions of the app still read (see schedule.js).
+function pickedSchedule() {
+  const kind = $('#task-repeat .on')?.dataset.v || 'daily';
+  const days = [...document.querySelectorAll('#task-days .on')].map((b) => Number(b.dataset.v)).sort();
+  const every = Number($('#task-every .on')?.dataset.v || 1);
+  if (kind === 'days') return days.length ? { repeat: 'daily', days } : null;
+  if (kind === 'weekly') return { repeat: 'weekly', ...(every > 1 && { every }) };
+  if (kind === 'monthly') return { repeat: 'weekly', every: 'month' };
+  return { repeat: kind };
 }
 
 /* =========================================================
@@ -3656,8 +3713,8 @@ const actions = {
       const until = $('#ev-until')?.value || '';
       if (rep && !until) { toast('Pick the day it stops repeating'); return; }
       if (rep && until < date) { toast('The end day must be on or after the start'); return; }
-      const dates = repeatDates(date, rep, until);
-      if (dates.length > MAX_REPEATS) { toast(`That's ${dates.length} days. Pick an earlier end day (${MAX_REPEATS} at most).`); return; }
+      const dates = repeatDates(date, rep, until, MAX_REPEATS);
+      if (dates.length > MAX_REPEATS) { toast(`That's over ${MAX_REPEATS} days. Pick an earlier end day (${MAX_REPEATS} at most).`); return; }
       const id = `e${Date.now()}`;
       const series = dates.length > 1 ? id : undefined;
       dates.forEach((d, i) => state.events.push(keepNote({ id: i ? `${id}-${i}` : id, ...data, date: d, ...(series && { series }) })));
@@ -3681,13 +3738,20 @@ const actions = {
     if (el.dataset.close) closeOrBack();
     redrawDaySheet();
   },
+  'pick-chore-repeat': (el) => {
+    el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
+    $('#task-days-field').hidden = el.dataset.v !== 'days';
+    $('#task-every-field').hidden = el.dataset.v !== 'weekly';
+  },
+  'pick-weekday': (el) => { el.classList.toggle('on'); el.setAttribute('aria-pressed', el.classList.contains('on')); },
   'pick-repeat': (el) => {
     el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
     const until = $('#ev-until');
     $('#ev-until-field').hidden = !el.dataset.v;
     const date = $('#ev-date').value;
     until.min = date;
-    if (el.dataset.v && (!until.value || until.value < date)) until.value = defaultUntil(date, el.dataset.v);
+    // A new kind of repeat starts from its own default: a week of days, a year of months, ten years.
+    if (el.dataset.v) until.value = repeatUntil(date, el.dataset.v);
   },
   'board-period': (el) => { state.settings.boardPeriod = el.dataset.v; },
   'del-event': (el) => {
@@ -3752,17 +3816,25 @@ const actions = {
   'save-task': (el) => {
     const title = $('#task-title').value.trim();
     if (!title) { toast('Name the chore first'); return; }
+    const sched = pickedSchedule();
+    if (!sched) { toast('Pick at least one day'); return; }
     const data = {
       title,
       who: pickedWho() || members()[0].id,
-      repeat: $('#task-repeat .on')?.dataset.v || 'daily',
+      ...sched,
       stars: Number($('#task-stars .on')?.dataset.v || 5),
       important: pickedImportant(),
+      ...($('#task-turns')?.getAttribute('aria-checked') === 'true' && { turns: true }),
       note: pickedNote(),
     };
     const existing = state.tasks.find((x) => x.id === el.dataset.id);
-    if (existing) keepNote(Object.assign(existing, data));
-    else state.tasks.push(keepNote({ id: `t${Date.now()}`, doneOn: '', ...data }));
+    const today = isoDay(new Date());
+    if (existing) {
+      // A new schedule counts from today, so every few weeks starts this week.
+      const moved = ['repeat', 'days', 'every'].some((k) => JSON.stringify(existing[k]) !== JSON.stringify(data[k]));
+      ['days', 'every', 'turns'].forEach((k) => delete existing[k]);
+      keepNote(Object.assign(existing, data, moved && { from: today }));
+    } else state.tasks.push(keepNote({ id: `t${Date.now()}`, doneOn: '', ...data, from: today }));
     closeSheet();
   },
   'del-task': (el) => {
@@ -4181,13 +4253,30 @@ const actions = {
     if (it.qty <= 0) state.fridge = state.fridge.filter((x) => x !== it);
     else burst(`[data-action="use-fridge"][data-id="${it.id}"]`);
     // A slip of the finger is one tap to put back.
-    toast(it.qty <= 0 ? `${it.name} is used up` : `Used one ${it.name}`, ['Undo', () => {
+    const undo = ['Undo', () => {
       const cur = state.fridge.find((x) => x.id === before.id);
       if (cur) Object.assign(cur, before); else state.fridge.splice(at, 0, before);
       save(); renderView();
-    }]);
+    }];
+    // The last one gone is the moment to remember to buy more.
+    const more = ['Add to list', () => { if (addToShopping(it.name)) { save(); renderView(); toast(`${it.name} is on the shopping list`); } }];
+    if (it.qty <= 0 && !(state.shopping || []).some((x) => shopKey(x.name) === shopKey(it.name))) toast(`${it.name} is used up`, more, undo);
+    else toast(it.qty <= 0 ? `${it.name} is used up` : `Used one ${it.name}`, undo);
   },
   'fridge-cat': (el) => { fridgeCat = el.dataset.v; },
+  'add-shop': () => {
+    const box = $('#shop-new');
+    if (!box.value.trim()) { box.focus(); return; }
+    if (!addToShopping(box.value)) toast("It's already on the list");
+    social.drafts.shop = '';
+    setTimeout(() => $('#shop-new')?.focus(), 0); // keep typing the next thing
+  },
+  'got-shop': (el) => {
+    const at = state.shopping.findIndex((x) => x.id === el.dataset.id);
+    if (at < 0) return;
+    const [x] = state.shopping.splice(at, 1);
+    toast(`Got ${x.name}`, ['Undo', () => { state.shopping.splice(at, 0, x); save(); renderView(); }]);
+  },
   'rc-tick': (el) => {
     el.classList.toggle('on'); el.closest('.rc-row').classList.toggle('off', !el.classList.contains('on'));
     if (el.classList.contains('on')) burstOn(el);
@@ -4207,8 +4296,9 @@ const actions = {
     });
     // Names kept as read, or fixed by hand, teach the reader this household's words.
     learnFromReceipt(read);
+    const bought = tickOffShopping(read.map((r) => r.kept));
     closeSheet();
-    toast(`Added ${n} item${n === 1 ? '' : 's'} to the fridge`);
+    toast(`Added ${n} item${n === 1 ? '' : 's'} to the fridge${bought.length ? ` and ticked ${bought.length} off the shopping list` : ''}`);
   },
   'edit-expense': (el) => openExpenseSheet(state.expenses.find((x) => x.id === el.dataset.id)),
   'save-expense': (el) => {
@@ -4265,7 +4355,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -4393,7 +4483,7 @@ hydrateIcons();
 applyTheme();
 tickClock();
 setTimeout(() => { skyReady = true; tickClock(); }, 400);
-if (carriedOver | repairLog() | tidyNotes()) save();
+if (carriedOver | repairLog() | tidyNotes() | passTurns()) save();
 render();
 fetchWeather();
 syncEnergy();
@@ -4422,6 +4512,7 @@ setInterval(() => {
   if (m !== lastMinute) {
     lastMinute = m;
     applyTheme();
+    if (passTurns()) save(); // a new day, week or month hands turn-taking chores on
     // Refresh relative times ("2 minutes ago") without disturbing open dialogs or typing.
     if ($('#sheet').hidden && !document.activeElement?.matches('input, textarea') && members().length) renderView();
   }
