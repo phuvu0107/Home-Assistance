@@ -1170,6 +1170,8 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .card-head + .bk-group { margin-top: 0; }
 .sheet .field > .seg.bk-kind { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
 .sheet .field > .seg.bk-kind button { padding: 8px 4px; white-space: normal; line-height: 1.25; text-align: center; }
+.sheet .field > .seg.ex-cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+.sheet .field > .seg.ex-cat button { padding: 8px 4px; }
 .task.bk.done .bk-emoji { opacity: .6; }
 .bk-pic { flex: none; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: var(--card); cursor: zoom-in; }
 .bk-shot { position: relative; display: grid; place-content: center; justify-items: center; gap: 4px; min-height: 140px; border-radius: 14px; overflow: hidden; cursor: pointer; }
