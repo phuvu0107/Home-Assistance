@@ -74,3 +74,20 @@ test('old passphrase households keep working', async () => {
   await assertSucceeds(setDoc(doc(db(null), `households/${id}`), { box: { v: 1 }, at: 1 }));
   await assertSucceeds(getDoc(doc(db(null), `households/${id}`)));
 });
+
+test('only the admins listed in admin/access can read the admin records, and nobody can write them', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'admin/access'), { emails: ['boss@example.com'] });
+    await setDoc(doc(ctx.firestore(), 'admin/stats'), { households: 2 });
+  });
+  const as = (uid, email, verified = true) => env.authenticatedContext(uid, { email, email_verified: verified }).firestore();
+  await assertSucceeds(getDoc(doc(as('boss', 'boss@example.com'), 'admin/stats')));
+  await assertSucceeds(getDoc(doc(as('boss', 'Boss@Example.com'), 'admin/access')));
+  await assertFails(getDoc(doc(as('boss', 'boss@example.com', false), 'admin/stats')));
+  await assertFails(getDoc(doc(as('ann', 'ann@example.com'), 'admin/stats')));
+  await assertFails(getDoc(doc(as('ann', 'ann@example.com'), 'admin/access')));
+  await assertFails(getDoc(doc(db('ann'), 'admin/stats')));
+  await assertFails(getDoc(doc(db(null), 'admin/stats')));
+  await assertFails(setDoc(doc(as('boss', 'boss@example.com'), 'admin/stats'), { households: 0 }));
+  await assertFails(setDoc(doc(as('ann', 'ann@example.com'), 'admin/access'), { emails: ['ann@example.com'] }));
+});

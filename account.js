@@ -27,7 +27,7 @@ export async function signIn() {
   // Tests against the Firebase emulator sign in as a made-up person instead of opening Google.
   if (window.HOME_FIREBASE_EMULATOR && window.HOME_TEST_USER) {
     const t = window.HOME_TEST_USER;
-    return person((await auth.signInWithCredential(au, auth.GoogleAuthProvider.credential(JSON.stringify({ sub: t, email: `${t}@example.com` })))).user);
+    return person((await auth.signInWithCredential(au, auth.GoogleAuthProvider.credential(JSON.stringify({ sub: t, email: `${t}@example.com`, email_verified: true })))).user);
   }
   const provider = new auth.GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });

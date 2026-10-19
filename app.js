@@ -5,6 +5,7 @@ import { FRIDGE_CATS, guessCat, learnFromReceipt, readExpense, readReceipt } fro
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
 import FEEDBACK_EMAIL from './feedback-config.js';
+import { fmtBytes, isAdmin, loadAdmin, monitors, shortId, worst } from './admin.js';
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, friendsGate, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { createPhotos, shrink } from './photos.js';
 import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, WEEKDAYS } from './schedule.js';
@@ -738,11 +739,13 @@ const MORE = PAGES.filter((p) => !p.main);
 const FEEDBACK = { id: 'feedback', label: 'Feedback', icon: 'mail' };
 const DOME = [...MORE, FEEDBACK];
 const ROUTE_ALIAS = { board: 'tasks' }; // the Leaderboard now lives on Chores
+// The Admin page isn't in the half circle: the site's admins open it from Settings.
+const ADMIN_PAGE = { id: 'admin', label: 'Admin', icon: 'shield' };
 
 const currentRoute = () => {
   let r = location.hash.replace(/^#\/?/, '').split('?')[0];
   r = ROUTE_ALIAS[r] || r;
-  return PAGES.some((p) => p.id === r) ? r : 'home';
+  return PAGES.some((p) => p.id === r) || r === ADMIN_PAGE.id ? r : 'home';
 };
 
 // The tabs are drawn once; switching tabs slides the highlight to the new one.
@@ -759,7 +762,7 @@ function renderNav() {
   }
   const on = MAIN.some((p) => p.id === r) ? r : 'more';
   tabs.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === on));
-  const m = MORE.find((p) => p.id === r);
+  const m = [...MORE, ADMIN_PAGE].find((p) => p.id === r);
   const more = tabs.querySelector('[data-page="more"]');
   const key = m ? m.id : 'more';
   if (more.dataset.shows !== key) {
@@ -2847,6 +2850,7 @@ async function onAccount(u) {
   account = { ready: true, user: u };
   writeLocal(SIGNED_IN_KEY, u ? '1' : '');
   socialRedraw(); // Friends waits for this on page load
+  checkAdmin(u);
   if (u) {
     refreshHomes();
     if (houseMoved) { await followMove(); return; }
@@ -3406,7 +3410,7 @@ views.health = () => {
   const keys = Object.keys(days).sort();
   if (!healthAvailable()) {
     return `<div class="section-title">Health</div>
-    <div class="card energy-empty"><div class="sync-banner">${icon('heart')}<span>Fitbit sign-in isn't set up for this site yet. See Settings for the one-time setup.</span></div></div>`;
+    <div class="card energy-empty"><div class="sync-banner">${icon('heart')}<span>Fitbit sign-in isn't set up for this site yet.</span></div></div>`;
   }
   if (!keys.length) {
     return `<div class="section-title">Health<span class="spacer"></span>${pick}</div>
@@ -3455,12 +3459,7 @@ views.health = () => {
 function healthBody() {
   preloadGoogle().catch(() => {});
   if (!healthAvailable()) {
-    return `<p class="hint">Not set up yet. Fitbit sign-in needs a one-time setup for this site.</p>
-      <details class="setup"><summary>One-time setup</summary><ol class="hint">
-        <li>In Google Cloud, turn on the <b>Google Health API</b> and add each person's Google account as a test user.</li>
-        <li>Create a <b>Web application</b> OAuth client with <code>${esc(location.origin)}</code> as an authorized JavaScript origin.</li>
-        <li>Save its client ID as the GitHub secret <code>GOOGLE_HEALTH_CLIENT_ID</code> and run <b>Deploy to GitHub Pages</b>.</li>
-      </ol></details>`;
+    return `<p class="hint">Not set up yet. Fitbit sign-in needs a one-time setup for this site${admin.on ? ', in <a href="#/admin">Admin</a>' : ' by whoever runs it'}.</p>`;
   }
   return `${members().map((u) => healthRow(u.id)).join('')}
     <p class="hint">Each person signs in with the Google account their Fitbit uses. Google's pass lasts about an hour and stays on this screen only; the daily numbers are shared with the household when sync is on.</p>
@@ -3487,16 +3486,131 @@ function emailConn() {
       <div class="field"><label for="email-to">Who gets it</label>
         <div style="display:flex;gap:8px"><input class="input" id="email-to" type="text" inputmode="email" autocomplete="off" placeholder="you@example.com, them@example.com" value="${esc((e?.to || []).join(', '))}">
         <button class="btn" data-action="email-save"${!e || e.loading ? ' disabled' : ''}>Save</button></div>
-        <div class="hint">Up to 10 addresses. Times and weather follow ${esc(state.settings.place.name)} and this screen's clock (${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}); saving here updates them.</div></div>
-      <div class="setting-row"><div><b>Household id</b><div class="hint"><code class="alerts-topic">${esc(houseHome)}</code></div></div>
-        <button class="btn ghost" data-action="email-copy-id">Copy</button></div>
-      <details class="setup"><summary>For whoever runs the site (one time)</summary><ol class="hint">
-        <li>On the Gmail account that sends, create an <b>app password</b> (Google Account › Security › 2-Step Verification › App passwords).</li>
-        <li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add <code>EMAIL_SMTP_USER</code> (that Gmail address), <code>EMAIL_SMTP_PASSWORD</code> (the app password) and <code>FIREBASE_SERVICE_ACCOUNT</code> (Firebase console › <b>Project settings › Service accounts › Generate new private key</b>, the whole file).</li>
-        <li>To send one now, run <b>Daily summary email</b> in the repo's <b>Actions</b> tab with this household id.</li>
-      </ol></details>`;
+        <div class="hint">Up to 10 addresses. Times and weather follow ${esc(state.settings.place.name)} and this screen's clock (${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}); saving here updates them.</div></div>`;
   return connRow('email', 'bell', 'Summary email', status, on, body);
 }
+
+/* ---------- Admin: site-wide stats, checks and setup, for the site's admins only (admin.js) ---------- */
+let admin = { on: false, uid: null, data: null, loading: false, failed: false };
+// Asked once per sign-in. For everyone else the database refuses, and nothing shows.
+function checkAdmin(u) {
+  if (!u) { admin = { on: false, uid: null, data: null, loading: false, failed: false }; return; }
+  if (admin.uid === u.uid) return;
+  admin = { on: false, uid: u.uid, data: null, loading: false, failed: false };
+  isAdmin().then((on) => {
+    if (admin.uid !== u.uid || !on) return;
+    admin.on = true;
+    loadAdminData();
+  });
+}
+function loadAdminData() {
+  if (!admin.on || admin.loading) return;
+  admin.loading = true;
+  loadAdmin().then((d) => { admin.data = d; admin.failed = false; }, () => { admin.failed = true; })
+    .then(() => { admin.loading = false; if (['admin', 'settings'].includes(currentRoute()) && calmToRender()) renderView(); });
+}
+const adminChecks = () => monitors({ ...(admin.data || {}), site: { feedback: !!FEEDBACK_EMAIL, fitbit: healthAvailable() } });
+const LEVEL = { ok: ['c-green-ico', 'check', 'OK'], warn: ['c-amber-ico', 'bell', 'Check'], bad: ['c-red-ico', 'x', 'Problem'] };
+
+// Settings › Admin: only the site's admins see this row.
+function adminRow() {
+  if (!admin.on) return '';
+  const w = admin.data ? worst(adminChecks()) : 'ok';
+  const n = admin.data ? adminChecks().filter((m) => m.level !== 'ok').length : 0;
+  return `<h3 class="set-group">Admin</h3>
+    <div class="card conns"><a class="conn admin-link" href="#/admin"><span class="conn-sum"><span class="ibox ${LEVEL[w][0]}">${icon('shield')}</span>
+      <span class="conn-text"><b>Admin</b><small>${!admin.data ? 'Stats, checks and site setup' : n ? `${n} check${n === 1 ? ' needs' : 's need'} a look` : 'All checks OK'}</small></span>${icon('chevron', 'chev')}</span></a></div>`;
+}
+
+const ghSecret = (name) => `<code>${name}</code>`;
+function adminSetup() {
+  return `<div class="card conns">
+    ${connRow('a-admins', 'shield', 'Who can open Admin', 'ADMIN_EMAILS secret', true, `
+      <p class="hint">Admin opens for the Google accounts listed in the ${ghSecret('ADMIN_EMAILS')} secret (commas between them). The Daily summary email job copies the list into the database each hour, and the database rules only let those accounts read the admin records.</p>
+      <ol class="hint"><li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add ${ghSecret('ADMIN_EMAILS')}.</li>
+        <li>Publish <code>firestore.rules</code> in the Firebase console (<b>Firestore Database › Rules</b>) whenever it changes.</li>
+        <li>Run <b>Daily summary email</b> in the repo's <b>Actions</b> tab to fill the stats now instead of within the hour.</li></ol>`)}
+    ${connRow('a-email', 'bell', 'Summary email', admin.data?.stats?.secrets?.smtp ? 'Sending account set up' : 'Sending account not set up', !!admin.data?.stats?.secrets?.smtp, `
+      <ol class="hint">
+        <li>On the Gmail account that sends, create an <b>app password</b> (Google Account › Security › 2-Step Verification › App passwords).</li>
+        <li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add ${ghSecret('EMAIL_SMTP_USER')} (that Gmail address), ${ghSecret('EMAIL_SMTP_PASSWORD')} (the app password) and ${ghSecret('FIREBASE_SERVICE_ACCOUNT')} (Firebase console › <b>Project settings › Service accounts › Generate new private key</b>, the whole file).</li>
+        <li>Each household turns its own email on in Settings › Connections. To send one now, run <b>Daily summary email</b> in the repo's <b>Actions</b> tab with the household's id from the list above.</li>
+      </ol>`)}
+    ${connRow('a-fitbit', 'heart', 'Fitbit sign-in', healthAvailable() ? 'Set up' : 'Not set up', healthAvailable(), `
+      <ol class="hint">
+        <li>In Google Cloud, turn on the <b>Google Health API</b> and add each person's Google account as a test user.</li>
+        <li>Create a <b>Web application</b> OAuth client with <code>${esc(location.origin)}</code> as an authorized JavaScript origin.</li>
+        <li>Save its client ID as the GitHub secret ${ghSecret('GOOGLE_HEALTH_CLIENT_ID')} and run <b>Deploy to GitHub Pages</b>.</li>
+      </ol>`)}
+    ${connRow('a-feedback', 'mail', 'Feedback address', FEEDBACK_EMAIL ? 'Set up' : 'Not set up', !!FEEDBACK_EMAIL, `
+      <p class="hint">Feedback in the More menu opens an email to the address in the ${ghSecret('FEEDBACK_EMAIL')} secret. Add it, then run <b>Deploy to GitHub Pages</b>.</p>`)}
+    ${connRow('a-pge', 'zap', 'PG&amp;E energy', 'One household, set up with GitHub secrets', true, `
+      <p class="hint">No screen signs in to PG&amp;E itself. A GitHub job signs in every morning and saves the usage, locked with a passphrase.</p>
+      <ol class="hint">
+        <li>In the Home-Assistance repo on GitHub, open <b>Settings › Secrets and variables › Actions</b> and add ${ghSecret('PGE_USERNAME')}, ${ghSecret('PGE_PASSWORD')} and ${ghSecret('ENERGY_PASSPHRASE')} (a phrase you make up).</li>
+        <li>PG&amp;E sends a code the first time a new device signs in. On your computer run <code>python3 sync/pge_pair.py</code>, enter the code, and save the line it prints as ${ghSecret('PGE_LOGIN_DATA')}. It lasts about six months.</li>
+        <li>In the repo's <b>Actions</b> tab, run <b>Deploy to GitHub Pages</b>. It then runs every morning by itself.</li>
+        <li>Type the same passphrase in Settings › Connections › PG&amp;E energy on each screen.</li>
+      </ol>`)}
+  </div>`;
+}
+
+views.admin = () => {
+  if (!admin.on) {
+    return `<div class="section-title">Admin</div>
+      <div class="card"><p class="empty-line">This page is for whoever runs the site.${account.user ? '' : ' Sign in first.'}</p></div>`;
+  }
+  if (!admin.data && !admin.loading && !admin.failed) loadAdminData();
+  const d = admin.data;
+  const st = d?.stats;
+  const refresh = `<button class="btn ghost" data-action="admin-refresh"${admin.loading ? ' disabled' : ''}>${admin.loading ? 'Loading…' : 'Refresh'}</button>`;
+  if (!d) {
+    return `<div class="section-title">Admin<span class="spacer"></span>${refresh}</div>
+      <div class="card"><p class="empty-line">${admin.failed ? "Couldn't load the admin records. Offline, or the latest firestore.rules aren't published yet." : 'Loading…'}</p></div>${adminSetup()}`;
+  }
+  const checks = adminChecks();
+  const tile = (ic, label, n, sub) => `<div class="card tile"><small>${icon(ic)}${label}</small><b>${(n ?? 0).toLocaleString()}</b><span>${sub}</span></div>`;
+  const limit = st?.limit || 1040000;
+  const homes = st?.homes || [];
+  const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '–');
+  return `<div class="admin">
+  <div class="section-title">Admin<span class="spacer"></span>${refresh}</div>
+  <p class="hint admin-note">Only the site's admins can see this page. ${st ? `Numbers from ${when(st.at)}${st.job ? ` (<a href="${esc(st.job)}" target="_blank" rel="noopener">job run</a>)` : ''}.` : ''}</p>
+  <h3 class="set-group">Monitors</h3>
+  <div class="card conns">${checks.map((m) => `<div class="conn mon mon-${m.level}" data-mon="${m.id}"><span class="conn-sum"><span class="ibox ${LEVEL[m.level][0]}" title="${LEVEL[m.level][2]}">${icon(LEVEL[m.level][1])}</span>
+    <span class="conn-text"><b>${m.title}</b><small>${esc(m.text)}</small></span></span></div>`).join('')}</div>
+  ${st ? `<h3 class="set-group">Stats</h3>
+  <div class="energy-tiles admin-tiles">
+    ${tile('home', 'Households', st.households, `${(st.people || 0).toLocaleString()} people in them`)}
+    ${tile('users', 'Accounts', st.accounts, 'Signed in with Google')}
+    ${tile('heart', 'Friendships', st.friendships, `${(st.groups || 0).toLocaleString()} groups · ${(st.posts || 0).toLocaleString()} posts`)}
+    ${tile('lock', 'Passphrase households', st.legacy, `${st.legacyActive || 0} used in 30 days`)}
+  </div>
+  <div class="card"><div class="card-head">${icon('chart')}<h2>Households</h2><span class="hint">Biggest first · data limit ${fmtBytes(limit)}</span></div>
+    ${homes.length ? `<div class="table-wrap"><table class="energy-table admin-homes">
+      <thead><tr><th>Household</th><th>People</th><th>Data</th><th>Email</th><th>Last change</th><th></th></tr></thead>
+      <tbody>${homes.map((h) => { const pct = Math.min(100, Math.round((h.size / limit) * 100)); return `<tr>
+        <td><code>${esc(shortId(h.id))}</code>${h.id === houseHome ? ' <span class="hint">(this screen)</span>' : ''}</td><td>${h.members}</td>
+        <td><div class="admin-bar${pct >= 90 ? ' bad' : pct >= 80 ? ' warn' : ''}"><i style="width:${pct}%"></i></div><small>${fmtBytes(h.size)} · ${pct}%</small></td>
+        <td>${h.email ? `On · ${h.emailTo || 1}` : '–'}${h.emailSent ? `<br><small class="hint">${esc(h.emailSent)}</small>` : ''}</td>
+        <td>${when(h.changed)}</td>
+        <td><button class="btn ghost" data-action="admin-copy" data-v="${esc(h.id)}" aria-label="Copy household id">Copy id</button></td></tr>`; }).join('')}</tbody>
+    </table></div>` : '<p class="empty-line">No households yet.</p>'}</div>` : ''}
+  <div class="card"><div class="card-head">${icon('mail')}<h2>Recent summary emails</h2><span class="hint">Newest first</span></div>
+    ${d.runs.length ? `<div class="table-wrap"><table class="energy-table">
+      <thead><tr><th>When</th><th>Household</th><th>Email</th><th>Result</th></tr></thead>
+      <tbody>${d.runs.slice(0, 20).map((r) => `<tr><td>${when(r.at)}</td><td><code>${esc(shortId(r.home))}</code></td><td>${esc(r.slot)}${r.byHand ? ' (by hand)' : ''}</td>
+        <td>${r.ok ? 'Sent' : `<span class="admin-fail">Failed</span><br><small class="hint">${esc(r.error || '')}</small>`}</td></tr>`).join('')}</tbody>
+    </table></div>` : '<p class="empty-line">None sent since the Admin page started keeping track.</p>'}</div>
+  <h3 class="set-group">This screen</h3>
+  <div class="card">
+    <div class="setting-row"><div><b>App version</b><div class="hint">${appVersion ? `<code>${esc(appVersion.slice(0, 7))}</code>${updateReady ? ' · a newer version is out; this screen reloads by itself' : ' · up to date'}` : 'Running from a local copy'}</div></div></div>
+    <div class="setting-row"><div><b>Household sync</b><div class="hint">${esc(houseMessage().text)}${houseSync.size ? ` ${fmtBytes(houseSync.size)} of ${fmtBytes(limit)}.` : ''}</div></div></div>
+  </div>
+  <h3 class="set-group">Site setup</h3>
+  ${adminSetup()}
+  </div>`;
+};
 
 views.settings = () => {
   const s = state.settings;
@@ -3506,6 +3620,7 @@ views.settings = () => {
   return `
   <div class="settings">
   <div class="section-title">Settings</div>
+    ${adminRow()}
     <h3 class="set-group">Display</h3>
     <div class="card">
       <div class="field"><label for="set-place">Weather location</label>
@@ -3532,14 +3647,6 @@ views.settings = () => {
         <div class="field"><label for="energy-pass">Sync passphrase</label>
           <div style="display:flex;gap:8px"><input class="input" id="energy-pass" type="password" autocomplete="off" placeholder="${energyPass ? 'Saved on this device' : 'The ENERGY_PASSPHRASE you chose'}">
           <button class="btn" data-action="energy-connect">${energyPass ? 'Update' : 'Connect'}</button></div></div>
-        <details class="setup"><summary>How to sign in to PG&amp;E (one time)</summary>
-          <p class="hint">This device never signs in to PG&amp;E itself. A GitHub job signs in to PG&amp;E every morning and saves your usage, locked with your passphrase.</p>
-          <ol class="hint">
-            <li>In the Home-Assistance repo on GitHub, open <b>Settings › Secrets and variables › Actions</b> and add <code>PGE_USERNAME</code>, <code>PGE_PASSWORD</code> and <code>ENERGY_PASSPHRASE</code> (a phrase you make up).</li>
-            <li>PG&amp;E sends a code the first time a new device signs in. On your computer run <code>python3 sync/pge_pair.py</code>, enter the code, and save the line it prints as <code>PGE_LOGIN_DATA</code>.</li>
-            <li>In the repo's <b>Actions</b> tab, run <b>Deploy to GitHub Pages</b>. It then runs every morning by itself.</li>
-            <li>Type the same passphrase above and tap Connect.</li>
-          </ol></details>
         <p class="hint">Or load a PG&amp;E <b>Download My Data</b> CSV by hand.${energyDays().length ? ` ${energyDays().length} days stored, ${fmtShort(energyDays()[0])} to ${fmtShort(energyDays().at(-1))}.` : ''}</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <label class="btn ghost">${icon('plug')} Load PG&amp;E file<input type="file" id="energy-file" accept=".csv,text/csv" multiple hidden></label>
@@ -3576,7 +3683,7 @@ function renderView(anim) {
   const y = window.scrollY;
   const prev = $('#wk-scroll');
   if (prev) wkScroll = prev.scrollTop;
-  view.innerHTML = members().length ? views[r]() : views.setup();
+  view.innerHTML = members().length || r === 'admin' ? views[r]() : views.setup();
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
   window.scrollTo(0, y);
@@ -4287,7 +4394,8 @@ const actions = {
   },
   'email-save': (el) => saveEmail({ to: emailList(el.closest('.field')?.querySelector('#email-to')?.value) }),
   'email-toggle': () => saveEmail({ on: !houseEmail?.on }),
-  'email-copy-id': () => Promise.resolve(navigator.clipboard?.writeText(houseHome)).then(() => toast(navigator.clipboard ? 'Copied' : houseHome), () => toast(houseHome)),
+  'admin-refresh': () => { loadAdminData(); renderView(); },
+  'admin-copy': (el) => Promise.resolve(navigator.clipboard?.writeText(el.dataset.v)).then(() => toast(navigator.clipboard ? 'Household id copied' : el.dataset.v), () => toast(el.dataset.v)),
   'house-rename': async (el) => {
     const name = cleanName(el.closest('.field')?.querySelector('#house-name')?.value || '').slice(0, 40);
     if (!name || !houseHome) return;
