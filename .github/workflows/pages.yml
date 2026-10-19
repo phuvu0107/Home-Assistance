@@ -3,9 +3,10 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
-  schedule:
-    # Every morning at about 7 AM Pacific, to pick up yesterday's PG&E data.
-    - cron: '0 14 * * *'
+  # The daily 7 AM run only fetched PG&E data. It is off while the energy feature is paused;
+  # bring it back with the sync step below.
+  # schedule:
+  #   - cron: '0 14 * * *'
   workflow_dispatch:
 
 permissions:
@@ -24,7 +25,8 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     env:
-      HAS_PGE: ${{ secrets.PGE_USERNAME != '' }}
+      # PG&E energy sync is paused. Put back `secrets.PGE_USERNAME != ''` to turn it on again.
+      HAS_PGE: false
     steps:
       - uses: actions/checkout@v4
       - id: pages

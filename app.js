@@ -17,6 +17,9 @@ import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBo
 const STORE_KEY = 'home-dashboard.v2';
 const WEATHER_KEY = 'home-dashboard.weather.v1';
 const ENERGY_KEY = 'home-dashboard.energy.v1';
+// PG&E energy is switched off for now (no Energy page, Home card, Settings row or sync).
+// The code stays so it can come back: set this to true and turn the sync back on in pages.yml.
+const ENERGY_ON = false;
 
 // The people in the household: state.members, synced like everything else, so each household
 // names its own (see people.js). `color` picks one of the c-* color families; `avatar` is an
@@ -431,6 +434,7 @@ async function decryptEnergy(box, pass) {
 }
 
 async function syncEnergy() {
+  if (!ENERGY_ON) return;
   if (!energyPass) { energySync = { state: 'off' }; return; }
   let box;
   try {
@@ -730,7 +734,7 @@ const PAGES = [
   { id: 'piggy', label: 'Piggy Bank', icon: 'piggy' },
   { id: 'bucket', label: 'Bucket list', icon: 'sparkles' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
-  { id: 'energy', label: 'Energy', icon: 'zap' },
+  ...(ENERGY_ON ? [{ id: 'energy', label: 'Energy', icon: 'zap' }] : []),
   { id: 'health', label: 'Health', icon: 'heart' },
 ];
 const MAIN = PAGES.filter((p) => p.main);
@@ -1385,7 +1389,7 @@ views.home = () => {
       </div>
       ${bucketCard()}
       ${forecastCard()}
-      ${energyDays().length ? energyCard() : ''}
+      ${ENERGY_ON && energyDays().length ? energyCard() : ''}
     </div>
   </div>`;
 };
@@ -3544,14 +3548,14 @@ function adminSetup() {
       </ol>`)}
     ${connRow('a-feedback', 'mail', 'Feedback address', FEEDBACK_EMAIL ? 'Set up' : 'Not set up', !!FEEDBACK_EMAIL, `
       <p class="hint">Feedback in the More menu opens an email to the address in the ${ghSecret('FEEDBACK_EMAIL')} secret. Add it, then run <b>Deploy to GitHub Pages</b>.</p>`)}
-    ${connRow('a-pge', 'zap', 'PG&amp;E energy', 'One household, set up with GitHub secrets', true, `
+    ${ENERGY_ON ? connRow('a-pge', 'zap', 'PG&amp;E energy', 'One household, set up with GitHub secrets', true, `
       <p class="hint">No screen signs in to PG&amp;E itself. A GitHub job signs in every morning and saves the usage, locked with a passphrase.</p>
       <ol class="hint">
         <li>In the Home-Assistance repo on GitHub, open <b>Settings › Secrets and variables › Actions</b> and add ${ghSecret('PGE_USERNAME')}, ${ghSecret('PGE_PASSWORD')} and ${ghSecret('ENERGY_PASSPHRASE')} (a phrase you make up).</li>
         <li>PG&amp;E sends a code the first time a new device signs in. On your computer run <code>python3 sync/pge_pair.py</code>, enter the code, and save the line it prints as ${ghSecret('PGE_LOGIN_DATA')}. It lasts about six months.</li>
         <li>In the repo's <b>Actions</b> tab, run <b>Deploy to GitHub Pages</b>. It then runs every morning by itself.</li>
         <li>Type the same passphrase in Settings › Connections › PG&amp;E energy on each screen.</li>
-      </ol>`)}
+      </ol>`) : ''}
   </div>`;
 }
 
@@ -3642,7 +3646,7 @@ views.settings = () => {
     ${houseCard()}
     <h3 class="set-group">Connections</h3>
     <div class="card conns">
-      ${connRow('pge', 'zap', 'PG&amp;E energy', energyDays().length ? `${energyDays().length} days of data${pge.ok ? '' : ' · not syncing'}` : 'Not connected', pge.ok, `
+      ${ENERGY_ON ? connRow('pge', 'zap', 'PG&amp;E energy', energyDays().length ? `${energyDays().length} days of data${pge.ok ? '' : ' · not syncing'}` : 'Not connected', pge.ok, `
         ${syncBanner(true, false)}
         <div class="field"><label for="energy-pass">Sync passphrase</label>
           <div style="display:flex;gap:8px"><input class="input" id="energy-pass" type="password" autocomplete="off" placeholder="${energyPass ? 'Saved on this device' : 'The ENERGY_PASSPHRASE you chose'}">
@@ -3652,7 +3656,7 @@ views.settings = () => {
           <label class="btn ghost">${icon('plug')} Load PG&amp;E file<input type="file" id="energy-file" accept=".csv,text/csv" multiple hidden></label>
           ${energyPass ? `<button class="btn ghost" data-action="energy-disconnect">Stop syncing</button>` : ''}
           ${energyDays().length ? `<button class="btn ghost" data-action="clear-energy">${icon('trash')} Remove data</button>` : ''}
-        </div>`)}
+        </div>`) : ''}
       ${connRow('fitbit', 'heart', 'Fitbit health', !healthAvailable() ? 'Not set up for this site' : fit.length ? `${fit.map((u) => u.name).join(' and ')} connected` : 'Nobody connected yet', healthAvailable() && fit.length > 0, healthBody())}
       ${emailConn()}
     </div>
