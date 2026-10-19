@@ -74,3 +74,21 @@ test('old passphrase households keep working', async () => {
   await assertSucceeds(setDoc(doc(db(null), `households/${id}`), { box: { v: 1 }, at: 1 }));
   await assertSucceeds(getDoc(doc(db(null), `households/${id}`)));
 });
+
+test('deleting an account: only a household nobody else is in can be deleted', async () => {
+  await assertSucceeds(setDoc(doc(db('ann'), 'homes/h4'), { members: { ann: true }, name: 'Home' }));
+  await assertSucceeds(setDoc(doc(db('ann'), 'invites/LEAVEME11'), { home: 'h4', by: 'ann', expires: inDays(7) }));
+  await assertSucceeds(updateDoc(doc(db('bob'), 'homes/h4'), { 'members.bob': true, invite: 'LEAVEME11' }));
+  await assertSucceeds(setDoc(doc(db('ann'), 'homes/h4/data/main'), { items: {} }));
+  // Others still use it: nobody can delete it, and outsiders can't touch it.
+  await assertFails(deleteDoc(doc(db('ann'), 'homes/h4')));
+  await assertFails(deleteDoc(doc(db('eve'), 'homes/h4')));
+  // Bob deletes his account: he leaves, Ann keeps everything.
+  await assertSucceeds(updateDoc(doc(db('bob'), 'homes/h4'), { 'members.bob': deleteField() }));
+  await assertSucceeds(getDoc(doc(db('ann'), 'homes/h4/data/main')));
+  // Now Ann is the only one: she can delete the data and the household.
+  await assertFails(deleteDoc(doc(db('bob'), 'homes/h4')));
+  await assertSucceeds(deleteDoc(doc(db('ann'), 'homes/h4/data/main')));
+  await assertSucceeds(deleteDoc(doc(db('ann'), 'homes/h4')));
+  await assertSucceeds(deleteDoc(doc(db('ann'), 'users/ann')));
+});
