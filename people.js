@@ -185,3 +185,43 @@ export function categoryTotals(list) {
   }
   return [...by.values()].sort((a, b) => b.total - a.total || Object.keys(EXPENSE_CATS).indexOf(a.id) - Object.keys(EXPENSE_CATS).indexOf(b.id));
 }
+
+// Boxes: named pots for a trip or a day out ("Japan Box"), synced as m: items
+// { id, name, from?, to? } with optional 'YYYY-MM-DD' days (from without to is a single day). An expense goes in one box by keeping
+// its id in `box`; an expense without one is everyday spending, as before boxes.
+export const BOX_NAME_MAX = 30;
+export const cleanBoxName = (s) => String(s || '').replace(/[<>&"`]/g, '').trim().replace(/\s+/g, ' ').slice(0, BOX_NAME_MAX);
+const inBox = (box) => (x) => x.box === box.id && x.kind !== 'settle';
+const addDays = (day, n) => { const d = new Date(`${day}T12:00:00`); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
+// What went into a box over its whole life, not one month: total, who paid and who owes whom
+// for it alone. `last` is the day of its latest expense.
+export function boxStats(box, list, ids) {
+  const xs = list.filter(inBox(box)).sort((a, b) => b.date.localeCompare(a.date) || String(b.id).localeCompare(String(a.id)));
+  return { ...expenseStats(xs, ids), list: xs, count: xs.length, last: xs[0]?.date || '' };
+}
+
+// The boxes the Money page shows for a month ('YYYY-MM'): any with an expense that month, or
+// whose days overlap it; a box with no days and nothing in it yet shows in the current month.
+// Newest first.
+export function boxesForMonth(boxes, list, key, today) {
+  const end = `${key}-31`; const start = `${key}-01`;
+  return (boxes || []).filter((b) => list.some((x) => inBox(b)(x) && x.date.startsWith(key))
+    || (b.from && b.from <= end && (b.to || b.from) >= start)
+    || (!b.from && !list.some(inBox(b)) && today.startsWith(key)))
+    .sort(newestBox);
+}
+const newestBox = (a, b) => (b.from || '').localeCompare(a.from || '') || String(b.id).localeCompare(String(a.id), undefined, { numeric: true });
+
+// The boxes an expense on `day` can go in: any without an end day, or that ended no more than
+// 60 days before it (receipts come in late). `keep` is the box it's already in, always offered.
+export function boxChoices(boxes, day, keep = '') {
+  const since = addDays(day, -60);
+  return (boxes || []).filter((b) => b.id === keep || !b.to || b.to >= since).sort(newestBox);
+}
+
+// The box a new expense on `day` starts in: the one whose days cover it, latest start first.
+// Boxes without days are only picked by hand.
+export function boxForDay(boxes, day) {
+  return (boxes || []).filter((b) => b.from && b.from <= day && (b.to || b.from) >= day).sort(newestBox)[0]?.id || '';
+}

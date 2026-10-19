@@ -1,7 +1,7 @@
 // Run with: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { expenseStats, joinNames, LEGACY_MEMBERS, legacyMembersFor, newMember, sortMembers } from '../people.js';
+import { boxChoices, boxesForMonth, boxForDay, boxStats, cleanBoxName, expenseStats, joinNames, LEGACY_MEMBERS, legacyMembersFor, newMember, sortMembers } from '../people.js';
 
 const two = ['phu', 'nhi'];
 
@@ -127,4 +127,55 @@ test('a first category guess from the name', async () => {
   assert.equal(guessExpenseCat('Home Depot'), 'home');
   assert.equal(guessExpenseCat('Walgreens'), 'health');
   assert.equal(guessExpenseCat('Something else'), 'other');
+});
+
+test('a box adds up only its own expenses, over every month, and who owes whom inside it', () => {
+  const japan = { id: 'm1', name: 'Japan Box', from: '2026-11-02', to: '2026-11-09' };
+  const list = [
+    { id: 'x1', title: 'Ramen', amount: 40, date: '2026-11-03', paidBy: 'phu', split: true, box: 'm1' },
+    { id: 'x2', title: 'Hotel', amount: 600, date: '2026-10-20', paidBy: 'nhi', split: true, box: 'm1' },
+    { id: 'x3', title: 'Groceries', amount: 80, date: '2026-11-03', paidBy: 'phu', split: true },
+    { id: 'x4', title: 'Taxi', amount: 30, date: '2026-11-04', paidBy: 'phu', split: true, box: 'm2' },
+  ];
+  const st = boxStats(japan, list, two);
+  assert.equal(st.total, 640);
+  assert.equal(st.count, 2);
+  assert.deepEqual(st.paid, { phu: 40, nhi: 600 });
+  assert.deepEqual(st.transfers, [{ from: 'phu', to: 'nhi', amount: 280 }]);
+  assert.equal(st.last, '2026-11-03');
+  assert.deepEqual(st.list.map((x) => x.id), ['x1', 'x2']);
+});
+
+test('the Money page shows boxes with spending that month or days in it, newest first', () => {
+  const boxes = [
+    { id: 'm1', name: 'Japan', from: '2026-11-02', to: '2026-11-09' },
+    { id: 'm2', name: 'Picnic' },
+    { id: 'm3', name: 'Old trip', from: '2026-08-01', to: '2026-08-03' },
+    { id: 'm4', name: 'Beach day', from: '2026-10-25' },
+  ];
+  const list = [{ id: 'x1', amount: 600, date: '2026-10-20', paidBy: 'nhi', box: 'm1' }];
+  // October: Japan has the hotel booked in October; Beach day is in it; the empty Picnic box is new.
+  assert.deepEqual(boxesForMonth(boxes, list, '2026-10', '2026-10-19').map((b) => b.id), ['m1', 'm4', 'm2']);
+  // November: Japan's days; the empty Picnic box only shows in the current month.
+  assert.deepEqual(boxesForMonth(boxes, list, '2026-11', '2026-10-19').map((b) => b.id), ['m1']);
+  assert.deepEqual(boxesForMonth(boxes, list, '2026-08', '2026-10-19').map((b) => b.id), ['m3']);
+});
+
+test('a new expense starts in the box whose days cover it, and old boxes leave the picker', () => {
+  const boxes = [
+    { id: 'm1', name: 'Japan', from: '2026-11-02', to: '2026-11-09' },
+    { id: 'm2', name: 'Picnic' },
+    { id: 'm3', name: 'Old trip', from: '2026-01-01', to: '2026-01-03' },
+    { id: 'm4', name: 'Beach day', from: '2026-11-05' },
+  ];
+  assert.equal(boxForDay(boxes, '2026-11-03'), 'm1');
+  assert.equal(boxForDay(boxes, '2026-11-05'), 'm4'); // the later start wins
+  assert.equal(boxForDay(boxes, '2026-11-20'), ''); // boxes without days are picked by hand
+  assert.deepEqual(boxChoices(boxes, '2026-11-20').map((b) => b.id), ['m4', 'm1', 'm2']);
+  assert.deepEqual(boxChoices(boxes, '2026-11-20', 'm3').map((b) => b.id), ['m4', 'm1', 'm3', 'm2']);
+});
+
+test('box names are tidied and kept short', () => {
+  assert.equal(cleanBoxName('  Japan   <Box> '), 'Japan Box');
+  assert.equal(cleanBoxName('x'.repeat(50)).length, 30);
 });

@@ -8,7 +8,7 @@ import FEEDBACK_EMAIL from './feedback-config.js';
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { createPhotos, shrink } from './photos.js';
 import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, WEEKDAYS } from './schedule.js';
-import { categoryTotals, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newMember, PERSON_COLORS, sortMembers } from './people.js';
+import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -48,6 +48,7 @@ function defaultState() {
     bucket: [],
     itinerary: [],
     shopping: [],
+    boxes: [],
     health: {},
   };
 }
@@ -963,7 +964,7 @@ function openAddMenu() {
   const scanMoney = `<label class="row"><span class="ibox c-purple-ico">${icon('receipt')}</span><span><b>Scan a receipt</b><small>Snap a receipt and the store, total and day fill in</small></span>${icon('chevron', 'chev')}<input type="file" id="receipt-money" accept="image/*" hidden></label>`;
   const r = currentRoute();
   const items = r === 'fridge' ? [opt('add-fridge', 'plus', 'Add an item', 'Type in one thing'), scan]
-    : r === 'piggy' ? [opt('add-expense', 'plus', 'Add an expense', 'Type it in'), scanMoney]
+    : r === 'piggy' ? [opt('add-expense', 'plus', 'Add an expense', 'Type it in'), scanMoney, opt('add-box', 'box', 'Open a box', 'For a trip or a day out, like Japan Box')]
     : [opt('add-task', 'checkSquare', 'Chore', 'Something to do, with stars'), opt('add-event', 'calendar', 'Event', 'Something on the calendar'),
       opt('add-fridge', 'fridge', 'Kitchen item', 'Something in the fridge'), opt('add-expense', 'piggy', 'Expense', 'Something you paid for'),
       opt('add-note', 'notes', 'Note', 'A sticky note on Home'), opt('add-bucket', 'sparkles', 'Bucket list', 'A trip, dinner or place to go together')];
@@ -2898,7 +2899,9 @@ const spending = (list) => list.filter((x) => !isSettle(x));
 const expenseStats = (list) => moneyStats(list, members().map((u) => u.id));
 const splitWord = () => (members().length === 2 ? '50/50' : 'evenly');
 
-function expenseRow(x, showSplit) {
+const boxOf = (x) => x.box && (state.boxes || []).find((b) => b.id === x.box);
+
+function expenseRow(x, showSplit, hideBox) {
   const u = userOf(x.paidBy);
   if (isSettle(x)) {
     return `<button class="row expense settle-row" data-action="edit-expense" data-id="${x.id}">
@@ -2910,7 +2913,7 @@ function expenseRow(x, showSplit) {
   const note = both ? `Each paid ${members().length === 2 ? 'half' : 'a share'}` : x.split ? (showSplit ? `Split · ${fmtCash(x.amount / Math.max(1, members().length))} each` : 'Split') : `Just ${u?.name}`;
   return `<button class="row expense" data-action="edit-expense" data-id="${x.id}">
     ${avatar(x.paidBy, 'md')}
-    <span class="ex-main"><b><span class="ex-cat-ico" title="${EXPENSE_CATS[expenseCat(x)][1]}">${EXPENSE_CATS[expenseCat(x)][0]}</span> ${esc(x.title)}</b><small>${both ? `${everyoneLabel()} paid` : `${u?.name} paid`} · ${note}</small></span>
+    <span class="ex-main"><b><span class="ex-cat-ico" title="${EXPENSE_CATS[expenseCat(x)][1]}">${EXPENSE_CATS[expenseCat(x)][0]}</span> ${esc(x.title)}</b><small>${both ? `${everyoneLabel()} paid` : `${u?.name} paid`} · ${note}${!hideBox && boxOf(x) ? ` · ${esc(boxOf(x).name)}` : ''}</small></span>
     ${x.receipt ? `<span class="ex-receipt" aria-label="Has a receipt">${icon('receipt')}</span>` : ''}
     <span class="ex-amt">${fmtCash(x.amount)}</span></button>`;
 }
@@ -2940,6 +2943,8 @@ views.piggy = () => {
       }).join('')}
   </div>` : '';
   const share = (u) => (st.total ? (st.paid[u.id] / st.total) * 100 : 0);
+  // Boxes for this month go near the top; with none, a short hint sits at the bottom instead.
+  const boxes = boxesForMonth(state.boxes, state.expenses, key, isoDay(new Date())).length ? boxesCard(key) : '';
   return `<div class="section-title">Money</div>
   <div class="month-nav">
     <button class="btn-round" data-action="piggy-move" data-d="-1" aria-label="Previous month">${icon('chevronLeft')}</button>
@@ -2948,6 +2953,7 @@ views.piggy = () => {
     ${isNow ? '' : '<button class="btn ghost sm" data-action="piggy-today">This month</button>'}
   </div>
   ${balance}
+  ${boxes ? boxes : ''}
   <div class="card spend">
     <div class="spend-top"><b>${fmtCash(st.total)}</b><span>spent · ${list.length} expense${list.length === 1 ? '' : 's'} · ${fmtCash(st.total / daysSoFar)} a day</span></div>
     ${st.total ? `<div class="spend-bar">${members().map((u) => `<i class="bar-${u.color}" style="width:${share(u).toFixed(1)}%"></i>`).join('')}</div>
@@ -2960,8 +2966,67 @@ views.piggy = () => {
     : `<div class="piggy-empty">${icon('piggy')}<p>Nothing logged for ${monthName(key)} yet.</p><div class="fr-empty-btns"><button class="btn" data-action="add-expense">${icon('plus')} Add an expense</button><label class="btn ghost">${icon('receipt')} Scan receipt<input type="file" id="receipt-money" accept="image/*" hidden></label></div></div>`}
   </div>
   ${list.length ? categoryCard(list) : ''}
-  ${months.length ? trendCard(key, months) : ''}`;
+  ${months.length ? trendCard(key, months) : ''}
+  ${boxes ? '' : boxesCard(key)}`;
 };
+
+// Boxes: a pot for a trip or a day out, like "Japan Box". The card lists the boxes for the month
+// shown, each with its whole total (all its months) and who paid it; tapping one opens it.
+const boxDays = (b) => (!b.from ? '' : b.to && b.to !== b.from ? `${shortDay(b.from)} – ${shortDay(b.to)}` : shortDay(b.from));
+const shortDay = (d) => new Date(`${d}T12:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric' });
+const boxStatsOf = (b) => boxStats(b, state.expenses, members().map((u) => u.id));
+function boxesCard(key) {
+  const boxes = boxesForMonth(state.boxes, state.expenses, key, isoDay(new Date()));
+  const rows = boxes.map((b) => {
+    const st = boxStatsOf(b);
+    const who = members().length > 1 && st.total ? members().filter((u) => st.paid[u.id]).map((u) => `${u.name} ${fmtCash(st.paid[u.id])}`).join(' · ') : '';
+    return `<button class="row box-row" data-action="open-box" data-id="${b.id}">
+      <span class="box-ico">${icon('box')}</span>
+      <span class="ex-main"><b>${esc(b.name)}</b><small>${[boxDays(b), `${st.count} expense${st.count === 1 ? '' : 's'}`, who].filter(Boolean).join(' · ')}</small></span>
+      <span class="ex-amt">${fmtCash(st.total)}</span></button>`;
+  }).join('');
+  return `<div class="card money-boxes">
+    <div class="card-head">${icon('box')}<h2>Boxes</h2><button class="btn ghost sm" data-action="add-box">${icon('plus')} New box</button></div>
+    ${rows ? `<div class="list">${rows}</div>` : '<p class="hint">Going on a trip or a day out? Open a box, like Japan Box, and put what you spend there in it to see what it all cost.</p>'}
+  </div>`;
+}
+
+function openBoxSheet(b) {
+  openSheet(`${sheetHead(b ? 'Edit box' : 'New box', 'box')}
+    <div class="field"><label for="box-name">Name</label><input class="input" id="box-name" maxlength="30" value="${esc(b?.name || '')}" placeholder="e.g. Japan Box"></div>
+    <div class="field-row">
+      <div class="field"><label for="box-from">From</label><input class="input" type="date" id="box-from" value="${b?.from || ''}"></div>
+      <div class="field"><label for="box-to">To</label><input class="input" type="date" id="box-to" value="${b?.to || ''}"></div>
+    </div>
+    <div class="hint">Days are optional. With them, expenses you add on those days go in this box by themselves.</div>
+    <div class="sheet-actions">
+      ${b ? `<button class="btn danger" data-action="del-box" data-id="${b.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
+      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="save-box" data-id="${b?.id || ''}">${b ? 'Save' : 'Open box'}</button>
+    </div>`);
+}
+
+// One box: its total, who paid, who owes whom for it alone, and everything in it.
+function openBoxView(b) {
+  const st = boxStatsOf(b);
+  const showSplit = state.settings.showSplit !== false;
+  const share = (u) => (st.total ? (st.paid[u.id] / st.total) * 100 : 0);
+  const owes = showSplit && members().length > 1 && st.transfers.length
+    ? `<div class="box-owes">${st.transfers.map((t) => `<div>${avatar(t.from, 'sm')}<span>For this box, ${userOf(t.from)?.name} owes ${userOf(t.to)?.name} <b>${fmtCash(t.amount)}</b></span></div>`).join('')}
+      <div class="hint">This is already in each month's balance on Money, so settle up there.</div></div>` : '';
+  openSheet(`${sheetHead(esc(b.name), 'box')}
+    <div class="spend box-spend">
+      <div class="spend-top"><b>${fmtCash(st.total)}</b><span>${[boxDays(b), `${st.count} expense${st.count === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}</span></div>
+      ${st.total && members().length > 1 ? `<div class="spend-bar">${members().map((u) => `<i class="bar-${u.color}" style="width:${share(u).toFixed(1)}%"></i>`).join('')}</div>
+      <div class="spend-key">${members().map((u) => `<span>${avatarImg(u, 'xs')}${u.name} paid <b>${fmtCash(st.paid[u.id])}</b></span>`).join('')}</div>` : ''}
+    </div>
+    ${owes}
+    ${st.count ? `<div class="list">${st.list.map((x) => expenseRow(x, showSplit, true)).join('')}</div>` : '<p class="hint">Nothing in this box yet.</p>'}
+    <div class="sheet-actions">
+      <button class="btn ghost" data-action="edit-box" data-id="${b.id}">${icon('settings')} Edit box</button><span class="spacer"></span>
+      <button class="btn" data-action="add-box-expense" data-id="${b.id}">${icon('plus')} Add expense</button>
+    </div>`);
+}
 
 // The month's spending by category, biggest first. Expenses from before categories are Other.
 function categoryCard(list) {
@@ -3035,11 +3100,13 @@ async function attachReceipt(file) {
 }
 
 // `scan` is what a receipt photo gave ({ store, amount, date, picture }), to check before adding.
-function openExpenseSheet(ex, scan) {
+function openExpenseSheet(ex, scan, inBox) {
   const today = isoDay(new Date());
   const inMonth = piggyMonth === monthKey(new Date()) ? today : isoDay(monthBounds(piggyMonth)[0]);
   const x = ex || { id: '', title: scan?.store || '', amount: scan?.amount ?? '', date: scan ? scan.date || today : inMonth, paidBy: members()[0].id, split: true, cat: guessExpenseCat(scan?.store) };
   const cat = expenseCat(x);
+  const box = ex ? x.box || '' : inBox || boxForDay(state.boxes, x.date);
+  const boxes = boxChoices(state.boxes, x.date, box);
   moneyDraft = scan?.picture ? { receipt: newPhotoId(), fresh: scan.picture } : { receipt: ex?.receipt || '', fresh: null };
   openSheet(`${sheetHead(ex ? 'Edit expense' : scan ? 'From your receipt' : 'New expense', 'piggy')}
     ${scan ? `<p class="hint">${scan.amount ? 'Check what the reader got, then pick who paid.' : "The total wasn't readable, so type it in."}</p>` : ''}
@@ -3049,6 +3116,7 @@ function openExpenseSheet(ex, scan) {
       <div class="field"><label for="ex-amount">Amount</label><input class="input" id="ex-amount" type="number" inputmode="decimal" step="0.01" min="0" value="${x.amount}" placeholder="0.00"></div>
       <div class="field"><label for="ex-date">Day</label><input class="input" type="date" id="ex-date" value="${x.date}"></div>
     </div>
+    ${boxes.length ? `<div class="field"><label>Box</label><div class="seg wrap ex-box" id="ex-box">${[{ id: '', name: 'None' }, ...boxes].map((b) => `<button class="${b.id === box ? 'on' : ''}" data-action="pick-seg" data-v="${b.id}">${esc(b.name)}</button>`).join('')}</div></div>` : ''}
     <div class="field"><label>Who paid?</label>${whoPicker(x.paidBy, members().length > 1 ? 'both' : false)}${members().length > 1 ? `<div class="hint">${everyoneLabel()} means ${members().length === 2 ? 'each of you paid half' : 'everyone paid an equal share'}, so nobody owes anything on it.</div>` : ''}</div>
     <div class="setting-row imp-row"><div><b>Split ${splitWord()}</b><div class="hint">Counts toward what each of you owes. Turn off for a personal expense.</div></div>
       <button class="switch" id="ex-split" role="switch" aria-checked="${!!x.split}" data-action="toggle-important"></button></div>
@@ -4301,6 +4369,31 @@ const actions = {
     toast(`Added ${n} item${n === 1 ? '' : 's'} to the fridge${bought.length ? ` and ticked ${bought.length} off the shopping list` : ''}`);
   },
   'edit-expense': (el) => openExpenseSheet(state.expenses.find((x) => x.id === el.dataset.id)),
+  'add-box': () => openBoxSheet(null),
+  'open-box': (el) => { const b = (state.boxes || []).find((x) => x.id === el.dataset.id); if (b) openBoxView(b); },
+  'edit-box': (el) => openBoxSheet((state.boxes || []).find((x) => x.id === el.dataset.id)),
+  'add-box-expense': (el) => openExpenseSheet(null, null, el.dataset.id),
+  'save-box': (el) => {
+    const name = cleanBoxName($('#box-name').value);
+    let from = $('#box-from').value; let to = $('#box-to').value;
+    if (!name) { toast('Give the box a name'); return; }
+    if (!from && to) from = to;
+    if (to && to < from) [from, to] = [to, from];
+    const data = { name, ...(from && { from }), ...(to && to !== from && { to }) };
+    state.boxes ||= [];
+    const b = state.boxes.find((x) => x.id === el.dataset.id);
+    if (b) { delete b.from; delete b.to; Object.assign(b, data); } else state.boxes.push({ id: `m${Date.now()}`, ...data, by: me(), at: Date.now() });
+    if (from && !b) piggyMonth = from.slice(0, 7);
+    closeSheet();
+    toast(b ? 'Box saved' : `${name} is open`);
+  },
+  'del-box': (el) => {
+    const b = (state.boxes || []).find((x) => x.id === el.dataset.id);
+    if (!b || !confirm(`Delete ${b.name}? Its expenses stay in Money, just not in a box.`)) return;
+    state.expenses.forEach((x) => { if (x.box === b.id) delete x.box; });
+    state.boxes = state.boxes.filter((x) => x !== b);
+    closeSheet();
+  },
   'save-expense': (el) => {
     const title = $('#ex-title').value.trim();
     const amount = Math.round(Number($('#ex-amount').value) * 100) / 100;
@@ -4310,7 +4403,11 @@ const actions = {
     const existing = state.expenses.find((x) => x.id === el.dataset.id);
     const { receipt, fresh } = moneyDraft || {};
     if (receipt) data.receipt = receipt;
+    // Without a box picker (no boxes yet) the expense keeps whatever box it had.
+    const box = $('#ex-box') ? $('#ex-box .on')?.dataset.v || '' : existing?.box || '';
+    if (box) data.box = box;
     if (existing) {
+      if (!box) delete existing.box;
       if (existing.receipt && existing.receipt !== receipt) photos.drop(existing.receipt);
       if (!receipt) delete existing.receipt;
       Object.assign(existing, data);
@@ -4347,7 +4444,7 @@ const actions = {
 
   reset: () => {
     if (!confirm('Clear all events and chores on this device?')) return;
-    state = { ...defaultState(), settings: state.settings, members: state.members, stars: state.stars, log: state.log, expenses: state.expenses, fridge: state.fridge, health: state.health, thanks: state.thanks, notes: state.notes, bucket: state.bucket, events: [], tasks: [] };
+    state = { ...defaultState(), settings: state.settings, members: state.members, stars: state.stars, log: state.log, expenses: state.expenses, fridge: state.fridge, health: state.health, thanks: state.thanks, notes: state.notes, bucket: state.bucket, boxes: state.boxes, events: [], tasks: [] };
     save();
   },
 };
@@ -4355,7 +4452,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
