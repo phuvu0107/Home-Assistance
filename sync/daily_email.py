@@ -1,47 +1,44 @@
-"""Email the household a short summary four times a day: 7 AM, noon, 5 PM and 9 PM.
+"""Email each household that asked for it a short summary four times a day: 7:30 AM, noon,
+5 PM and 9 PM on that household's own clock.
 
-Run by .github/workflows/daily-email.yml. It reads the same household document the
-dashboard syncs to (see sync.js) and sends one email through an SMTP account (a Gmail
-app password works).
+Run by .github/workflows/daily-email.yml. A household turns the email on in the app (Settings ›
+Connections › Summary email), which saves who gets it, its time zone and its weather location on
+the household's record (homes/{home}.email). This script signs in as a service account, finds
+every household with the email on, reads the same data the dashboard syncs (see sync.js) and
+sends through one SMTP account (a Gmail app password works). Each email is marked on the
+household's record once sent (homes/{home}.emailSent), so it goes out once.
 
 Needs these environment variables (GitHub secrets):
-  FIREBASE_CONFIG       the same secret the site uses for sync
-  HOME_ID and FIREBASE_SERVICE_ACCOUNT
-                        a signed-in household: its id (Settings › Connections › Summary email)
-                        and a Firebase service account key (JSON) that can read it
-  or HOUSEHOLD_PASSPHRASE  for a household still on a passphrase
+  FIREBASE_SERVICE_ACCOUNT  a Firebase service account key (JSON) that can read the households
   EMAIL_SMTP_USER       the account that sends, e.g. you@gmail.com
   EMAIL_SMTP_PASSWORD   its app password
-  EMAIL_TO              where to send, comma separated
-Optional: ENERGY_PASSPHRASE and ENERGY_URL for yesterday's PG&E numbers,
-EMAIL_SMTP_HOST / EMAIL_SMTP_PORT (default smtp.gmail.com:465), EMAIL_TIMEZONE,
-WEATHER_LAT / WEATHER_LON (for the forecast at the top of every email), SLOT (morning, midday, evening or night) to force one, and DRY_RUN=1 to print instead of send.
+Optional: HOME_ID, the one household that gets yesterday's PG&E numbers (ENERGY_PASSPHRASE and
+ENERGY_URL); it also still gets the email at EMAIL_TO until it is turned on in the app.
+EMAIL_SMTP_HOST / EMAIL_SMTP_PORT (default smtp.gmail.com:465). For a run started by hand:
+HOME (one household's id) and SLOT (morning, midday, evening or night) send that email now.
+DRY_RUN=1 prints instead of sending.
 """
 
 import base64
 import datetime as dt
-import hashlib
 import html
 import json
 import os
 import re
 import smtplib
 import sys
+import time
 import urllib.request
 from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 # Households from before people were data (see people.js). Newer ones keep their people as p: items.
 LEGACY_USERS = {"phu": "Phu", "nhi": "Nhi"}
 LOVE = {"milestone": 200, "trip": 100, "learn": 50, "adventure": 40, "give": 30, "place": 25,
         "show": 20, "do": 15, "cook": 10, "date": 10, "food": 10}  # love points per bucket list kind, as in app.js
-SALT = b"home-dashboard household sync v1"  # must match sync.js
-ITER = 310_000
 WMO = {0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Cloudy", 45: "Fog", 48: "Fog", 51: "Drizzle", 53: "Drizzle",
        55: "Drizzle", 61: "Light rain", 63: "Rain", 65: "Heavy rain", 71: "Light snow", 73: "Snow", 75: "Heavy snow",
        80: "Showers", 81: "Showers", 82: "Heavy showers", 95: "Thunderstorms", 96: "Thunderstorms", 99: "Thunderstorms"}
@@ -52,32 +49,10 @@ def get_json(url):
         return json.load(r)
 
 
-def firebase_config():
-    raw = os.environ["FIREBASE_CONFIG"]
-    body = raw[raw.index("{"): raw.rindex("}") + 1]
-    body = re.sub(r"//[^\n]*", "", body)
-    body = re.sub(r"([{,]\s*)([A-Za-z_]\w*)\s*:", r'\1"\2":', body)
-    return json.loads(re.sub(r",\s*}", "}", body))
-
-
 def documents_url(cfg):
     host = os.environ.get("FIRESTORE_EMULATOR_HOST")  # local testing against the Firebase emulator
     base = f"http://{host}" if host else "https://firestore.googleapis.com"
     return f"{base}/v1/projects/{cfg['projectId']}/databases/(default)/documents"
-
-
-def household_state(passphrase):
-    """A passphrase household's items, decrypted, in the same shape sync.js keeps them."""
-    cfg = firebase_config()
-    doc_id = hashlib.sha256(f"home-dashboard:{passphrase}".encode()).hexdigest()
-    fields = get_json(f"{documents_url(cfg)}/households/{doc_id}?key={cfg['apiKey']}")["fields"]
-    if "moved" in fields:
-        print("This passphrase household moved to sign-in, so its data here is out of date. "
-              "Add the HOME_ID and FIREBASE_SERVICE_ACCOUNT secrets (see README).", file=sys.stderr)
-    box = {k: v["stringValue"] for k, v in fields["box"]["mapValue"]["fields"].items() if "stringValue" in v}
-    key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=SALT, iterations=ITER).derive(passphrase.encode())
-    doc = json.loads(AESGCM(key).decrypt(base64.b64decode(box["iv"]), base64.b64decode(box["data"]), None))
-    return state_from(doc["items"])
 
 
 def b64url(data):
@@ -98,16 +73,58 @@ def service_token(account):
         return json.load(r)["access_token"]
 
 
-def home_state(home, account_json):
-    """A signed-in household's items. The database rules only let members read it, so this signs
-    in as a service account, which the rules don't apply to."""
-    account = json.loads(account_json)
-    cfg = {"projectId": account["project_id"]}
-    req = urllib.request.Request(f"{documents_url(cfg)}/homes/{home}/data/main",
-                                 headers={"Authorization": f"Bearer {'owner' if os.environ.get('FIRESTORE_EMULATOR_HOST') else service_token(account)}"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        fields = json.load(r)["fields"]
-    return state_from(json.loads(fields["box"]["mapValue"]["fields"]["json"]["stringValue"])["items"])
+class Store:
+    """The household database, read and written as a service account, which the database rules
+    don't apply to (they only let members read a household)."""
+
+    def __init__(self, account_json):
+        self.account = json.loads(account_json)
+        self.base = documents_url({"projectId": self.account["project_id"]})
+        self.token, self.token_at = None, 0
+
+    def call(self, path, body=None, method="GET"):
+        if os.environ.get("FIRESTORE_EMULATOR_HOST"):
+            self.token = "owner"
+        elif time.time() - self.token_at > 1800:  # tokens last an hour; a run can last six
+            self.token, self.token_at = service_token(self.account), time.time()
+        req = urllib.request.Request(f"{self.base}/{path}", method=method, data=json.dumps(body).encode() if body else None,
+                                     headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.load(r)
+
+    def homes(self):
+        """Every household: {id: {"name", "email", "emailSent"}}."""
+        out, page = {}, ""
+        while True:
+            got = self.call(f"homes?pageSize=300&mask.fieldPaths=name&mask.fieldPaths=email&mask.fieldPaths=emailSent{page}")
+            for d in got.get("documents", []):
+                out[d["name"].rsplit("/", 1)[1]] = value({"mapValue": {"fields": d.get("fields", {})}})
+            if not got.get("nextPageToken"):
+                return out
+            page = f"&pageToken={got['nextPageToken']}"
+
+    def state(self, home):
+        """A household's items, in the same shape sync.js keeps them."""
+        fields = self.call(f"homes/{home}/data/main")["fields"]
+        return state_from(json.loads(fields["box"]["mapValue"]["fields"]["json"]["stringValue"])["items"])
+
+    def mark_sent(self, home, key):
+        self.call(f"homes/{home}?updateMask.fieldPaths=emailSent&currentDocument.exists=true",
+                  {"fields": {"emailSent": {"stringValue": key}}}, "PATCH")
+
+
+def value(v):
+    """A plain Python value from a Firestore REST value."""
+    if "mapValue" in v:
+        return {k: value(x) for k, x in v["mapValue"].get("fields", {}).items()}
+    if "arrayValue" in v:
+        return [value(x) for x in v["arrayValue"].get("values", [])]
+    for kind in ("stringValue", "booleanValue", "doubleValue"):
+        if kind in v:
+            return v[kind]
+    if "integerValue" in v:
+        return int(v["integerValue"])
+    return None
 
 
 # When chores come due; the same rules as schedule.js in the app.
@@ -218,14 +235,14 @@ def clock(iso):
     return dt.datetime.fromisoformat(iso).strftime("%-I:%M %p")
 
 
-def weather(tz, day=0):
-    """The forecast for today (day=0) or tomorrow (day=1): sky, high and low with the hour
-    each one happens, sunrise, sunset and the chance of rain."""
-    lat, lon = os.environ.get("WEATHER_LAT", "37.4419"), os.environ.get("WEATHER_LON", "-122.143")
+def weather(where, day=0):
+    """The forecast at a household's place (tz, lat, lon, unit) for today (day=0) or tomorrow
+    (day=1): sky, high and low with the hour each one happens, sunrise, sunset and the chance of rain."""
+    unit = "celsius" if where.get("unit") == "C" else "fahrenheit"
     try:
-        f = get_json(f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weather_code,"
+        f = get_json(f"https://api.open-meteo.com/v1/forecast?latitude={where['lat']}&longitude={where['lon']}&daily=weather_code,"
                      f"temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max&hourly=temperature_2m"
-                     f"&temperature_unit=fahrenheit&timezone={tz}&forecast_days=2")
+                     f"&temperature_unit={unit}&timezone={where['tz']}&forecast_days=2")
     except Exception as e:
         print(f"Weather skipped: {e}")
         return None
@@ -259,8 +276,10 @@ def who_label(who, users):
 SLOTS = {7: "morning", 12: "midday", 17: "evening", 21: "night"}
 # When each email goes out. The morning one waits until :30 for the 7 AM deploy's PG&E data.
 SEND_AT = {"morning": (7, 30), "midday": (12, 0), "evening": (17, 0), "night": (21, 0)}
-MAX_WAIT = dt.timedelta(hours=5, minutes=30)  # a job can run 6 hours
-MAX_LATE = dt.timedelta(hours=1)
+MAX_LATE = dt.timedelta(hours=1)  # an email more than this late is skipped
+RUN_FOR = 5.5 * 3600  # a job can run 6 hours; the next hourly run takes over
+CHECK_EVERY = 600  # look for newly turned-on households this often while waiting
+PALO_ALTO = {"tz": "America/Los_Angeles", "lat": 37.4419, "lon": -122.143, "unit": "F"}
 
 
 def build(state, now, energy, sky, slot="morning"):
@@ -364,7 +383,7 @@ def build(state, now, energy, sky, slot="morning"):
     hello = f"{greet}, {', '.join(names[:-1]) + ' and ' + names[-1] if len(names) > 1 else names[0]}!"
     if sky:
         sections.insert(0, (f"Weather {sky['when'].lower()}", weather_lines(sky)))
-    text = hello + "\n\n" + "\n\n".join(t + "\n" + "\n".join(f"- {l}" for l in lines) for t, lines in sections) + f"\n\n{sign}\n— Your fridge\n"
+    text = hello + "\n\n" + "\n\n".join(t + "\n" + "\n".join(f"- {l}" for l in lines) for t, lines in sections) + f"\n\n{sign}\n— Your fridge\n\n{STOP}\n"
     return subject, text, page(slot, now, hello, sign, sky, sections[1:] if sky else sections)
 
 
@@ -377,6 +396,7 @@ THEMES = {  # soft background tint, accent, small label above the greeting
 }
 ICONS = {"Today": "📅", "Still to come today": "⏳", "Tomorrow": "📅", "Tasks": "✅", "Tasks still open": "✅", "Stars": "⭐",
          "Today's stars": "⭐", "Use soon from the fridge": "🥬", "Piggy Bank": "🐷", "Energy": "⚡", "Coming up this week": "🗓️", "Shopping list": "🛒"}
+STOP = "To stop these emails, turn them off in the app: Settings › Connections › Summary email."
 FONT = "-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
 
 
@@ -413,65 +433,131 @@ def page(slot, now, hello, sign, sky, sections):
     return (f'<div style="background:#f3f4f6;padding:20px 8px;font-family:{FONT};line-height:1.45">'
             f'<table role="presentation" align="center" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:18px">'
             f'<tr>{header}</tr>{cards}'
-            f'<tr><td style="padding:22px 20px 26px;text-align:center;color:#6b7280;font-size:14px">{esc(sign)}<br>— Your fridge 🧊</td></tr>'
+            f'<tr><td style="padding:22px 20px 26px;text-align:center;color:#6b7280;font-size:14px">{esc(sign)}<br>— Your fridge 🧊'
+            f'<div style="font-size:12px;color:#9ca3af;margin-top:14px">{esc(STOP)}</div></td></tr>'
             f'</table></div>')
 
 
-def plan(tz):
-    """For a scheduled run: which email comes next and how long to wait for it. GitHub starts
-    scheduled runs hours late, so an hourly run picks the next email up to MAX_WAIT ahead and
-    waits for its time. An email whose time passed more than MAX_LATE ago is not sent."""
-    now = dt.datetime.now(ZoneInfo(tz))
-    for day in (now.date(), now.date() + dt.timedelta(days=1)):
-        for slot, (h, m) in SEND_AT.items():
-            at = dt.datetime(day.year, day.month, day.day, h, m, tzinfo=ZoneInfo(tz))
-            if at >= now - MAX_LATE:
-                if at - now > MAX_WAIT:
-                    return None
-                return slot, at, max(0, int((at - now).total_seconds()))
+def zone(name):
+    try:
+        return ZoneInfo(name)
+    except Exception:
+        return ZoneInfo(PALO_ALTO["tz"])
 
 
-def main():
-    if sys.argv[1:] == ["--plan"]:  # writes slot, key and wait for the workflow's next steps
-        nxt = plan(os.environ.get("EMAIL_TIMEZONE", "America/Los_Angeles"))
-        out = f"slot={nxt[0]}\nkey={nxt[1]:%Y-%m-%d}-{nxt[0]}\nwait={nxt[2]}\n" if nxt else "slot=\n"
-        print(f"Next: the {nxt[0]} email at {nxt[1]:%a %H:%M}, in {nxt[2] // 60} min." if nxt else "No email due in the next few hours.")
-        with open(os.environ.get("GITHUB_OUTPUT", os.devnull), "a") as f:
-            f.write(out)
-        return
-    signed_in = os.environ.get("HOME_ID", "").strip() and os.environ.get("FIREBASE_SERVICE_ACCOUNT", "").strip()
-    need = (["EMAIL_TO"] if signed_in else ["FIREBASE_CONFIG", "HOUSEHOLD_PASSPHRASE", "EMAIL_TO"]) \
-        + ([] if os.environ.get("DRY_RUN") else ["EMAIL_SMTP_USER", "EMAIL_SMTP_PASSWORD"])
-    missing = [k for k in need if not os.environ.get(k, "").strip()]
-    if missing:
-        print("Daily email is off until these secrets are added: " + ", ".join(missing))
-        return
-    tz = os.environ.get("EMAIL_TIMEZONE", "America/Los_Angeles")
-    now = dt.datetime.now(ZoneInfo(tz))
-    slot = os.environ.get("SLOT", "").strip().replace("auto", "") or SLOTS[min(SLOTS, key=lambda h: abs(h - now.hour))]
-    if signed_in:
-        state = home_state(os.environ["HOME_ID"].strip(), os.environ["FIREBASE_SERVICE_ACCOUNT"])
-    else:
-        state = household_state(os.environ["HOUSEHOLD_PASSPHRASE"].strip())
-    morning = slot == "morning"
-    energy = energy_yesterday((now.date() - dt.timedelta(days=1)).isoformat()) if morning else None
-    subject, text, page = build(state, now, energy, weather(tz, 1 if slot == "night" else 0), slot)
+def settings_for(home, rec):
+    """Who gets a household's email and where the household is, or None when it's off."""
+    e = rec.get("email")
+    if isinstance(e, dict):  # turned on or off in the app
+        to = [a.strip() for a in e.get("to") or [] if isinstance(a, str) and "@" in a]
+        if not e.get("on") or not to:
+            return None
+        num = lambda v, d: v if isinstance(v, (int, float)) else d
+        return {"to": to[:10], "tz": zone(e.get("tz") or "").key, "lat": num(e.get("lat"), PALO_ALTO["lat"]),
+                "lon": num(e.get("lon"), PALO_ALTO["lon"]), "unit": "C" if e.get("unit") == "C" else "F"}
+    # Set up with GitHub secrets before households could turn it on themselves.
+    to = [a.strip() for a in os.environ.get("EMAIL_TO", "").split(",") if "@" in a]
+    if home == os.environ.get("HOME_ID", "").strip() and to:
+        return {**PALO_ALTO, "to": to, "tz": zone(os.environ.get("EMAIL_TIMEZONE") or PALO_ALTO["tz"]).key}
+    return None
+
+
+def slot_times(tz, now):
+    """Each email's send time in this time zone, yesterday through tomorrow, as (time, slot)."""
+    here = now.astimezone(ZoneInfo(tz)).date()
+    return [(dt.datetime(d.year, d.month, d.day, h, m, tzinfo=ZoneInfo(tz)), slot)
+            for d in (here - dt.timedelta(days=1), here, here + dt.timedelta(days=1)) for slot, (h, m) in SEND_AT.items()]
+
+
+def due(tz, now):
+    """The email whose time has come in this time zone, as (slot, key), or None. GitHub starts
+    scheduled runs late, so an email up to MAX_LATE past its time still goes."""
+    for at, slot in slot_times(tz, now):
+        if at <= now < at + MAX_LATE:
+            return slot, f"{at:%Y-%m-%d}-{slot}"
+    return None
+
+
+def next_at(tz, now):
+    return min(at for at, _ in slot_times(tz, now) if at > now)
+
+
+def send(store, home, where, slot):
+    now = dt.datetime.now(ZoneInfo(where["tz"]))
+    state = store.state(home)
+    mine = home == os.environ.get("HOME_ID", "").strip()  # the PG&E account belongs to one household
+    energy = energy_yesterday((now.date() - dt.timedelta(days=1)).isoformat()) if slot == "morning" and mine else None
+    subject, text, page = build(state, now, energy, weather(where, 1 if slot == "night" else 0), slot)
 
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = f"Home dashboard <{os.environ.get('EMAIL_SMTP_USER', 'dry-run')}>"
-    msg["To"] = os.environ["EMAIL_TO"]
+    msg["To"] = ", ".join(where["to"])
     msg["Importance"], msg["X-Priority"], msg["X-MSMail-Priority"] = "High", "1", "High"  # the red "!" in Outlook and Apple Mail
     msg.set_content(text)
     msg.add_alternative(page, subtype="html")
     if os.environ.get("DRY_RUN"):
-        print(subject + "\n\n" + text)
+        print(f"To {msg['To']}: {subject}\n\n{text}")
         return
     host, port = os.environ.get("EMAIL_SMTP_HOST", "smtp.gmail.com"), int(os.environ.get("EMAIL_SMTP_PORT", "465"))
     with smtplib.SMTP_SSL(host, port, timeout=30) as s:
         s.login(os.environ["EMAIL_SMTP_USER"], os.environ["EMAIL_SMTP_PASSWORD"])
         s.send_message(msg)
-    print(f"Sent: {subject}")
+    print(f"Sent to {home}: {subject}")
+
+
+def send_due(store, now):
+    """Sends every household's email whose time has come, once. Returns when the next one is due."""
+    upcoming = []
+    for home, rec in store.homes().items():
+        where = settings_for(home, rec)
+        if not where:
+            continue
+        upcoming.append(next_at(where["tz"], now))
+        d = due(where["tz"], now)
+        if not d or rec.get("emailSent") == d[1]:
+            continue
+        try:
+            # Marked before sending: if sending then fails, that one email is missed, rather
+            # than a household getting it again every few minutes.
+            if not os.environ.get("DRY_RUN"):
+                store.mark_sent(home, d[1])
+            send(store, home, where, d[0])
+        except Exception as e:  # one household's trouble doesn't stop the others' emails
+            print(f"{home}: the {d[0]} email failed: {e}", file=sys.stderr)
+    return min(upcoming, default=None)
+
+
+def main():
+    need = ["FIREBASE_SERVICE_ACCOUNT"] + ([] if os.environ.get("DRY_RUN") else ["EMAIL_SMTP_USER", "EMAIL_SMTP_PASSWORD"])
+    missing = [k for k in need if not os.environ.get(k, "").strip()]
+    if missing:
+        print("The summary email is off until these secrets are added: " + ", ".join(missing))
+        return
+    store = Store(os.environ["FIREBASE_SERVICE_ACCOUNT"])
+    if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch" or os.environ.get("SEND_HOME"):
+        # Started by hand: one household's email right now, whether or not it's time.
+        home = (os.environ.get("SEND_HOME") or os.environ.get("HOME_ID") or "").strip()
+        rec = store.homes().get(home)
+        where = rec is not None and settings_for(home, rec)
+        if not where:
+            print(f"Household {home or '(none given)'} hasn't turned on the summary email in Settings.")
+            return
+        hour = dt.datetime.now(ZoneInfo(where["tz"])).hour
+        slot = os.environ.get("SLOT", "").strip().replace("auto", "") or SLOTS[min(SLOTS, key=lambda h: abs(h - hour))]
+        send(store, home, where, slot)
+        return
+    # Scheduled: keep sending each household's emails as they come due, then hand over to the next run.
+    stop = time.monotonic() + RUN_FOR
+    while True:
+        now = dt.datetime.now(dt.timezone.utc)
+        nxt = send_due(store, now)
+        if os.environ.get("DRY_RUN"):
+            return
+        wait = CHECK_EVERY if nxt is None else max(30, min(CHECK_EVERY, (nxt - now).total_seconds() + 5))
+        if time.monotonic() + wait > stop:
+            return
+        time.sleep(wait)
 
 
 if __name__ == "__main__":

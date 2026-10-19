@@ -2,12 +2,17 @@ name: Daily summary email
 
 on:
   schedule:
-    # Emails go out at 7:30 AM, noon, 5 PM and 9 PM Pacific. GitHub starts scheduled runs
-    # hours late, so this runs every hour and each run waits for the next email's time (up to
-    # 5½ hours ahead). Only one scheduled run goes at a time, and each email is sent once.
+    # Each household that turned the email on in Settings gets it at 7:30 AM, noon, 5 PM and
+    # 9 PM on its own clock. GitHub starts scheduled runs hours late, so this starts every hour
+    # and each run keeps sending emails as they come due for 5½ hours. Only one scheduled run
+    # goes at a time, and each email is marked on its household once sent.
     - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
+      home:
+        description: Household id (Settings › Connections › Summary email); blank is HOME_ID
+        type: string
+        default: ''
       slot:
         description: Which email (auto picks the nearest)
         type: choice
@@ -31,42 +36,16 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install --quiet cryptography==50.0.2
-      - name: Pick the next email
-        id: plan
-        if: github.event_name == 'schedule'
-        run: python sync/daily_email.py --plan
-      # A marker in the Actions cache records each email once it has gone out.
-      - name: Check it hasn't gone out
-        id: sent
-        if: steps.plan.outputs.slot != ''
-        uses: actions/cache/restore@v4
-        with:
-          path: .sent
-          key: sent-${{ steps.plan.outputs.key }}
-          lookup-only: true
-      - name: Wait for its time
-        if: steps.plan.outputs.slot != '' && steps.sent.outputs.cache-hit != 'true'
-        run: sleep ${{ steps.plan.outputs.wait }}
       # Does nothing until the email secrets are added (see README).
-      - name: Send the summary
-        if: github.event_name != 'schedule' || (steps.plan.outputs.slot != '' && steps.sent.outputs.cache-hit != 'true')
+      - name: Send the summaries
         env:
-          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
-          HOUSEHOLD_PASSPHRASE: ${{ secrets.HOUSEHOLD_PASSPHRASE }}
-          HOME_ID: ${{ secrets.HOME_ID }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           EMAIL_SMTP_USER: ${{ secrets.EMAIL_SMTP_USER }}
           EMAIL_SMTP_PASSWORD: ${{ secrets.EMAIL_SMTP_PASSWORD }}
+          HOME_ID: ${{ secrets.HOME_ID }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          SLOT: ${{ steps.plan.outputs.slot || inputs.slot }}
+          SEND_HOME: ${{ inputs.home }}
+          SLOT: ${{ inputs.slot }}
           ENERGY_PASSPHRASE: ${{ secrets.ENERGY_PASSPHRASE }}
           ENERGY_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/energy.enc.json
         run: python sync/daily_email.py
-      - name: Mark it sent
-        if: steps.plan.outputs.slot != '' && steps.sent.outputs.cache-hit != 'true'
-        run: mkdir -p .sent && touch .sent/${{ steps.plan.outputs.key }}
-      - if: steps.plan.outputs.slot != '' && steps.sent.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .sent
-          key: sent-${{ steps.plan.outputs.key }}
