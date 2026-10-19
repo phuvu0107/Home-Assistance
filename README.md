@@ -48,6 +48,8 @@ Shared expenses, one month at a time (the 1st through the last day). It opens wi
 ![Money page](docs/screenshots/piggy.png)
 
 ### Energy
+*Paused for now: the Energy page, Home card, Settings row, email line and daily sync are switched off. The code stays; set `ENERGY_ON` in `app.js` to true and turn the sync back on in `.github/workflows/pages.yml` and `daily-email.yml` to bring it back.*
+
 PG&E use and cost for the current bill, from the day the billing cycle started through today, with the day count, days left and PG&E's projected bill. Cycles run 29 or 30 days, so the dates come from PG&E's own bills rather than the calendar month. You can also see the last bill, 90 days or 12 months, split into electric and gas, plus a table of past bills. Data syncs every morning (see [PG&E energy sync](#pge-energy-sync)), and the page says plainly when it isn't syncing.
 
 ![Energy page](docs/screenshots/energy.png)
@@ -92,6 +94,8 @@ The household's people are set up the first time the app opens (**Who lives here
 The app keeps working offline, and weather resumes when the connection is back. Events and tasks are stored per device, so each screen keeps its own list.
 
 ## PG&E energy sync
+
+*Paused for now: the Energy page, Home card, Settings row, email line and daily sync are switched off. The code stays; set `ENERGY_ON` in `app.js` to true and turn the sync back on in `.github/workflows/pages.yml` and `daily-email.yml` to bring it back.*
 
 The dashboard never signs in to PG&E itself. The Pages workflow does it every morning (about 7 AM Pacific): `sync/pge_sync.py` signs in with the [opower](https://github.com/tronikos/opower) library, reads daily usage and cost for the electric and gas meters, and publishes `data/energy.enc.json` with the site. That file is encrypted (PBKDF2 + AES-GCM) with a passphrase you choose, so the public site only shows scrambled data. Each device unlocks it with the same passphrase.
 
