@@ -740,11 +740,11 @@ const PAGES = [
 const MAIN = PAGES.filter((p) => p.main);
 const MORE = PAGES.filter((p) => !p.main);
 // The half circle holds the More pages plus Send feedback, which opens an email instead of a page.
+// The site's admins also get Admin, just before Feedback (and a row at the top of Settings).
 const FEEDBACK = { id: 'feedback', label: 'Feedback', icon: 'mail' };
-const DOME = [...MORE, FEEDBACK];
-const ROUTE_ALIAS = { board: 'tasks' }; // the Leaderboard now lives on Chores
-// The Admin page isn't in the half circle: the site's admins open it from Settings.
 const ADMIN_PAGE = { id: 'admin', label: 'Admin', icon: 'shield' };
+let DOME = [...MORE, FEEDBACK];
+const ROUTE_ALIAS = { board: 'tasks' }; // the Leaderboard now lives on Chores
 
 const currentRoute = () => {
   let r = location.hash.replace(/^#\/?/, '').split('?')[0];
@@ -799,10 +799,15 @@ function moveInk() {
    and the page under it opens on release. Sliding along the bar picks a main tab the same way. */
 // Angles in degrees, left to right, one per item: spread evenly and centred on straight up, so adding
 // or removing a page needs no hand-set positions. Few items sit closer together than the full sweep.
-const ARC = DOME.map((_, i, all) => {
+const arcFor = (items) => items.map((_, i, all) => {
   const span = Math.min(140, 35 * (all.length - 1));
   return all.length < 2 ? 90 : 90 + span / 2 - (i * span) / (all.length - 1);
 });
+let ARC = arcFor(DOME);
+function setDomeItems(withAdmin) {
+  DOME = [...MORE, ...(withAdmin ? [ADMIN_PAGE] : []), FEEDBACK];
+  ARC = arcFor(DOME);
+}
 const UP = MORE.findIndex((p) => p.id === 'settings'); // straight up from More
 let domeOpen = false;
 let dome = null; // geometry of the open half circle, in screen pixels
@@ -826,7 +831,7 @@ function buildDome() {
   el.style.setProperty('--mx', `${mx}px`); el.style.setProperty('--my', `${my}px`);
   el.style.setProperty('--reach', `${Math.ceil(Math.hypot(Math.max(mx - (dome.cx - R), dome.cx + R - mx), my - (dome.cy - R))) + 24}px`);
 }
-const moreIndex = () => MORE.findIndex((p) => p.id === currentRoute());
+const moreIndex = () => DOME.findIndex((p) => p.id === currentRoute());
 // The ring swings around the rim to the page picked.
 function placeLens(i) {
   const arm = $('#dome .dome-arm');
@@ -929,7 +934,7 @@ function navEnd(e, cancelled) {
   g.id = null;
   $('#tabs').classList.remove('scrubbing'); $('#dome').classList.remove('scrubbing');
   document.querySelectorAll('#tabs .hot, #dome .hot').forEach((x) => x.classList.remove('hot'));
-  if (!cancelled && g.pop !== null) { closeDome(); if (DOME[g.pop] === FEEDBACK) sendFeedback(); else goTo(MORE[g.pop].id); return; }
+  if (!cancelled && g.pop !== null) { closeDome(); if (DOME[g.pop] === FEEDBACK) sendFeedback(); else goTo(DOME[g.pop].id); return; }
   // A tap on More opens the half circle and leaves it open; tapping More again closes it.
   if (g.from === 'more') { if (!cancelled && !g.opened && !g.moved) closeDome(); placeLens(moreIndex()); moveInk(); return; }
   const page = g.bar !== null && $('#tabs').querySelectorAll('.tab')[g.bar].dataset.page;
@@ -3500,17 +3505,28 @@ function emailConn() {
 }
 
 /* ---------- Admin: site-wide stats, checks and setup, for the site's admins only (admin.js) ---------- */
-let admin = { on: false, uid: null, data: null, loading: false, failed: false };
-// Asked once per sign-in. For everyone else the database refuses, and nothing shows.
+let admin = { on: false, uid: null, data: null, loading: false, failed: false, asked: 0 };
+// Asked at sign-in, and again when Settings or Admin opens, since access can be granted (the
+// ADMIN_EMAILS secret, the published rules) while a screen stays open. For everyone else the
+// database refuses, and nothing shows.
 function checkAdmin(u) {
-  if (!u) { admin = { on: false, uid: null, data: null, loading: false, failed: false }; return; }
+  if (!u) { admin = { on: false, uid: null, data: null, loading: false, failed: false, asked: 0 }; setDomeItems(false); return; }
   if (admin.uid === u.uid) return;
-  admin = { on: false, uid: u.uid, data: null, loading: false, failed: false };
+  admin = { on: false, uid: u.uid, data: null, loading: false, failed: false, asked: 0 };
+  askAdmin();
+}
+function askAdmin() {
+  const uid = admin.uid;
+  admin.asked = Date.now();
   isAdmin().then((on) => {
-    if (admin.uid !== u.uid || !on) return;
+    if (admin.uid !== uid || !on || admin.on) return;
     admin.on = true;
+    setDomeItems(true);
     loadAdminData();
   });
+}
+function recheckAdmin() {
+  if (account.user && admin.uid === account.user.uid && !admin.on && Date.now() - admin.asked > 15e3) askAdmin();
 }
 function loadAdminData() {
   if (!admin.on || admin.loading) return;
@@ -3523,6 +3539,7 @@ const LEVEL = { ok: ['c-green-ico', 'check', 'OK'], warn: ['c-amber-ico', 'bell'
 
 // Settings › Admin: only the site's admins see this row.
 function adminRow() {
+  recheckAdmin();
   if (!admin.on) return '';
   const w = admin.data ? worst(adminChecks()) : 'ok';
   const n = admin.data ? adminChecks().filter((m) => m.level !== 'ok').length : 0;
@@ -3565,6 +3582,7 @@ function adminSetup() {
 }
 
 views.admin = () => {
+  recheckAdmin();
   if (!admin.on) {
     return `<div class="section-title">Admin</div>
       <div class="card"><p class="empty-line">This page is for whoever runs the site.${account.user ? '' : ' Sign in first.'}</p></div>`;
