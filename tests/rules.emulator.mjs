@@ -90,4 +90,8 @@ test('only the admins listed in admin/access can read the admin records, and nob
   await assertFails(getDoc(doc(db(null), 'admin/stats')));
   await assertFails(setDoc(doc(as('boss', 'boss@example.com'), 'admin/stats'), { households: 0 }));
   await assertFails(setDoc(doc(as('ann', 'ann@example.com'), 'admin/access'), { emails: ['ann@example.com'] }));
+  // Anyone signed in can see whether these rules are published; it holds nothing.
+  await assertSucceeds(getDoc(doc(db('ann'), 'admin/rules-check')));
+  await assertFails(getDoc(doc(db(null), 'admin/rules-check')));
+  await assertFails(setDoc(doc(db('ann'), 'admin/rules-check'), { x: 1 }));
 });

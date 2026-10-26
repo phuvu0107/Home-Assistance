@@ -167,7 +167,9 @@ service cloud.firestore {
         && request.auth.token.email.lower() in get(/databases/$(db)/documents/admin/access).data.emails;
     }
     match /admin/{doc} {
-      allow get: if isAdmin();
+      allow get: if isAdmin()
+        // Never written: anyone signed in can look it up, so the app can tell these rules are published.
+        || doc == 'rules-check' && signedIn();
     }
 
     // Old passphrase households. The data inside is encrypted; anyone with the passphrase can

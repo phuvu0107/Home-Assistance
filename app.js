@@ -5,7 +5,7 @@ import { FRIDGE_CATS, guessCat, learnFromReceipt, readExpense, readReceipt } fro
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
 import FEEDBACK_EMAIL from './feedback-config.js';
-import { fmtBytes, isAdmin, loadAdmin, monitors, shortId, worst } from './admin.js';
+import { adminRulesPublished, fmtBytes, isAdmin, loadAdmin, monitors, shortId, worst } from './admin.js';
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, friendsGate, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { createPhotos, shrink } from './photos.js';
 import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, WEEKDAYS } from './schedule.js';
@@ -3525,6 +3525,13 @@ function askAdmin() {
     loadAdminData();
   });
 }
+// Why Admin isn't showing, for the Admin page when someone who isn't (yet) an admin opens it.
+let adminRules = null;
+function checkAdminRules() {
+  if (!account.user || adminRules?.loading || adminRules?.at > Date.now() - 15e3) return;
+  adminRules = { loading: true };
+  adminRulesPublished().then((ok) => { adminRules = { ok, at: Date.now() }; if (currentRoute() === 'admin' && calmToRender()) renderView(); });
+}
 function recheckAdmin() {
   if (account.user && admin.uid === account.user.uid && !admin.on && Date.now() - admin.asked > 15e3) askAdmin();
 }
@@ -3581,11 +3588,25 @@ function adminSetup() {
   </div>`;
 }
 
+function adminWhyNot() {
+  if (!account.user) return '';
+  checkAdminRules();
+  const r = adminRules;
+  const rules = !r || r.loading ? 'Checking the database rules…'
+    : r.ok === true ? 'The database rules with the admin section are published.'
+    : r.ok === false ? 'The database rules don\'t have the admin section yet: publish <code>firestore.rules</code> in the Firebase console (Firestore Database › Rules).'
+    : "Couldn't check the database rules (offline?).";
+  return `<ul class="hint admin-why">
+    <li>Signed in as <b>${esc(account.user.email || 'an account with no email')}</b>. The <code>ADMIN_EMAILS</code> secret must hold exactly this address.</li>
+    <li>${rules}</li>
+    <li>The Daily summary email job copies <code>ADMIN_EMAILS</code> into the database each hour; run it by hand in Actions to do it now.</li></ul>`;
+}
+
 views.admin = () => {
   recheckAdmin();
   if (!admin.on) {
     return `<div class="section-title">Admin</div>
-      <div class="card"><p class="empty-line">This page is for whoever runs the site.${account.user ? '' : ' Sign in first.'}</p></div>`;
+      <div class="card"><p class="empty-line">This page is for whoever runs the site.${account.user ? '' : ' Sign in first.'}</p>${adminWhyNot()}</div>`;
   }
   if (!admin.data && !admin.loading && !admin.failed) loadAdminData();
   const d = admin.data;
