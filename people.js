@@ -216,3 +216,24 @@ export function boxChoices(boxes, day, keep = '') {
 export function boxForDay(boxes, day) {
   return (boxes || []).filter((b) => b.from && b.from <= day && (b.to || b.from) >= day).sort(newestBox)[0]?.id || '';
 }
+
+// The Google accounts signed in to a household, from its record (homes/{home}): members is
+// { uid: true } and accounts { uid: { name, email, joined } }. Accounts that joined before names
+// were kept have no entry until they next open the app, so they show without a name. Newest first,
+// unknown join dates last. `joined` is milliseconds, or 0 when not known.
+export function householdAccounts(rec) {
+  const info = rec?.accounts || {};
+  const ms = (t) => (typeof t?.toMillis === 'function' ? t.toMillis() : typeof t === 'number' ? t : 0);
+  return Object.keys(rec?.members || {}).filter((uid) => rec.members[uid]).map((uid) => {
+    const a = info[uid] || {};
+    return { uid, name: cleanName(a.name), email: String(a.email || '').replace(/[<>&"`\s]/g, '').slice(0, 80), joined: ms(a.joined) };
+  }).sort((a, b) => b.joined - a.joined || a.uid.localeCompare(b.uid));
+}
+
+// Accounts that joined in the last two weeks, after this one did, and that this device hasn't
+// been told about yet.
+export const JOIN_NOTICE_DAYS = 14;
+export function newJoiners(accounts, me, seen = [], now = Date.now()) {
+  const mine = accounts.find((a) => a.uid === me)?.joined || 0;
+  return accounts.filter((a) => a.uid !== me && a.joined > mine && now - a.joined < JOIN_NOTICE_DAYS * 864e5 && !seen.includes(a.uid));
+}
