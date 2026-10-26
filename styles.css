@@ -78,6 +78,72 @@
   color-scheme: dark;
 }
 
+/* The Autumn palette, on by itself from September 1 to November 30: rust red (Pantone 2350 U) for
+   buttons, done ticks, the selected tab and the morning greeting; pale cream (P 24-9 U) for the page;
+   mustard (P 14-8 U) for stars and the night greeting; espresso ink; burnt orange for attention. */
+:root[data-season="autumn"] {
+  --rust: #A8483D; --mustard: #EFA43A;
+  --navy: #3A2420; --cream: #F3E8D2; --teal: var(--rust); --coral: #C2651A; --honey: var(--mustard);
+  --brand: var(--rust); --wine: var(--rust);
+  --card: #FFFAF1; --card-border: #E6D6BA; --muted-surface: #F0E4CE;
+  --text-2: #6E5A50; --text-3: #93806F;
+  --accent-soft: #F6E2DB; --imp-bg: #FBE7D3; --warn: #C98A1E;
+  --blob-1: rgba(168, 72, 61, .13); --blob-2: rgba(239, 164, 58, .16); --blob-3: rgba(239, 164, 58, .2);
+  --float-edge: rgba(58, 36, 32, .08);
+  --lens-fill: rgba(168, 72, 61, .12); --lens-edge: rgba(168, 72, 61, .26);
+  --amber-bg: #FCF0DC; --amber-icon: #F8DDB0; --amber-fg: #C98A1E;
+}
+:root[data-season="autumn"][data-theme="dark"] {
+  --bg: #1C1412; --card: #2A1E1B; --card-border: #3E2D28; --muted-surface: #352723;
+  --text: #F3E8D2; --text-2: #C7B6A2; --text-3: #8E7D6E;
+  --accent: #D46F5A; --accent-soft: #46261F; --ok: #D46F5A; --danger: #F2A65A;
+  --imp: #F2A65A; --imp-bg: #3A2716;
+  --float: rgba(42, 30, 27, .42); --float-strong: rgba(42, 30, 27, .55); --float-edge: rgba(0, 0, 0, .3);
+  --glass: rgba(42, 30, 27, .58);
+  --lens-fill: rgba(212, 111, 90, .18); --lens-edge: rgba(212, 111, 90, .32);
+  --amber-bg: #2E2316; --amber-icon: #46331A; --amber-fg: var(--honey);
+  --purple-bg: #2B1F2E; --purple-icon: #3D2C42;
+  --blob-1: rgba(168, 72, 61, .16); --blob-2: rgba(239, 164, 58, .1); --blob-3: rgba(168, 72, 61, .1);
+}
+:root[data-season="autumn"] .hero { --hill-1: rgba(58, 36, 32, .06); --hill-2: rgba(58, 36, 32, .1); --palm: rgba(58, 36, 32, .22); }
+:root[data-season="autumn"] .hero.night {
+  background: linear-gradient(115deg, #24170F 0%, var(--navy) 55%, #5A2E26 100%); border-color: #3E2D28;
+  --cloud: #5c4840; --hill-1: rgba(251, 246, 236, .05); --hill-2: rgba(251, 246, 236, .08); --palm: rgba(8, 12, 22, .6);
+}
+
+/* The Christmas palette, on by itself from December 1 to January 6 (applyTheme sets data-season).
+   About 60/40 burgundy and pine: burgundy for the greeting, the + button, buttons and what needs
+   attention (and the night page); pine for the ink, the selected tab pill, done ticks and the night
+   greeting card; gold for stars. Cream stays the day page. */
+:root[data-season="christmas"] {
+  --pine: #1E5A3E; --wine: #8E1B2E;
+  --navy: #163828; --cream: #F8EEDC; --teal: var(--wine); --coral: #C8102E; --honey: #D4A93F;
+  --brand: var(--wine); --ok: var(--pine);
+  --card: #FFFAF2; --card-border: #EBD9C2; --muted-surface: #F3E6D2;
+  --text-2: #4E5A50; --text-3: #85897C;
+  --accent-soft: #F5DFE1; --imp-bg: #FBE0E3; --warn: #B8902F;
+  --blob-1: rgba(142, 27, 46, .14); --blob-2: rgba(30, 90, 62, .12); --blob-3: rgba(212, 169, 63, .18);
+  --float-edge: rgba(22, 56, 40, .08);
+  --lens-fill: rgba(30, 90, 62, .12); --lens-edge: rgba(30, 90, 62, .26);
+  --tab-ink: var(--pine); --tab-on: var(--cream);
+}
+:root[data-season="christmas"][data-theme="dark"] {
+  --bg: #1A0D10; --card: #2A1519; --card-border: #43222A; --muted-surface: #361C22;
+  --text: #F8EEDC; --text-2: #CDB5B3; --text-3: #957C7A;
+  --accent: #C94459; --accent-soft: #4A1C26; --ok: #5FA57F; --danger: #F07A86;
+  --imp: #F07A86; --imp-bg: #4A1C26;
+  --float: rgba(42, 21, 25, .42); --float-strong: rgba(42, 21, 25, .55); --float-edge: rgba(0, 0, 0, .3);
+  --glass: rgba(42, 21, 25, .58);
+  --lens-fill: rgba(95, 165, 127, .2); --lens-edge: rgba(95, 165, 127, .36);
+  --tab-ink: var(--lens-fill); --tab-on: #7CC29C;
+  --blob-1: rgba(142, 27, 46, .22); --blob-2: rgba(30, 90, 62, .18); --blob-3: rgba(212, 169, 63, .06);
+}
+:root[data-season="christmas"] .hero { --hill-1: rgba(30, 90, 62, .1); --hill-2: rgba(30, 90, 62, .16); --palm: rgba(30, 90, 62, .4); }
+:root[data-season="christmas"] .hero.night {
+  background: linear-gradient(115deg, #0C1F15 0%, #163828 55%, #24503A 100%); border-color: #2A4A38;
+  --cloud: #3e5a4b; --hill-1: rgba(142, 27, 46, .25); --hill-2: rgba(142, 27, 46, .4); --palm: rgba(10, 22, 16, .75);
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {

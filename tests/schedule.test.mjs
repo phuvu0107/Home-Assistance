@@ -1,7 +1,7 @@
 // Run with: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { choreDone, choreDue, choreKind, choreLabel, nextDay, passTurn, periodStart, repeatDates, repeatUntil } from '../schedule.js';
+import { choreDone, choreDue, choreKind, choreLabel, nextDay, passTurn, periodStart, repeatDates, repeatUntil, seasonFor } from '../schedule.js';
 
 // 2026-10-19 is a Monday.
 const MON = '2026-10-19';
@@ -68,4 +68,17 @@ test('monthly and yearly event repeats keep the date', () => {
   assert.equal(repeatUntil('2026-10-19', 'yearly'), '2035-10-19');
   assert.equal(repeatUntil('2026-10-19', 'monthly'), '2027-09-19');
   assert.equal(repeatUntil('2026-10-19', 'daily'), '2026-10-25');
+});
+
+test('seasonal palettes: Autumn Sep 1 to Nov 30, Christmas Dec 1 to Jan 6', () => {
+  const on = (y, m, d) => seasonFor(new Date(y, m - 1, d));
+  assert.equal(on(2026, 8, 31), '');
+  assert.equal(on(2026, 9, 1), 'autumn');
+  assert.equal(on(2026, 10, 26), 'autumn');
+  assert.equal(on(2026, 11, 30), 'autumn');
+  assert.equal(on(2026, 12, 1), 'christmas');
+  assert.equal(on(2026, 12, 31), 'christmas');
+  assert.equal(on(2027, 1, 6), 'christmas');
+  assert.equal(on(2027, 1, 7), '');
+  assert.equal(on(2027, 5, 15), '');
 });
