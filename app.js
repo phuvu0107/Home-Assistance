@@ -8,7 +8,7 @@ import FEEDBACK_EMAIL from './feedback-config.js';
 import { fmtBytes, isAdmin, loadAdmin, monitors, shortId, worst } from './admin.js';
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, friendsGate, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { createPhotos, shrink } from './photos.js';
-import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, WEEKDAYS } from './schedule.js';
+import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, seasonFor, WEEKDAYS } from './schedule.js';
 import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
@@ -137,8 +137,12 @@ function applyTheme() {
   const { theme } = state.settings;
   const h = new Date().getHours();
   const dark = theme === 'dark' || (theme === 'auto' && (h >= 21 || h < 6));
+  const season = seasonFor(new Date());
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  $('meta[name="theme-color"]').content = dark ? '#14162E' : '#F7E7CB';
+  if (season) document.documentElement.dataset.season = season;
+  else delete document.documentElement.dataset.season;
+  const bars = { christmas: ['#1A0D10', '#F8EEDC'], autumn: ['#1C1412', '#F3E8D2'] }[season] || ['#14162E', '#F7E7CB'];
+  $('meta[name="theme-color"]').content = bars[dark ? 0 : 1];
 }
 
 // A new greeting each day, the same on every screen.
