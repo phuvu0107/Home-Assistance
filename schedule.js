@@ -103,3 +103,9 @@ export function repeatUntil(date, rep) {
   const steps = { daily: 6, weekly: 4, monthly: 11, yearly: 9 }[rep];
   return repeatDates(date, rep, '9999-12-31', steps).at(-1);
 }
+
+// The Christmas palette is on from December 1 through Twelfth Night (January 6).
+export function isChristmasSeason(d) {
+  const m = d.getMonth();
+  return m === 11 || (m === 0 && d.getDate() <= 6);
+}
