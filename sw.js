@@ -1,5 +1,5 @@
 // Offline support: cache the app shell, always try the network first for weather.
-const CACHE = 'home-dashboard-v71';
+const CACHE = 'home-dashboard-v72';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'icons.js', 'people.js', 'schedule.js', 'alerts.js', 'firebase.js', 'account.js', 'admin.js', 'sync.js', 'social.js', 'photos.js', 'receipt.js', 'receipt-words.js', 'sync-config.js', 'health.js', 'health-config.js', 'feedback-config.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'avatars/phu.svg', 'avatars/nhi.svg'];
 
 self.addEventListener('install', (e) => {
