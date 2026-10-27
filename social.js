@@ -255,3 +255,64 @@ export async function saveGroupItem(id, item) {
   await fs.setDoc(fs.doc(d, `groups/${id}/items/${itemId}`), rest);
   return itemId;
 }
+
+/* ---------- Deleting an account ---------- */
+
+// What a group keeps when someone deletes their account: plans, bucket list items and expenses
+// stay for the others (their money would no longer add up otherwise), with this person taken
+// off who's going. Their own posts go. Returns the change to make to one item: 'drop', a new
+// item, or null for no change.
+export function groupItemAfterLeaving(item, uid) {
+  if (item.type === 'post' && item.by === uid) return 'drop';
+  if (item.going && uid in item.going) {
+    const going = { ...item.going };
+    delete going[uid];
+    return { ...item, going };
+  }
+  return null;
+}
+
+// Removes this person from Friends: their friend code, requests, friendships, posts and
+// comments, and takes them out of every group (a group nobody else is in goes altogether).
+// `groupIds` and `code` come from their users/{uid} document. Safe to run again if it stops halfway.
+export async function forgetSocial(uid, groupIds = [], code = '') {
+  const { fs, db: d } = await db();
+  const all = async (q) => (await fs.getDocs(q)).docs;
+  const dropMyComments = async (postPath, everyone) => {
+    for (const c of await all(fs.collection(d, `${postPath}/comments`))) {
+      if (everyone || c.data().by === uid) await fs.deleteDoc(c.ref);
+    }
+  };
+
+  // Every post this person can see: their own go with all their comments; on friends' posts
+  // only this person's comments go.
+  for (const p of await all(fs.query(fs.collection(d, 'posts'), fs.where('seen', 'array-contains', uid)))) {
+    const mine = p.data().by === uid;
+    await dropMyComments(`posts/${p.id}`, mine);
+    if (mine) await fs.deleteDoc(p.ref);
+  }
+
+  for (const g of groupIds) {
+    const ref = fs.doc(d, `groups/${g}`);
+    const s = await fs.getDoc(ref).catch(() => null);
+    if (!s?.exists() || !s.data().members?.[uid]) continue;
+    const alone = Object.keys(s.data().members).every((m) => m === uid);
+    for (const it of await all(fs.collection(d, `groups/${g}/items`))) {
+      const next = alone ? 'drop' : groupItemAfterLeaving(it.data(), uid);
+      await dropMyComments(`groups/${g}/items/${it.id}`, next === 'drop');
+      if (next === 'drop') await fs.deleteDoc(it.ref);
+      else if (next) await fs.setDoc(it.ref, next);
+    }
+    if (alone) {
+      // Rules published before deleting accounts existed don't allow this; leaving still works.
+      try { await fs.deleteDoc(ref); continue; } catch { /* fall through and leave */ }
+    }
+    await fs.updateDoc(ref, { [`members.${uid}`]: fs.deleteField(), [`names.${uid}`]: fs.deleteField() });
+  }
+
+  for (const field of ['from', 'to']) {
+    for (const r of await all(fs.query(fs.collection(d, 'friendRequests'), fs.where(field, '==', uid)))) await fs.deleteDoc(r.ref);
+  }
+  for (const f of await all(fs.query(fs.collection(d, 'friendships'), fs.where('users', 'array-contains', uid)))) await fs.deleteDoc(f.ref);
+  if (code) await fs.deleteDoc(fs.doc(d, `friendCodes/${code}`)).catch(() => {}); // already gone, or someone else's
+}

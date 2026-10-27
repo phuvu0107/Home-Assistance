@@ -3,6 +3,7 @@
 // passphrase, so a lost phone or a forgotten phrase never locks anyone out: signing in again on
 // any device finds the household.
 import { firebase, firebaseConfigured } from './firebase.js';
+import { forgetSocial } from './social.js';
 
 export const accountAvailable = () => firebaseConfigured();
 
@@ -186,4 +187,103 @@ export async function noteAccount(home, u, rec) {
 export async function removeAccount(home, uid) {
   const { fs, db } = await firebase();
   await fs.updateDoc(fs.doc(db, `homes/${home}`), { [`members.${uid}`]: fs.deleteField(), [`accounts.${uid}`]: fs.deleteField() });
+}
+
+/* ---------- Deleting an account ---------- */
+
+// What deleting an account does to each household this person is in: one nobody else is in
+// goes with everything in it; any other stays as it is for the others and just loses this
+// person. homes: [{ id, name, members: { uid: true } }] -> [{ id, name, others, gone }]
+export function homesAfterLeaving(homes, uid) {
+  return homes.filter((h) => h.members?.[uid]).map((h) => {
+    const others = Object.keys(h.members).filter((m) => m !== uid && h.members[m]).length;
+    return { id: h.id, name: h.name || 'Home', others, gone: others === 0 };
+  });
+}
+
+// The summary email setting with this address taken off its list, or null if it isn't on it.
+export function emailWithout(email, address) {
+  const a = String(address || '').toLowerCase();
+  if (!a || !email?.to?.some((t) => String(t).toLowerCase() === a)) return null;
+  return { ...email, to: email.to.filter((t) => String(t).toLowerCase() !== a) };
+}
+
+async function homesOf(uid) {
+  const { fs, db } = await firebase();
+  const s = await fs.getDoc(fs.doc(db, `users/${uid}`));
+  const d = s.exists() ? s.data() : {};
+  const ids = [...new Set([...(d.homes || []), d.home].filter(Boolean))];
+  const homes = await Promise.all(ids.map(async (id) => {
+    try {
+      const h = await fs.getDoc(fs.doc(db, `homes/${id}`));
+      return h.exists() ? { id, ...h.data() } : null;
+    } catch { return null; } // no longer in it
+  }));
+  return { me: d, homes: homes.filter(Boolean) };
+}
+
+// For the confirmation: what happens to each household.
+export async function deletionPreview(uid) {
+  return homesAfterLeaving((await homesOf(uid)).homes, uid);
+}
+
+// Google asks the person to pick their account again, because deleting an account needs a
+// fresh sign-in. 'ok', 'cancelled', or 'blocked' when this screen can't show the Google window
+// (the deletion then tries anyway).
+export async function confirmIdentity() {
+  const { auth, au } = await firebase();
+  const u = au.currentUser;
+  if (!u) return 'cancelled';
+  if (window.HOME_FIREBASE_EMULATOR && window.HOME_TEST_USER) {
+    const t = window.HOME_TEST_USER;
+    await auth.reauthenticateWithCredential(u, auth.GoogleAuthProvider.credential(JSON.stringify({ sub: t, email: `${t}@example.com` })));
+    return 'ok';
+  }
+  const provider = new auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account', login_hint: u.email || '' });
+  try {
+    await auth.reauthenticateWithPopup(u, provider);
+    return 'ok';
+  } catch (e) {
+    if (['auth/popup-closed-by-user', 'auth/cancelled-popup-request'].includes(e?.code)) return 'cancelled';
+    if (['auth/popup-blocked', 'auth/operation-not-supported-in-this-environment'].includes(e?.code)) return 'blocked';
+    throw e; // auth/user-mismatch: they picked a different account
+  }
+}
+
+// Deletes everything that is this person's own: their sign-in, which households they are in,
+// their Friends name, code, friendships, posts and comments, and every household and group
+// only they are in. A household or group others still use stays as it is for them, minus this
+// person. Safe to run again if it stops halfway. Returns 'done', or 'relogin' when everything
+// is deleted except the sign-in itself, which needs a fresh sign-in first.
+export async function deleteAccount(uid, address) {
+  const { fs, db, auth, au } = await firebase();
+  const { me, homes } = await homesOf(uid);
+  await forgetSocial(uid, me.groups || [], me.social?.code || '');
+
+  for (const h of homes) {
+    if (!h.members?.[uid]) continue;
+    const ref = fs.doc(db, `homes/${h.id}`);
+    if (homesAfterLeaving([h], uid)[0].gone) {
+      // Its data and pictures, then the household itself. Rules published before deleting
+      // accounts existed only let the last person leave, which still leaves nothing behind.
+      for (const x of (await fs.getDocs(fs.collection(db, `homes/${h.id}/data`))).docs) await fs.deleteDoc(x.ref);
+      try { await fs.deleteDoc(ref); continue; } catch { /* leave it instead */ }
+      await fs.updateDoc(ref, { [`members.${uid}`]: fs.deleteField() });
+      continue;
+    }
+    const patch = { [`members.${uid}`]: fs.deleteField(), [`accounts.${uid}`]: fs.deleteField() };
+    const email = emailWithout(h.email, address);
+    if (email) patch.email = email;
+    await fs.updateDoc(ref, patch);
+  }
+
+  await fs.deleteDoc(fs.doc(db, `users/${uid}`));
+  try {
+    if (au.currentUser?.uid === uid) await auth.deleteUser(au.currentUser);
+  } catch (e) {
+    if (e?.code === 'auth/requires-recent-login') return 'relogin';
+    throw e;
+  }
+  return 'done';
 }

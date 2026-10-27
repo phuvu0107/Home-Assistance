@@ -393,6 +393,11 @@ body.dome-open .dome-scrim { opacity: 1; pointer-events: auto; }
 }
 .dome-hint { position: absolute; transform: translate(-50%, -100%); font-size: 11px; color: var(--text-3); white-space: nowrap; pointer-events: none; }
 .dome.big .dome-hint { font-size: 13px; }
+.dome-link { position: absolute; transform: translate(-50%, -100%); display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--text-2); text-decoration: none; white-space: nowrap; }
+.dome-link svg { width: 14px; height: 14px; }
+.dome-link:hover, .dome-link:focus-visible, .dome-link.on { background: var(--card-border); color: var(--text); }
+.dome.open .dome-link { pointer-events: auto; }
+.dome.big .dome-link { font-size: 14px; }
 
 /* ---------- Cards ---------- */
 .c-amber  { background: var(--amber-bg);  border-color: color-mix(in srgb, var(--amber-fg) 14%, transparent); }
@@ -1464,3 +1469,12 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .join-note b.plain { display: inline; color: inherit; white-space: normal; font-weight: 600; }
 .join-note .btn { flex: none; padding: 8px 14px; }
 .acct-row small { display: block; margin-top: 2px; overflow-wrap: anywhere; }
+
+/* Privacy */
+.privacy-lead { margin: -4px 4px 4px; }
+.privacy-h { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+.privacy-h svg { width: 20px; height: 20px; flex: none; color: var(--text-3); }
+.privacy-list { margin: 0 0 4px; padding-left: 20px; font-size: 14px; line-height: 1.55; }
+.privacy-list li { margin: 0 0 6px; }
+.privacy-sec .btn.danger { margin-top: 8px; }
+.danger-btns { display: flex; flex-wrap: wrap; gap: 8px; }
