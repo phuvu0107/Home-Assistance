@@ -17,6 +17,17 @@ export async function isAdmin() {
   }
 }
 
+// Whether the published database rules include the admin section: true, false, or null (offline).
+export async function adminRulesPublished() {
+  const { fs, db } = await firebase();
+  try {
+    await fs.getDoc(fs.doc(db, 'admin/rules-check'));
+    return true;
+  } catch (e) {
+    return e?.code === 'permission-denied' ? false : null;
+  }
+}
+
 // { stats, runs } from the job's last report; either can be null before its first report.
 export async function loadAdmin() {
   const { fs, db } = await firebase();
