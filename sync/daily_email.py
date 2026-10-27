@@ -496,7 +496,7 @@ def send(store, home, where, slot):
 
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = f"Home dashboard <{os.environ.get('EMAIL_SMTP_USER', 'dry-run')}>"
+    msg["From"] = f"Hometide <{os.environ.get('EMAIL_SMTP_USER', 'dry-run')}>"
     msg["To"] = ", ".join(where["to"])
     msg["Importance"], msg["X-Priority"], msg["X-MSMail-Priority"] = "High", "1", "High"  # the red "!" in Outlook and Apple Mail
     msg.set_content(text)
