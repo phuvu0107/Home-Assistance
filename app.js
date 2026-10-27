@@ -752,7 +752,7 @@ const PAGES = [
   { id: 'calendar', label: 'Calendar', icon: 'calendar', main: true },
   { id: 'tasks', label: 'Chores', icon: 'checkSquare', main: true },
   { id: 'friends', label: 'Friends', icon: 'users', main: true },
-  { id: 'fridge', label: 'Kitchen', icon: 'fridge' },
+  { id: 'fridge', label: 'Inventory', icon: 'fridge' },
   { id: 'piggy', label: 'Piggy Bank', icon: 'piggy' },
   { id: 'bucket', label: 'Bucket list', icon: 'sparkles' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
@@ -989,7 +989,7 @@ const FAB = {
   home: { action: 'add-menu', label: 'Add' },
   calendar: { action: 'add-event', label: 'Add event' },
   tasks: { action: 'add-task', label: 'Add chore' },
-  fridge: { action: 'add-menu', label: 'Add to kitchen' },
+  fridge: { action: 'add-menu', label: 'Add to inventory' },
   piggy: { action: 'add-menu', label: 'Add expense' },
   bucket: { action: 'add-bucket', label: 'Add to the bucket list' },
 };
@@ -1010,9 +1010,9 @@ function openAddMenu() {
   const items = r === 'fridge' ? [opt('add-fridge', 'plus', 'Add an item', 'Type in one thing'), scan]
     : r === 'piggy' ? [opt('add-expense', 'plus', 'Add an expense', 'Type it in'), scanMoney, opt('add-box', 'box', 'Open a box', 'For a trip or a day out, like Japan Box')]
     : [opt('add-task', 'checkSquare', 'Chore', 'Something to do, with stars'), opt('add-event', 'calendar', 'Event', 'Something on the calendar'),
-      opt('add-fridge', 'fridge', 'Kitchen item', 'Something in the fridge'), opt('add-expense', 'piggy', 'Expense', 'Something you paid for'),
+      opt('add-fridge', 'fridge', 'Inventory item', 'Something in the fridge'), opt('add-expense', 'piggy', 'Expense', 'Something you paid for'),
       opt('add-note', 'notes', 'Note', 'A sticky note on Home'), opt('add-bucket', 'sparkles', 'Bucket list', 'A trip, dinner or place to go together')];
-  openSheet(`${sheetHead(r === 'fridge' ? 'Add to kitchen' : r === 'piggy' ? 'Add expense' : 'Add', 'plus')}<div class="list more-list">${items.join('')}</div>`);
+  openSheet(`${sheetHead(r === 'fridge' ? 'Add to inventory' : r === 'piggy' ? 'Add expense' : 'Add', 'plus')}<div class="list more-list">${items.join('')}</div>`);
   $('#sheet').dataset.kind = 'add';
 }
 // The bar can change width without a window resize (a page scrollbar appearing, fonts loading).
@@ -1366,7 +1366,7 @@ function glanceRow() {
   });
   const soon = (state.fridge || []).filter((it) => daysLeft(it) !== null && daysLeft(it) <= 2).length;
   const kitchen = (state.fridge || []).length
-    ? `<a class="glance" href="#/fridge"><span class="ibox c-amber-ico">${icon('fridge')}</span><span><b>${soon || icon('check')}</b><small>${soon ? 'to use soon' : 'kitchen all fresh'}</small></span></a>` : '';
+    ? `<a class="glance" href="#/fridge"><span class="ibox c-amber-ico">${icon('fridge')}</span><span><b>${soon || icon('check')}</b><small>${soon ? 'to use soon' : 'inventory all fresh'}</small></span></a>` : '';
   const buy = (state.shopping || []).length;
   const shop = buy ? `<a class="glance" href="#/fridge"><span class="ibox c-green-ico">${icon('cart')}</span><span><b>${buy}</b><small>to buy</small></span></a>` : '';
   // Someone in more than one household sees which one this is; tapping it goes to switching.
@@ -3418,15 +3418,26 @@ function shoppingCard() {
       <button class="btn" data-action="add-shop" aria-label="Add to the shopping list">${icon('plus')}</button></div>
     ${list.length ? `<div class="fr-list shop-list">${list.map((x) => `<div class="fr-row shop-row">
       <button class="check" data-action="got-shop" data-id="${x.id}" aria-label="Got ${esc(x.name)}">${icon('check')}</button>
-      <span class="fr-main"><b>${esc(x.name)}</b>${userOf(x.by) ? `<small>Added by ${esc(userOf(x.by).name)}</small>` : ''}</span></div>`).join('')}</div>`
+      <button class="fr-main" data-action="edit-shop" data-id="${x.id}" aria-label="Edit ${esc(x.name)}"><b>${esc(x.name)}</b>${userOf(x.by) ? `<small>Added by ${esc(userOf(x.by).name)}</small>` : ''}</button></div>`).join('')}</div>`
     : '<p class="muted shop-empty">Nothing to buy. Things you run out of can be added with one tap.</p>'}</div>`;
+}
+// Tapping a shopping list item opens it to fix the name or take it off the list.
+function openShopSheet(x) {
+  openSheet(`${sheetHead('Edit shopping item', 'cart')}
+    <div class="field"><label for="shop-name">Item</label><input class="input" id="shop-name" maxlength="${SHOP_MAX}" value="${esc(x.name)}" placeholder="e.g. Milk"></div>
+    ${userOf(x.by) ? `<p class="hint">Added by ${esc(userOf(x.by).name)} ${ago(x.at)}</p>` : ''}
+    <div class="sheet-actions">
+      <button class="btn danger" data-action="del-shop" data-id="${x.id}">${icon('trash')} Remove</button><span class="spacer"></span>
+      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="save-shop" data-id="${x.id}">Save</button>
+    </div>`);
 }
 // One list, soonest use-by first, so nothing shows twice. Chips at the top narrow it to one kind.
 let fridgeCat = 'all';
 views.fridge = () => {
   const items = state.fridge || [];
   if (!items.length) {
-    return `<div class="section-title">Kitchen</div>${shoppingCard()}<div class="card fr-empty">${icon('fridge')}<p>Nothing logged yet. Add what's in the fridge, or snap a grocery receipt and the items get added for you.</p>
+    return `<div class="section-title">Inventory</div>${shoppingCard()}<div class="card fr-empty">${icon('fridge')}<p>Nothing logged yet. Add what's in the fridge, or snap a grocery receipt and the items get added for you.</p>
       <div class="fr-empty-btns"><button class="btn" data-action="add-fridge">${icon('plus')} Add an item</button><label class="btn ghost">${icon('receipt')} Scan receipt<input type="file" id="receipt-file" accept="image/*" hidden></label></div></div>`;
   }
   const cats = FRIDGE_CATS.filter((c) => items.some((it) => catOf(it.cat).id === c.id));
@@ -3435,7 +3446,7 @@ views.fridge = () => {
     .sort((a, b) => (a.use || '9').localeCompare(b.use || '9') || a.name.localeCompare(b.name));
   const soon = items.filter((it) => daysLeft(it) !== null && daysLeft(it) <= 2).length;
   const chip = (id, label, n) => `<button class="chip${fridgeCat === id ? ' on' : ''}" data-action="fridge-cat" data-v="${id}">${label}<span>${n}</span></button>`;
-  return `<div class="section-title">Kitchen<span class="spacer"></span><span class="hint">${soon ? `${soon} to use soon` : 'All fresh'}</span></div>
+  return `<div class="section-title">Inventory<span class="spacer"></span><span class="hint">${soon ? `${soon} to use soon` : 'All fresh'}</span></div>
   ${shoppingCard()}
   <div class="chips fr-chips">${chip('all', 'All', items.length)}${cats.map((c) => chip(c.id, c.label, items.filter((it) => catOf(it.cat).id === c.id).length)).join('')}</div>
   <div class="card"><div class="fr-list">${shown.map(fridgeRow).join('')}</div></div>`;
@@ -3765,7 +3776,7 @@ function adminWhyNot() {
 // What people do in the app, across every household: counts only, from the job's last report.
 const FEATURES = [['chores', 'Chores', 'checkSquare'], ['ticks', 'Chores and events done', 'check'], ['events', 'Events', 'calendar'],
   ['itinerary', 'Itinerary', 'pin'], ['expenses', 'Expenses', 'piggy'], ['boxes', 'Money boxes', 'box'], ['shopping', 'Shopping list', 'cart'],
-  ['kitchen', 'Kitchen items', 'fridge'], ['notes', 'Sticky notes', 'notes'], ['thanks', 'Thank-yous', 'heart'], ['bucket', 'Bucket list', 'sparkles'],
+  ['kitchen', 'Inventory items', 'fridge'], ['notes', 'Sticky notes', 'notes'], ['thanks', 'Thank-yous', 'heart'], ['bucket', 'Bucket list', 'sparkles'],
   ['fitbit', 'Fitbit (people)', 'activity'], ['people', 'People', 'users']];
 function adminUsage(st) {
   if (!st.usage) return '<p class="hint">Usage numbers show after the next job run.</p>';
@@ -3931,7 +3942,7 @@ views.privacy = () => {
   </ul>`)}
   ${sec('What is kept', 'lock', `<ul class="privacy-list">
     <li><b>Your sign-in.</b> Your Google account's name, email address and an account id, so you can sign in on any device. The app never sees your Google password.</li>
-    <li><b>Your household.</b> Whatever you add: events, chores and stars, the kitchen and shopping lists, expenses and receipt pictures, money boxes, the bucket list and check-in pictures, the itinerary with its places, contacts and pictures, thank-yous, notes, and each person's name, color and picture.</li>
+    <li><b>Your household.</b> Whatever you add: events, chores and stars, the inventory and shopping lists, expenses and receipt pictures, money boxes, the bucket list and check-in pictures, the itinerary with its places, contacts and pictures, thank-yous, notes, and each person's name, color and picture.</li>
     <li><b>Health, if you connect it.</b> Steps, sleep, resting heart rate and weight from Fitbit, read with your permission. You can disconnect in Settings › Connections.</li>
     <li><b>Friends, if you use it.</b> Your Friends name and code, who your friends are, your posts, comments and likes, and the groups you are in with their plans, bucket list and shared money.</li>
     <li><b>Summary email, if your household turns it on.</b> The addresses it goes to, and your household's time zone and weather place.</li>
@@ -4902,6 +4913,22 @@ const actions = {
     const [x] = state.shopping.splice(at, 1);
     toast(`Got ${x.name}`, ['Undo', () => { state.shopping.splice(at, 0, x); save(); renderView(); }]);
   },
+  'edit-shop': (el) => { const x = (state.shopping || []).find((it) => it.id === el.dataset.id); if (x) openShopSheet(x); },
+  'save-shop': (el) => {
+    const x = (state.shopping || []).find((it) => it.id === el.dataset.id);
+    const name = cleanName($('#shop-name').value).slice(0, SHOP_MAX);
+    if (!name) { toast('Add what to buy'); return; }
+    if (state.shopping.some((it) => it !== x && shopKey(it.name) === shopKey(name))) { toast("It's already on the list"); return; }
+    if (x) x.name = name;
+    closeSheet();
+  },
+  'del-shop': (el) => {
+    const at = state.shopping.findIndex((x) => x.id === el.dataset.id);
+    if (at < 0) return;
+    const [x] = state.shopping.splice(at, 1);
+    closeSheet();
+    toast(`Took ${x.name} off the list`, ['Undo', () => { state.shopping.splice(at, 0, x); save(); renderView(); }]);
+  },
   'rc-tick': (el) => {
     el.classList.toggle('on'); el.closest('.rc-row').classList.toggle('off', !el.classList.contains('on'));
     if (el.classList.contains('on')) burstOn(el);
@@ -5009,7 +5036,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'edit-shop', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
