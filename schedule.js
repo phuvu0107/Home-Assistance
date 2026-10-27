@@ -103,3 +103,12 @@ export function repeatUntil(date, rep) {
   const steps = { daily: 6, weekly: 4, monthly: 11, yearly: 9 }[rep];
   return repeatDates(date, rep, '9999-12-31', steps).at(-1);
 }
+
+// Seasonal palettes: Autumn from September 1 through November 30, Christmas from December 1
+// through Twelfth Night (January 6). Any other day uses the everyday palette ('').
+export function seasonFor(d) {
+  const m = d.getMonth();
+  if (m === 11 || (m === 0 && d.getDate() <= 6)) return 'christmas';
+  if (m >= 8 && m <= 10) return 'autumn';
+  return '';
+}

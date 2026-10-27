@@ -15,6 +15,8 @@ rules_version = '2';
 //                         bucket list and shared money (groups/{g}/items/...)
 // groupInvites/{code}     a short code that lets someone signed in join a group for 7 days
 // households/{id}         the old passphrase households, kept until every screen has moved over
+// admin/{doc}             what the Admin page shows (stats, recent emails, who the admins are).
+//                         Only the summary email job writes it; only the admins can read it.
 service cloud.firestore {
   match /databases/{db}/documents {
     function signedIn() { return request.auth != null; }
@@ -160,6 +162,16 @@ service cloud.firestore {
       allow create: if inGroup(request.resource.data.group) && request.resource.data.by == request.auth.uid
         && code.size() >= 8 && request.resource.data.expires < request.time + duration.value(8, 'd');
       allow delete: if signedIn() && resource.data.by == request.auth.uid;
+    }
+
+    // The site's admins: the Google accounts the summary email job lists in admin/access
+    // (from the ADMIN_EMAILS secret). Nobody can write these from the app.
+    function isAdmin() {
+      return signedIn() && request.auth.token.email_verified == true && request.auth.token.email is string
+        && request.auth.token.email.lower() in get(/databases/$(db)/documents/admin/access).data.emails;
+    }
+    match /admin/{doc} {
+      allow get: if isAdmin();
     }
 
     // Old passphrase households. The data inside is encrypted; anyone with the passphrase can

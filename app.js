@@ -1,14 +1,15 @@
 import { icon, hydrateIcons } from './icons.js';
 import { createSync, syncAvailable, SYNC_LIMIT } from './sync.js';
-import { accountAvailable, confirmIdentity, createInvite, deleteAccount, deletionPreview, homeEmail, joinHome, joinWithCode, myHome, myHomes, renameHome, saveHomeEmail, showCode, signIn as accountSignIn, signOut as accountSignOut, startHome, useHomeFor, watchUser } from './account.js';
+import { accountAvailable, confirmIdentity, createInvite, deleteAccount, deletionPreview, homeEmail, joinHome, joinWithCode, myHome, myHomes, noteAccount, removeAccount, renameHome, saveHomeEmail, showCode, signIn as accountSignIn, signOut as accountSignOut, startHome, useHomeFor, watchHome, watchUser } from './account.js';
 import { FRIDGE_CATS, guessCat, learnFromReceipt, readExpense, readReceipt } from './receipt.js';
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
 import FEEDBACK_EMAIL from './feedback-config.js';
+import { fmtBytes, isAdmin, loadAdmin, monitors, shortId, worst } from './admin.js';
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, friendsGate, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { createPhotos, shrink } from './photos.js';
-import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, WEEKDAYS } from './schedule.js';
-import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newMember, PERSON_COLORS, sortMembers } from './people.js';
+import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, seasonFor, WEEKDAYS } from './schedule.js';
+import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newJoiners, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -16,6 +17,9 @@ import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBo
 const STORE_KEY = 'home-dashboard.v2';
 const WEATHER_KEY = 'home-dashboard.weather.v1';
 const ENERGY_KEY = 'home-dashboard.energy.v1';
+// PG&E energy is switched off for now (no Energy page, Home card, Settings row or sync).
+// The code stays so it can come back: set this to true and turn the sync back on in pages.yml.
+const ENERGY_ON = false;
 
 // The people in the household: state.members, synced like everything else, so each household
 // names its own (see people.js). `color` picks one of the c-* color families; `avatar` is an
@@ -133,8 +137,12 @@ function applyTheme() {
   const { theme } = state.settings;
   const h = new Date().getHours();
   const dark = theme === 'dark' || (theme === 'auto' && (h >= 21 || h < 6));
+  const season = seasonFor(new Date());
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  $('meta[name="theme-color"]').content = dark ? '#131a2c' : '#FBF6EC';
+  if (season) document.documentElement.dataset.season = season;
+  else delete document.documentElement.dataset.season;
+  const bars = { christmas: ['#1A0D10', '#F8EEDC'], autumn: ['#1C1412', '#F3E8D2'] }[season] || ['#14162E', '#F7E7CB'];
+  $('meta[name="theme-color"]').content = bars[dark ? 0 : 1];
 }
 
 // A new greeting each day, the same on every screen.
@@ -430,6 +438,7 @@ async function decryptEnergy(box, pass) {
 }
 
 async function syncEnergy() {
+  if (!ENERGY_ON) return;
   if (!energyPass) { energySync = { state: 'off' }; return; }
   let box;
   try {
@@ -729,7 +738,7 @@ const PAGES = [
   { id: 'piggy', label: 'Piggy Bank', icon: 'piggy' },
   { id: 'bucket', label: 'Bucket list', icon: 'sparkles' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
-  { id: 'energy', label: 'Energy', icon: 'zap' },
+  ...(ENERGY_ON ? [{ id: 'energy', label: 'Energy', icon: 'zap' }] : []),
   { id: 'health', label: 'Health', icon: 'heart' },
   // A small link at the foot of the half circle rather than a page of its own in it.
   { id: 'privacy', label: 'Privacy', icon: 'shield', link: true },
@@ -740,11 +749,13 @@ const MORE = PAGES.filter((p) => !p.main && !p.link);
 const FEEDBACK = { id: 'feedback', label: 'Feedback', icon: 'mail' };
 const DOME = [...MORE, FEEDBACK];
 const ROUTE_ALIAS = { board: 'tasks' }; // the Leaderboard now lives on Chores
+// The Admin page isn't in the half circle: the site's admins open it from Settings.
+const ADMIN_PAGE = { id: 'admin', label: 'Admin', icon: 'shield' };
 
 const currentRoute = () => {
   let r = location.hash.replace(/^#\/?/, '').split('?')[0];
   r = ROUTE_ALIAS[r] || r;
-  return PAGES.some((p) => p.id === r) ? r : 'home';
+  return PAGES.some((p) => p.id === r) || r === ADMIN_PAGE.id ? r : 'home';
 };
 
 // The tabs are drawn once; switching tabs slides the highlight to the new one.
@@ -761,7 +772,7 @@ function renderNav() {
   }
   const on = MAIN.some((p) => p.id === r) ? r : 'more';
   tabs.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === on));
-  const m = MORE.find((p) => p.id === r);
+  const m = [...MORE, ADMIN_PAGE].find((p) => p.id === r);
   const more = tabs.querySelector('[data-page="more"]');
   const key = m ? m.id : 'more';
   if (more.dataset.shows !== key) {
@@ -792,7 +803,12 @@ function moveInk() {
 /* ---------- More: a half circle that opens out of the More tab ----------
    Tap More, then tap a page. Or hold More, slide up, then left or right: a ring follows the finger
    and the page under it opens on release. Sliding along the bar picks a main tab the same way. */
-const ARC = [160, 137, 113, 90, 67, 43, 20]; // degrees, left to right, one per item in the half circle
+// Angles in degrees, left to right, one per item: spread evenly and centred on straight up, so adding
+// or removing a page needs no hand-set positions. Few items sit closer together than the full sweep.
+const ARC = DOME.map((_, i, all) => {
+  const span = Math.min(140, 35 * (all.length - 1));
+  return all.length < 2 ? 90 : 90 + span / 2 - (i * span) / (all.length - 1);
+});
 const UP = MORE.findIndex((p) => p.id === 'settings'); // straight up from More
 let domeOpen = false;
 let dome = null; // geometry of the open half circle, in screen pixels
@@ -1359,6 +1375,18 @@ function forecastCard() {
   </div>`;
 }
 
+// Someone new signed in to the household: every screen says so once, until it's dismissed.
+function joinNotice() {
+  if (!houseRec || !account.user) return '';
+  const fresh = newJoiners(houseAccounts(), account.user.uid, joinsSeen()[houseHome] || []);
+  if (!fresh.length) return '';
+  const who = joinNames(fresh.map((a) => `<b class="plain">${esc(accountLabel(a))}</b>${a.name && a.email ? ` (${esc(a.email)})` : ''}`));
+  return `<div class="sync-banner join-note">${icon('users')}<span>${who} joined this household ${fresh.length === 1 ? fmtShortDate(fresh[0].joined) : 'recently'}. Not someone you know? Remove them in Settings.</span>
+    <a class="btn ghost" href="#/settings">Review</a><button class="btn" data-action="join-seen">OK</button></div>`;
+}
+const fmtShortDate = (ms) => { const d = new Date(ms); const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 864e5);
+  return days === 0 ? 'today' : days === 1 ? 'yesterday' : `on ${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`; };
+
 // On Home too, since nobody visits Settings when sync quietly stops.
 function houseFullBanner() {
   if (houseSync.state !== 'full' && !(houseSync.state === 'ok' && houseFill >= 0.9)) return '';
@@ -1372,7 +1400,7 @@ views.home = () => {
   const tasks = tasksToday().sort((a, b) => isDone(a) - isDone(b) || order.indexOf(a.who) - order.indexOf(b.who));
   const lead = leadLine();
   const next = state.events.filter((e) => e.date > today).sort(byStart).slice(0, 4);
-  return `${houseFullBanner()}${thanksInbox()}${bucketInbox()}${glanceRow()}${notesBoard()}
+  return `${houseFullBanner()}${joinNotice()}${thanksInbox()}${bucketInbox()}${glanceRow()}${notesBoard()}
   <div class="grid-home">
     <div class="card a-today">
       <div class="card-head">${icon('checkSquare')}<h2>Today</h2>${lead ? `<a class="link" href="#/tasks">${lead} ${icon('arrowRight')}</a>` : ''}</div>
@@ -1387,7 +1415,7 @@ views.home = () => {
       </div>
       ${bucketCard()}
       ${forecastCard()}
-      ${energyDays().length ? energyCard() : ''}
+      ${ENERGY_ON && energyDays().length ? energyCard() : ''}
     </div>
   </div>`;
 };
@@ -2578,6 +2606,42 @@ let houseAdding = false; // the sheet is for joining or starting another househo
 let houseHomes = []; // [{ id, name }] the signed-in person's households
 try { houseHomes = JSON.parse(localStorage.getItem(HOUSE_HOMES_KEY)) || []; } catch { houseHomes = []; }
 const homeName = (id) => houseHomes.find((h) => h.id === id)?.name || 'Home';
+// The household's record, watched while someone is signed in to it: who is signed in to it
+// (members, accounts) so everyone can see who joined. null until it has loaded.
+let houseRec = null;
+let houseWatch = { key: '', stop: null };
+const JOINS_SEEN_KEY = 'home-dashboard.joins-seen.v1'; // { home: [uids this device was told joined] }
+const joinsSeen = () => { try { return JSON.parse(localStorage.getItem(JOINS_SEEN_KEY)) || {}; } catch { return {}; } };
+function watchHouseRec() {
+  const u = account.user; const home = houseHome;
+  const key = u && home ? `${u.uid}:${home}` : '';
+  if (key === houseWatch.key) return;
+  houseWatch.stop?.(); houseRec = null;
+  houseWatch = { key, stop: null };
+  if (!key) return;
+  watchHome(home, (rec) => {
+    if (houseWatch.key !== key || rec === undefined) return; // offline: keep what was shown
+    houseRec = rec;
+    if (!rec?.members?.[u.uid]) { removedFromHome(home); return; }
+    noteAccount(home, u, rec).catch(() => {});
+    if (['home', 'settings'].includes(currentRoute()) && calmToRender()) renderView();
+  }).then((stop) => { if (houseWatch.key === key) houseWatch.stop = stop; else stop(); }, () => {});
+}
+// Someone in the household removed this account (or the household is gone): this screen stops
+// syncing with it, keeps its copy, and asks what next.
+function removedFromHome(home) {
+  if (home !== houseHome) return;
+  const name = homeName(home);
+  if (house.mode === 'home') house.disconnect();
+  houseHome = ''; writeLocal(HOUSE_HOME_KEY, '');
+  houseInvite = null; writeLocal(HOUSE_INVITE_KEY, '');
+  setHomes(houseHomes.filter((h) => h.id !== home));
+  watchHouseRec(); refreshHomes();
+  houseNote = `You're no longer in ${name}. Ask someone in it for a new invite code to come back, or start a household of your own.`;
+  if (!houseSheetOpen()) openHouseSheet(); else refreshHouse();
+}
+const houseAccounts = () => householdAccounts(houseRec);
+const accountLabel = (a) => a.name || a.email || 'An account';
 // The household's summary email settings, read from its record when Settings opens:
 // { home, on, to: [addresses], ... }, or { home, loading: true } while that's under way.
 let houseEmail = null;
@@ -2701,6 +2765,7 @@ function houseCard() {
     return `<div class="card">${head}${line}
       ${u ? `<p class="hint acct-who">Signed in as <b>${esc(u.email || u.name)}</b></p>` : `<div style="margin:-4px 0 16px"><button class="btn" data-action="acct-signin">${busyLabel('signin', 'Sign in with Google', 'Signing in…')}</button></div>`}
       ${u ? homesBox() : ''}
+      ${u ? accountsBox() : ''}
       ${u ? `<div class="field"><label>Invite someone</label>
         ${houseInvite ? `<div class="invite-code" aria-label="Invite code">${showCode(houseInvite.code)}</div>
           <div class="hint">On their phone or another screen: open this app, sign in with Google, then Join with a code. This code works until ${new Date(houseInvite.expires).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}.</div>` : '<div class="hint">Each person signs in with their own Google account, then types a code to join this household.</div>'}
@@ -2724,6 +2789,19 @@ function houseCard() {
     ${housePass ? '<button class="btn ghost" data-action="house-disconnect">Stop syncing on this device</button>' : ''}
     ${move}
   </div>`;
+}
+
+// Every Google account signed in to this household, newest first, so a new one is easy to spot.
+function accountsBox() {
+  const list = houseAccounts();
+  const me = account.user?.uid;
+  const when = (a) => (a.uid === me ? 'You' : a.joined ? `Joined ${new Date(a.joined).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: new Date(a.joined).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' })}` : 'Joined before this list was kept');
+  const rows = list.map((a) => `<div class="setting-row acct-row"><div><b>${esc(a.name || a.email || 'Not opened the app since joining')}</b>
+      <small class="hint">${a.name && a.email ? `${esc(a.email)} · ` : ''}${when(a)}</small></div>
+      ${a.uid === me ? '' : `<button class="btn ghost" data-action="acct-remove" data-uid="${esc(a.uid)}">Remove</button>`}</div>`).join('');
+  return `<div class="field"><label>Signed in to this household</label>
+    ${houseRec ? rows : '<div class="hint">Loading…</div>'}
+    <div class="hint">Everyone here can see and change everything in this household. Someone you don't know? Remove them: they can only come back with a new invite code.</div></div>`;
 }
 
 // The households this person is in: rename this one, switch to another, or add one.
@@ -2814,6 +2892,7 @@ function useHome(home) {
   houseHome = home; writeLocal(HOUSE_HOME_KEY, home);
   if (houseInvite && houseInvite.home !== home) { houseInvite = null; writeLocal(HOUSE_INVITE_KEY, ''); }
   if (home && !houseHomes.some((h) => h.id === home)) setHomes([...houseHomes, { id: home, name: 'Home' }]);
+  watchHouseRec();
 }
 function setHomes(list) { houseHomes = list; writeLocal(HOUSE_HOMES_KEY, list.length ? JSON.stringify(list) : ''); }
 // Fetches the signed-in person's households (names can change on another device).
@@ -2852,6 +2931,8 @@ async function onAccount(u) {
   account = { ready: true, user: u };
   writeLocal(SIGNED_IN_KEY, u ? '1' : '');
   socialRedraw(); // Friends waits for this on page load
+  checkAdmin(u);
+  watchHouseRec();
   if (u) {
     refreshHomes();
     if (houseMoved) { await followMove(); return; }
@@ -2880,7 +2961,7 @@ async function followMove() {
   if (!account.user || !houseMoved?.home) { if (!houseSheetOpen()) openHouseSheet(); else refreshHouse(); return; }
   const { home, invite } = houseMoved;
   try {
-    await joinHome(account.user.uid, home, invite);
+    await joinHome(account.user, home, invite);
   } catch (e) {
     // The move's code ran out (a screen offline for over a week): someone makes a new one.
     houseNote = e?.code === 'permission-denied' ? 'The code from the move has run out. Ask someone in your household for an invite code (Settings › Household) and type it here.' : accountError(e);
@@ -3411,7 +3492,7 @@ views.health = () => {
   const keys = Object.keys(days).sort();
   if (!healthAvailable()) {
     return `<div class="section-title">Health</div>
-    <div class="card energy-empty"><div class="sync-banner">${icon('heart')}<span>Fitbit sign-in isn't set up for this site yet. See Settings for the one-time setup.</span></div></div>`;
+    <div class="card energy-empty"><div class="sync-banner">${icon('heart')}<span>Fitbit sign-in isn't set up for this site yet.</span></div></div>`;
   }
   if (!keys.length) {
     return `<div class="section-title">Health<span class="spacer"></span>${pick}</div>
@@ -3460,12 +3541,7 @@ views.health = () => {
 function healthBody() {
   preloadGoogle().catch(() => {});
   if (!healthAvailable()) {
-    return `<p class="hint">Not set up yet. Fitbit sign-in needs a one-time setup for this site.</p>
-      <details class="setup"><summary>One-time setup</summary><ol class="hint">
-        <li>In Google Cloud, turn on the <b>Google Health API</b> and add each person's Google account as a test user.</li>
-        <li>Create a <b>Web application</b> OAuth client with <code>${esc(location.origin)}</code> as an authorized JavaScript origin.</li>
-        <li>Save its client ID as the GitHub secret <code>GOOGLE_HEALTH_CLIENT_ID</code> and run <b>Deploy to GitHub Pages</b>.</li>
-      </ol></details>`;
+    return `<p class="hint">Not set up yet. Fitbit sign-in needs a one-time setup for this site${admin.on ? ', in <a href="#/admin">Admin</a>' : ' by whoever runs it'}.</p>`;
   }
   return `${members().map((u) => healthRow(u.id)).join('')}
     <p class="hint">Each person signs in with the Google account their Fitbit uses. Google's pass lasts about an hour and stays on this screen only; the daily numbers are shared with the household when sync is on.</p>
@@ -3492,16 +3568,131 @@ function emailConn() {
       <div class="field"><label for="email-to">Who gets it</label>
         <div style="display:flex;gap:8px"><input class="input" id="email-to" type="text" inputmode="email" autocomplete="off" placeholder="you@example.com, them@example.com" value="${esc((e?.to || []).join(', '))}">
         <button class="btn" data-action="email-save"${!e || e.loading ? ' disabled' : ''}>Save</button></div>
-        <div class="hint">Up to 10 addresses. Times and weather follow ${esc(state.settings.place.name)} and this screen's clock (${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}); saving here updates them.</div></div>
-      <div class="setting-row"><div><b>Household id</b><div class="hint"><code class="alerts-topic">${esc(houseHome)}</code></div></div>
-        <button class="btn ghost" data-action="email-copy-id">Copy</button></div>
-      <details class="setup"><summary>For whoever runs the site (one time)</summary><ol class="hint">
-        <li>On the Gmail account that sends, create an <b>app password</b> (Google Account › Security › 2-Step Verification › App passwords).</li>
-        <li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add <code>EMAIL_SMTP_USER</code> (that Gmail address), <code>EMAIL_SMTP_PASSWORD</code> (the app password) and <code>FIREBASE_SERVICE_ACCOUNT</code> (Firebase console › <b>Project settings › Service accounts › Generate new private key</b>, the whole file).</li>
-        <li>To send one now, run <b>Daily summary email</b> in the repo's <b>Actions</b> tab with this household id.</li>
-      </ol></details>`;
+        <div class="hint">Up to 10 addresses. Times and weather follow ${esc(state.settings.place.name)} and this screen's clock (${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}); saving here updates them.</div></div>`;
   return connRow('email', 'bell', 'Summary email', status, on, body);
 }
+
+/* ---------- Admin: site-wide stats, checks and setup, for the site's admins only (admin.js) ---------- */
+let admin = { on: false, uid: null, data: null, loading: false, failed: false };
+// Asked once per sign-in. For everyone else the database refuses, and nothing shows.
+function checkAdmin(u) {
+  if (!u) { admin = { on: false, uid: null, data: null, loading: false, failed: false }; return; }
+  if (admin.uid === u.uid) return;
+  admin = { on: false, uid: u.uid, data: null, loading: false, failed: false };
+  isAdmin().then((on) => {
+    if (admin.uid !== u.uid || !on) return;
+    admin.on = true;
+    loadAdminData();
+  });
+}
+function loadAdminData() {
+  if (!admin.on || admin.loading) return;
+  admin.loading = true;
+  loadAdmin().then((d) => { admin.data = d; admin.failed = false; }, () => { admin.failed = true; })
+    .then(() => { admin.loading = false; if (['admin', 'settings'].includes(currentRoute()) && calmToRender()) renderView(); });
+}
+const adminChecks = () => monitors({ ...(admin.data || {}), site: { feedback: !!FEEDBACK_EMAIL, fitbit: healthAvailable() } });
+const LEVEL = { ok: ['c-green-ico', 'check', 'OK'], warn: ['c-amber-ico', 'bell', 'Check'], bad: ['c-red-ico', 'x', 'Problem'] };
+
+// Settings › Admin: only the site's admins see this row.
+function adminRow() {
+  if (!admin.on) return '';
+  const w = admin.data ? worst(adminChecks()) : 'ok';
+  const n = admin.data ? adminChecks().filter((m) => m.level !== 'ok').length : 0;
+  return `<h3 class="set-group">Admin</h3>
+    <div class="card conns"><a class="conn admin-link" href="#/admin"><span class="conn-sum"><span class="ibox ${LEVEL[w][0]}">${icon('shield')}</span>
+      <span class="conn-text"><b>Admin</b><small>${!admin.data ? 'Stats, checks and site setup' : n ? `${n} check${n === 1 ? ' needs' : 's need'} a look` : 'All checks OK'}</small></span>${icon('chevron', 'chev')}</span></a></div>`;
+}
+
+const ghSecret = (name) => `<code>${name}</code>`;
+function adminSetup() {
+  return `<div class="card conns">
+    ${connRow('a-admins', 'shield', 'Who can open Admin', 'ADMIN_EMAILS secret', true, `
+      <p class="hint">Admin opens for the Google accounts listed in the ${ghSecret('ADMIN_EMAILS')} secret (commas between them). The Daily summary email job copies the list into the database each hour, and the database rules only let those accounts read the admin records.</p>
+      <ol class="hint"><li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add ${ghSecret('ADMIN_EMAILS')}.</li>
+        <li>Publish <code>firestore.rules</code> in the Firebase console (<b>Firestore Database › Rules</b>) whenever it changes.</li>
+        <li>Run <b>Daily summary email</b> in the repo's <b>Actions</b> tab to fill the stats now instead of within the hour.</li></ol>`)}
+    ${connRow('a-email', 'bell', 'Summary email', admin.data?.stats?.secrets?.smtp ? 'Sending account set up' : 'Sending account not set up', !!admin.data?.stats?.secrets?.smtp, `
+      <ol class="hint">
+        <li>On the Gmail account that sends, create an <b>app password</b> (Google Account › Security › 2-Step Verification › App passwords).</li>
+        <li>In the Home-Assistance repo, open <b>Settings › Secrets and variables › Actions</b> and add ${ghSecret('EMAIL_SMTP_USER')} (that Gmail address), ${ghSecret('EMAIL_SMTP_PASSWORD')} (the app password) and ${ghSecret('FIREBASE_SERVICE_ACCOUNT')} (Firebase console › <b>Project settings › Service accounts › Generate new private key</b>, the whole file).</li>
+        <li>Each household turns its own email on in Settings › Connections. To send one now, run <b>Daily summary email</b> in the repo's <b>Actions</b> tab with the household's id from the list above.</li>
+      </ol>`)}
+    ${connRow('a-fitbit', 'heart', 'Fitbit sign-in', healthAvailable() ? 'Set up' : 'Not set up', healthAvailable(), `
+      <ol class="hint">
+        <li>In Google Cloud, turn on the <b>Google Health API</b> and add each person's Google account as a test user.</li>
+        <li>Create a <b>Web application</b> OAuth client with <code>${esc(location.origin)}</code> as an authorized JavaScript origin.</li>
+        <li>Save its client ID as the GitHub secret ${ghSecret('GOOGLE_HEALTH_CLIENT_ID')} and run <b>Deploy to GitHub Pages</b>.</li>
+      </ol>`)}
+    ${connRow('a-feedback', 'mail', 'Feedback address', FEEDBACK_EMAIL ? 'Set up' : 'Not set up', !!FEEDBACK_EMAIL, `
+      <p class="hint">Feedback in the More menu opens an email to the address in the ${ghSecret('FEEDBACK_EMAIL')} secret. Add it, then run <b>Deploy to GitHub Pages</b>.</p>`)}
+    ${ENERGY_ON ? connRow('a-pge', 'zap', 'PG&amp;E energy', 'One household, set up with GitHub secrets', true, `
+      <p class="hint">No screen signs in to PG&amp;E itself. A GitHub job signs in every morning and saves the usage, locked with a passphrase.</p>
+      <ol class="hint">
+        <li>In the Home-Assistance repo on GitHub, open <b>Settings › Secrets and variables › Actions</b> and add ${ghSecret('PGE_USERNAME')}, ${ghSecret('PGE_PASSWORD')} and ${ghSecret('ENERGY_PASSPHRASE')} (a phrase you make up).</li>
+        <li>PG&amp;E sends a code the first time a new device signs in. On your computer run <code>python3 sync/pge_pair.py</code>, enter the code, and save the line it prints as ${ghSecret('PGE_LOGIN_DATA')}. It lasts about six months.</li>
+        <li>In the repo's <b>Actions</b> tab, run <b>Deploy to GitHub Pages</b>. It then runs every morning by itself.</li>
+        <li>Type the same passphrase in Settings › Connections › PG&amp;E energy on each screen.</li>
+      </ol>`) : ''}
+  </div>`;
+}
+
+views.admin = () => {
+  if (!admin.on) {
+    return `<div class="section-title">Admin</div>
+      <div class="card"><p class="empty-line">This page is for whoever runs the site.${account.user ? '' : ' Sign in first.'}</p></div>`;
+  }
+  if (!admin.data && !admin.loading && !admin.failed) loadAdminData();
+  const d = admin.data;
+  const st = d?.stats;
+  const refresh = `<button class="btn ghost" data-action="admin-refresh"${admin.loading ? ' disabled' : ''}>${admin.loading ? 'Loading…' : 'Refresh'}</button>`;
+  if (!d) {
+    return `<div class="section-title">Admin<span class="spacer"></span>${refresh}</div>
+      <div class="card"><p class="empty-line">${admin.failed ? "Couldn't load the admin records. Offline, or the latest firestore.rules aren't published yet." : 'Loading…'}</p></div>${adminSetup()}`;
+  }
+  const checks = adminChecks();
+  const tile = (ic, label, n, sub) => `<div class="card tile"><small>${icon(ic)}${label}</small><b>${(n ?? 0).toLocaleString()}</b><span>${sub}</span></div>`;
+  const limit = st?.limit || 1040000;
+  const homes = st?.homes || [];
+  const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '–');
+  return `<div class="admin">
+  <div class="section-title">Admin<span class="spacer"></span>${refresh}</div>
+  <p class="hint admin-note">Only the site's admins can see this page. ${st ? `Numbers from ${when(st.at)}${st.job ? ` (<a href="${esc(st.job)}" target="_blank" rel="noopener">job run</a>)` : ''}.` : ''}</p>
+  <h3 class="set-group">Monitors</h3>
+  <div class="card conns">${checks.map((m) => `<div class="conn mon mon-${m.level}" data-mon="${m.id}"><span class="conn-sum"><span class="ibox ${LEVEL[m.level][0]}" title="${LEVEL[m.level][2]}">${icon(LEVEL[m.level][1])}</span>
+    <span class="conn-text"><b>${m.title}</b><small>${esc(m.text)}</small></span></span></div>`).join('')}</div>
+  ${st ? `<h3 class="set-group">Stats</h3>
+  <div class="energy-tiles admin-tiles">
+    ${tile('home', 'Households', st.households, `${(st.people || 0).toLocaleString()} people in them`)}
+    ${tile('users', 'Accounts', st.accounts, 'Signed in with Google')}
+    ${tile('heart', 'Friendships', st.friendships, `${(st.groups || 0).toLocaleString()} groups · ${(st.posts || 0).toLocaleString()} posts`)}
+    ${tile('lock', 'Passphrase households', st.legacy, `${st.legacyActive || 0} used in 30 days`)}
+  </div>
+  <div class="card"><div class="card-head">${icon('chart')}<h2>Households</h2><span class="hint">Biggest first · data limit ${fmtBytes(limit)}</span></div>
+    ${homes.length ? `<div class="table-wrap"><table class="energy-table admin-homes">
+      <thead><tr><th>Household</th><th>People</th><th>Data</th><th>Email</th><th>Last change</th><th></th></tr></thead>
+      <tbody>${homes.map((h) => { const pct = Math.min(100, Math.round((h.size / limit) * 100)); return `<tr>
+        <td><code>${esc(shortId(h.id))}</code>${h.id === houseHome ? ' <span class="hint">(this screen)</span>' : ''}</td><td>${h.members}</td>
+        <td><div class="admin-bar${pct >= 90 ? ' bad' : pct >= 80 ? ' warn' : ''}"><i style="width:${pct}%"></i></div><small>${fmtBytes(h.size)} · ${pct}%</small></td>
+        <td>${h.email ? `On · ${h.emailTo || 1}` : '–'}${h.emailSent ? `<br><small class="hint">${esc(h.emailSent)}</small>` : ''}</td>
+        <td>${when(h.changed)}</td>
+        <td><button class="btn ghost" data-action="admin-copy" data-v="${esc(h.id)}" aria-label="Copy household id">Copy id</button></td></tr>`; }).join('')}</tbody>
+    </table></div>` : '<p class="empty-line">No households yet.</p>'}</div>` : ''}
+  <div class="card"><div class="card-head">${icon('mail')}<h2>Recent summary emails</h2><span class="hint">Newest first</span></div>
+    ${d.runs.length ? `<div class="table-wrap"><table class="energy-table">
+      <thead><tr><th>When</th><th>Household</th><th>Email</th><th>Result</th></tr></thead>
+      <tbody>${d.runs.slice(0, 20).map((r) => `<tr><td>${when(r.at)}</td><td><code>${esc(shortId(r.home))}</code></td><td>${esc(r.slot)}${r.byHand ? ' (by hand)' : ''}</td>
+        <td>${r.ok ? 'Sent' : `<span class="admin-fail">Failed</span><br><small class="hint">${esc(r.error || '')}</small>`}</td></tr>`).join('')}</tbody>
+    </table></div>` : '<p class="empty-line">None sent since the Admin page started keeping track.</p>'}</div>
+  <h3 class="set-group">This screen</h3>
+  <div class="card">
+    <div class="setting-row"><div><b>App version</b><div class="hint">${appVersion ? `<code>${esc(appVersion.slice(0, 7))}</code>${updateReady ? ' · a newer version is out; this screen reloads by itself' : ' · up to date'}` : 'Running from a local copy'}</div></div></div>
+    <div class="setting-row"><div><b>Household sync</b><div class="hint">${esc(houseMessage().text)}${houseSync.size ? ` ${fmtBytes(houseSync.size)} of ${fmtBytes(limit)}.` : ''}</div></div></div>
+  </div>
+  <h3 class="set-group">Site setup</h3>
+  ${adminSetup()}
+  </div>`;
+};
 
 views.settings = () => {
   const s = state.settings;
@@ -3511,6 +3702,7 @@ views.settings = () => {
   return `
   <div class="settings">
   <div class="section-title">Settings</div>
+    ${adminRow()}
     <h3 class="set-group">Display</h3>
     <div class="card">
       <div class="field"><label for="set-place">Weather location</label>
@@ -3532,25 +3724,17 @@ views.settings = () => {
     ${houseCard()}
     <h3 class="set-group">Connections</h3>
     <div class="card conns">
-      ${connRow('pge', 'zap', 'PG&amp;E energy', energyDays().length ? `${energyDays().length} days of data${pge.ok ? '' : ' · not syncing'}` : 'Not connected', pge.ok, `
+      ${ENERGY_ON ? connRow('pge', 'zap', 'PG&amp;E energy', energyDays().length ? `${energyDays().length} days of data${pge.ok ? '' : ' · not syncing'}` : 'Not connected', pge.ok, `
         ${syncBanner(true, false)}
         <div class="field"><label for="energy-pass">Sync passphrase</label>
           <div style="display:flex;gap:8px"><input class="input" id="energy-pass" type="password" autocomplete="off" placeholder="${energyPass ? 'Saved on this device' : 'The ENERGY_PASSPHRASE you chose'}">
           <button class="btn" data-action="energy-connect">${energyPass ? 'Update' : 'Connect'}</button></div></div>
-        <details class="setup"><summary>How to sign in to PG&amp;E (one time)</summary>
-          <p class="hint">This device never signs in to PG&amp;E itself. A GitHub job signs in to PG&amp;E every morning and saves your usage, locked with your passphrase.</p>
-          <ol class="hint">
-            <li>In the Home-Assistance repo on GitHub, open <b>Settings › Secrets and variables › Actions</b> and add <code>PGE_USERNAME</code>, <code>PGE_PASSWORD</code> and <code>ENERGY_PASSPHRASE</code> (a phrase you make up).</li>
-            <li>PG&amp;E sends a code the first time a new device signs in. On your computer run <code>python3 sync/pge_pair.py</code>, enter the code, and save the line it prints as <code>PGE_LOGIN_DATA</code>.</li>
-            <li>In the repo's <b>Actions</b> tab, run <b>Deploy to GitHub Pages</b>. It then runs every morning by itself.</li>
-            <li>Type the same passphrase above and tap Connect.</li>
-          </ol></details>
         <p class="hint">Or load a PG&amp;E <b>Download My Data</b> CSV by hand.${energyDays().length ? ` ${energyDays().length} days stored, ${fmtShort(energyDays()[0])} to ${fmtShort(energyDays().at(-1))}.` : ''}</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <label class="btn ghost">${icon('plug')} Load PG&amp;E file<input type="file" id="energy-file" accept=".csv,text/csv" multiple hidden></label>
           ${energyPass ? `<button class="btn ghost" data-action="energy-disconnect">Stop syncing</button>` : ''}
           ${energyDays().length ? `<button class="btn ghost" data-action="clear-energy">${icon('trash')} Remove data</button>` : ''}
-        </div>`)}
+        </div>`) : ''}
       ${connRow('fitbit', 'heart', 'Fitbit health', !healthAvailable() ? 'Not set up for this site' : fit.length ? `${fit.map((u) => u.name).join(' and ')} connected` : 'Nobody connected yet', healthAvailable() && fit.length > 0, healthBody())}
       ${emailConn()}
     </div>
@@ -3670,7 +3854,7 @@ function renderView(anim) {
   const prev = $('#wk-scroll');
   if (prev) wkScroll = prev.scrollTop;
   // Privacy reads the same before anyone is set up, so its link works as the app's privacy policy.
-  view.innerHTML = members().length || r === 'privacy' ? views[r]() : views.setup();
+  view.innerHTML = members().length || r === 'admin' || r === 'privacy' ? views[r]() : views.setup();
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
   window.scrollTo(0, y);
@@ -4356,7 +4540,7 @@ const actions = {
       // Already in a household: send what's left to it, then start the new one empty.
       const another = !!houseHome && house.mode === 'home';
       if (another && !(await house.leave())) throw Object.assign(new Error(), { code: 'unsynced' });
-      const home = await startHome(u.uid);
+      const home = await startHome(u);
       if (another) emptyHousehold();
       useHome(home);
       const r = await house.connectHome(home, { fresh: another }); // a first household starts from what is on this screen
@@ -4371,7 +4555,7 @@ const actions = {
     if (!code.trim()) { toast('Type the code first'); return; }
     houseBusy = 'join'; houseNote = ''; openHouseSheet();
     try {
-      const home = await joinWithCode(u.uid, code);
+      const home = await joinWithCode(u, code);
       if (home === 'nocode') houseNote = "That code doesn't work. Check it for typos, or ask for a new one.";
       else if (home === 'expired') houseNote = 'That code has run out. Ask for a new one.';
       else {
@@ -4393,6 +4577,19 @@ const actions = {
     } catch (e) { houseNote = accountError(e); }
     houseBusy = ''; refreshHouse();
   },
+  'join-seen': () => {
+    const seen = joinsSeen();
+    seen[houseHome] = [...new Set([...(seen[houseHome] || []), ...houseAccounts().map((a) => a.uid)])];
+    writeLocal(JOINS_SEEN_KEY, JSON.stringify(seen));
+    renderView();
+  },
+  'acct-remove': async (el) => {
+    const a = houseAccounts().find((x) => x.uid === el.dataset.uid);
+    if (!a || !houseHome || a.uid === account.user?.uid) return;
+    if (!confirm(`Remove ${accountLabel(a)}${a.name && a.email ? ` (${a.email})` : ''} from this household? They won't be able to see or change anything in it. What they added stays.`)) return;
+    try { await removeAccount(houseHome, a.uid); toast(`Removed ${accountLabel(a)}`); } catch (e) { toast(accountError(e)); }
+    renderView();
+  },
   'house-add': () => { houseAdding = true; houseNote = ''; openHouseSheet(); },
   'house-switch': async (el) => {
     const u = account.user; const home = el.dataset.id;
@@ -4408,7 +4605,8 @@ const actions = {
   },
   'email-save': (el) => saveEmail({ to: emailList(el.closest('.field')?.querySelector('#email-to')?.value) }),
   'email-toggle': () => saveEmail({ on: !houseEmail?.on }),
-  'email-copy-id': () => Promise.resolve(navigator.clipboard?.writeText(houseHome)).then(() => toast(navigator.clipboard ? 'Copied' : houseHome), () => toast(houseHome)),
+  'admin-refresh': () => { loadAdminData(); renderView(); },
+  'admin-copy': (el) => Promise.resolve(navigator.clipboard?.writeText(el.dataset.v)).then(() => toast(navigator.clipboard ? 'Household id copied' : el.dataset.v), () => toast(el.dataset.v)),
   'house-rename': async (el) => {
     const name = cleanName(el.closest('.field')?.querySelector('#house-name')?.value || '').slice(0, 40);
     if (!name || !houseHome) return;
@@ -4446,7 +4644,7 @@ const actions = {
     houseBusy = 'move'; el.disabled = true; el.textContent = 'Moving…';
     const pass = housePass; const base = savedHouseBase();
     try {
-      const home = await startHome(u.uid);
+      const home = await startHome(u);
       const inv = await createInvite(home, u.uid);
       const r = await house.moveTo(home, inv.code);
       if (r !== 'ok') throw new Error(houseMessage().text);

@@ -28,7 +28,7 @@ export async function signIn() {
   // Tests against the Firebase emulator sign in as a made-up person instead of opening Google.
   if (window.HOME_FIREBASE_EMULATOR && window.HOME_TEST_USER) {
     const t = window.HOME_TEST_USER;
-    return person((await auth.signInWithCredential(au, auth.GoogleAuthProvider.credential(JSON.stringify({ sub: t, email: `${t}@example.com` })))).user);
+    return person((await auth.signInWithCredential(au, auth.GoogleAuthProvider.credential(JSON.stringify({ sub: t, email: `${t}@example.com`, email_verified: true })))).user);
   }
   const provider = new auth.GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });
@@ -105,12 +105,16 @@ export async function saveHomeEmail(home, email) {
   await fs.updateDoc(fs.doc(db, `homes/${home}`), { email });
 }
 
+// Who an account is on the household's list of signed-in accounts, so everyone in it can see
+// who joined and when. Any member may change the list (the rules let members remove people).
+const accountEntry = (u, fs) => ({ name: String(u.name || '').slice(0, 60), email: String(u.email || '').slice(0, 100), joined: fs.serverTimestamp() });
+
 // A new household with this person as its only member.
-export async function startHome(uid, name = 'Home') {
+export async function startHome(u, name = 'Home') {
   const { fs, db } = await firebase();
   const home = randomCode(20).toLowerCase();
-  await fs.setDoc(fs.doc(db, `homes/${home}`), { members: { [uid]: true }, name });
-  await remember(uid, home);
+  await fs.setDoc(fs.doc(db, `homes/${home}`), { members: { [u.uid]: true }, accounts: { [u.uid]: accountEntry(u, fs) }, name });
+  await remember(u.uid, home);
   return home;
 }
 
@@ -125,7 +129,7 @@ export async function createInvite(home, uid) {
 
 // Adds this person to the household the invite is for. Returns the household id, or
 // 'nocode' / 'expired' when the code doesn't work.
-export async function joinWithCode(uid, typed) {
+export async function joinWithCode(u, typed) {
   const { fs, db } = await firebase();
   const code = cleanCode(typed);
   if (code.length < 8) return 'nocode';
@@ -133,7 +137,7 @@ export async function joinWithCode(uid, typed) {
   if (!s.exists()) return 'nocode';
   const { home, expires } = s.data();
   if (expires.toMillis() < Date.now()) return 'expired';
-  await joinHome(uid, home, code);
+  await joinHome(u, home, code);
   // A code works once. Rules published before this change don't allow it; the code then
   // simply runs out after its week, as before.
   await fs.deleteDoc(fs.doc(db, `invites/${code}`)).catch(() => {});
@@ -142,12 +146,47 @@ export async function joinWithCode(uid, typed) {
 
 // Joining with a code already known to be for this household (a passphrase household that
 // moved to sign-in leaves one behind for its other screens).
-export async function joinHome(uid, home, code) {
+export async function joinHome(u, home, code) {
   const { fs, db } = await firebase();
+  const ref = fs.doc(db, `homes/${home}`);
+  // Already a member (a screen following a move, or a code typed twice)? Then this isn't joining,
+  // and the date they first joined stays.
+  let had = false;
+  try { had = !!(await fs.getDoc(ref)).data()?.members?.[u.uid]; } catch { had = false; } // not a member yet: can't read it
   // Members can't add people, but someone not in the household yet can add themselves
   // with a live invite. Already a member? The update simply changes nothing.
-  await fs.updateDoc(fs.doc(db, `homes/${home}`), { [`members.${uid}`]: true, invite: code });
-  await remember(uid, home);
+  await fs.updateDoc(ref, { [`members.${u.uid}`]: true, invite: code });
+  // Now a member, they add themselves to the list everyone sees. A separate write, so joining
+  // works with the rules as already published.
+  if (!had) await fs.updateDoc(ref, { [`accounts.${u.uid}`]: accountEntry(u, fs) }).catch(() => {});
+  await remember(u.uid, home);
+}
+
+// Calls back with the household's record ({ members, accounts, name, ... }) now and whenever it
+// changes, or with null once this account can no longer see it (removed, or it was deleted).
+export async function watchHome(home, cb) {
+  const { fs, db } = await firebase();
+  // Offline with nothing saved yet looks like "no such household": wait for the server instead.
+  return fs.onSnapshot(fs.doc(db, `homes/${home}`), (s) => cb(s.exists() ? s.data() : s.metadata.fromCache ? undefined : null),
+    (e) => cb(e?.code === 'permission-denied' ? null : undefined));
+}
+
+// Keeps this account's name and email on the household's list up to date (accounts that joined
+// before the list existed get added the first time they open the app). Their join date isn't
+// known, so none is made up.
+export async function noteAccount(home, u, rec) {
+  const had = rec?.accounts?.[u.uid];
+  const name = String(u.name || '').slice(0, 60); const email = String(u.email || '').slice(0, 100);
+  if (!rec?.members?.[u.uid] || had && had.name === name && had.email === email) return;
+  const { fs, db } = await firebase();
+  await fs.updateDoc(fs.doc(db, `homes/${home}`), { [`accounts.${u.uid}.name`]: name, [`accounts.${u.uid}.email`]: email });
+}
+
+// Takes an account out of the household: it can no longer see or change anything in it. What
+// they added stays. They can only come back with a new invite code.
+export async function removeAccount(home, uid) {
+  const { fs, db } = await firebase();
+  await fs.updateDoc(fs.doc(db, `homes/${home}`), { [`members.${uid}`]: fs.deleteField(), [`accounts.${uid}`]: fs.deleteField() });
 }
 
 /* ---------- Deleting an account ---------- */
@@ -233,7 +272,7 @@ export async function deleteAccount(uid, address) {
       await fs.updateDoc(ref, { [`members.${uid}`]: fs.deleteField() });
       continue;
     }
-    const patch = { [`members.${uid}`]: fs.deleteField() };
+    const patch = { [`members.${uid}`]: fs.deleteField(), [`accounts.${uid}`]: fs.deleteField() };
     const email = emailWithout(h.email, address);
     if (email) patch.email = email;
     await fs.updateDoc(ref, patch);

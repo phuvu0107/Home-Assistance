@@ -17,6 +17,8 @@ ENERGY_URL); it also still gets the email at EMAIL_TO until it is turned on in t
 EMAIL_SMTP_HOST / EMAIL_SMTP_PORT (default smtp.gmail.com:465). For a run started by hand:
 HOME (one household's id) and SLOT (morning, midday, evening or night) send that email now.
 DRY_RUN=1 prints instead of sending.
+ADMIN_EMAILS (optional): the Google accounts that can open the Admin page; each run also writes
+its stats (admin_report.py).
 """
 
 import base64
@@ -34,6 +36,8 @@ from zoneinfo import ZoneInfo
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+
+import admin_report
 
 # Households from before people were data (see people.js). Newer ones keep their people as p: items.
 LEGACY_USERS = {"phu": "Phu", "nhi": "Nhi"}
@@ -87,7 +91,8 @@ class Store:
             self.token = "owner"
         elif time.time() - self.token_at > 1800:  # tokens last an hour; a run can last six
             self.token, self.token_at = service_token(self.account), time.time()
-        req = urllib.request.Request(f"{self.base}/{path}", method=method, data=json.dumps(body).encode() if body else None,
+        url = self.base + (path if path.startswith(":") else f"/{path}")  # ":runQuery" and the like
+        req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body else None,
                                      headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.load(r)
@@ -523,9 +528,34 @@ def send_due(store, now):
             if not os.environ.get("DRY_RUN"):
                 store.mark_sent(home, d[1])
             send(store, home, where, d[0])
+            note(home, d[0])
         except Exception as e:  # one household's trouble doesn't stop the others' emails
             print(f"{home}: the {d[0]} email failed: {e}", file=sys.stderr)
+            note(home, d[0], e)
     return min(upcoming, default=None)
+
+
+SENT = []  # emails sent or failed since the last admin report
+
+
+def note(home, slot, error=None, by_hand=False):
+    row = {"at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+           "home": home, "slot": slot, "ok": error is None}
+    if error is not None:
+        row["error"] = str(error)[:200]
+    if by_hand:
+        row["byHand"] = True
+    SENT.append(row)
+
+
+def report(store):
+    """Updates what the Admin page shows. Its trouble never stops the emails."""
+    if os.environ.get("DRY_RUN"):
+        return
+    try:
+        admin_report.report(store, lambda home, rec: settings_for(home, rec) is not None, SENT)
+    except Exception as e:
+        print(f"Couldn't update the admin stats: {e}", file=sys.stderr)
 
 
 def main():
@@ -533,6 +563,8 @@ def main():
     missing = [k for k in need if not os.environ.get(k, "").strip()]
     if missing:
         print("The summary email is off until these secrets are added: " + ", ".join(missing))
+        if "FIREBASE_SERVICE_ACCOUNT" not in missing:
+            report(Store(os.environ["FIREBASE_SERVICE_ACCOUNT"]))  # the Admin page still gets its stats
         return
     store = Store(os.environ["FIREBASE_SERVICE_ACCOUNT"])
     if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch" or os.environ.get("SEND_HOME"):
@@ -545,15 +577,26 @@ def main():
             return
         hour = dt.datetime.now(ZoneInfo(where["tz"])).hour
         slot = os.environ.get("SLOT", "").strip().replace("auto", "") or SLOTS[min(SLOTS, key=lambda h: abs(h - hour))]
-        send(store, home, where, slot)
+        try:
+            send(store, home, where, slot)
+            note(home, slot, by_hand=True)
+        except Exception as e:
+            note(home, slot, e, by_hand=True)
+            raise
+        finally:
+            report(store)
         return
     # Scheduled: keep sending each household's emails as they come due, then hand over to the next run.
     stop = time.monotonic() + RUN_FOR
+    reported = None
     while True:
         now = dt.datetime.now(dt.timezone.utc)
         nxt = send_due(store, now)
         if os.environ.get("DRY_RUN"):
             return
+        if SENT or reported is None or time.monotonic() - reported > admin_report.REPORT_EVERY:
+            report(store)
+            reported = time.monotonic()
         wait = CHECK_EVERY if nxt is None else max(30, min(CHECK_EVERY, (nxt - now).total_seconds() + 5))
         if time.monotonic() + wait > stop:
             return

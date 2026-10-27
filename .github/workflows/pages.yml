@@ -3,9 +3,10 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
-  schedule:
-    # Every morning at about 7 AM Pacific, to pick up yesterday's PG&E data.
-    - cron: '0 14 * * *'
+  # The daily 7 AM run only fetched PG&E data. It is off while the energy feature is paused;
+  # bring it back with the sync step below.
+  # schedule:
+  #   - cron: '0 14 * * *'
   workflow_dispatch:
 
 permissions:
@@ -24,7 +25,8 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     env:
-      HAS_PGE: ${{ secrets.PGE_USERNAME != '' }}
+      # PG&E energy sync is paused. Put back `secrets.PGE_USERNAME != ''` to turn it on again.
+      HAS_PGE: false
     steps:
       - uses: actions/checkout@v4
       - id: pages
@@ -32,7 +34,7 @@ jobs:
       - name: Collect site files
         run: |
           mkdir -p _site/data
-          cp -r index.html styles.css app.js icons.js people.js schedule.js alerts.js firebase.js account.js social.js receipt.js receipt-words.js sync.js photos.js sync-config.js health.js health-config.js feedback-config.js sw.js manifest.webmanifest icons avatars _site/
+          cp -r index.html styles.css app.js icons.js people.js schedule.js alerts.js firebase.js account.js admin.js social.js receipt.js receipt-words.js sync.js photos.js sync-config.js health.js health-config.js feedback-config.js sw.js manifest.webmanifest icons avatars _site/
           # Open screens check this and reload themselves after a deploy.
           echo "${{ github.sha }}" > _site/version.txt
       - name: Add household sync config

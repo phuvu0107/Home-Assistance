@@ -46,6 +46,19 @@ test('joining needs a live invite for that household', async () => {
   await assertSucceeds(getDoc(doc(db('bob'), 'homes/h1/data/main')));
 });
 
+test('the list of signed-in accounts: written after joining, removed with the member', async () => {
+  await assertSucceeds(setDoc(doc(db('dan'), 'homes/h5'), { members: { dan: true }, accounts: { dan: { name: 'Dan', email: 'd@x.com' } }, name: 'Home' }));
+  await assertSucceeds(setDoc(doc(db('dan'), 'invites/DANCODE11'), { home: 'h5', by: 'dan', expires: inDays(7) }));
+  // Not in yet: can't put yourself on the list.
+  await assertFails(updateDoc(doc(db('eve'), 'homes/h5'), { 'accounts.eve': { name: 'Eve' } }));
+  await assertSucceeds(updateDoc(doc(db('eve'), 'homes/h5'), { 'members.eve': true, invite: 'DANCODE11' }));
+  await assertSucceeds(updateDoc(doc(db('eve'), 'homes/h5'), { 'accounts.eve': { name: 'Eve', email: 'e@x.com', joined: Timestamp.now() } }));
+  await assertSucceeds(updateDoc(doc(db('eve'), 'homes/h5'), { 'accounts.eve.name': 'Eve B' }));
+  await assertSucceeds(updateDoc(doc(db('dan'), 'homes/h5'), { 'members.eve': deleteField(), 'accounts.eve': deleteField() }));
+  await assertFails(getDoc(doc(db('eve'), 'homes/h5')));
+  await assertFails(updateDoc(doc(db('eve'), 'homes/h5'), { 'accounts.eve': { name: 'Eve' } }));
+});
+
 test('members rename and remove, but cannot add people', async () => {
   await assertSucceeds(updateDoc(doc(db('ann'), 'homes/h1'), { name: 'Our home' }));
   await assertFails(updateDoc(doc(db('ann'), 'homes/h1'), { 'members.eve': true }));
@@ -91,4 +104,21 @@ test('deleting an account: only a household nobody else is in can be deleted', a
   await assertSucceeds(deleteDoc(doc(db('ann'), 'homes/h4/data/main')));
   await assertSucceeds(deleteDoc(doc(db('ann'), 'homes/h4')));
   await assertSucceeds(deleteDoc(doc(db('ann'), 'users/ann')));
+});
+
+test('only the admins listed in admin/access can read the admin records, and nobody can write them', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'admin/access'), { emails: ['boss@example.com'] });
+    await setDoc(doc(ctx.firestore(), 'admin/stats'), { households: 2 });
+  });
+  const as = (uid, email, verified = true) => env.authenticatedContext(uid, { email, email_verified: verified }).firestore();
+  await assertSucceeds(getDoc(doc(as('boss', 'boss@example.com'), 'admin/stats')));
+  await assertSucceeds(getDoc(doc(as('boss', 'Boss@Example.com'), 'admin/access')));
+  await assertFails(getDoc(doc(as('boss', 'boss@example.com', false), 'admin/stats')));
+  await assertFails(getDoc(doc(as('ann', 'ann@example.com'), 'admin/stats')));
+  await assertFails(getDoc(doc(as('ann', 'ann@example.com'), 'admin/access')));
+  await assertFails(getDoc(doc(db('ann'), 'admin/stats')));
+  await assertFails(getDoc(doc(db(null), 'admin/stats')));
+  await assertFails(setDoc(doc(as('boss', 'boss@example.com'), 'admin/stats'), { households: 0 }));
+  await assertFails(setDoc(doc(as('ann', 'ann@example.com'), 'admin/access'), { emails: ['ann@example.com'] }));
 });
