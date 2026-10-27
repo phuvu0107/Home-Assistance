@@ -1,40 +1,44 @@
 :root {
-  /* The Hearth palette. Navy is the brand (headings, the night greeting card), cream is the
-     page by day, teal is for buttons and anything done, coral for what needs attention,
-     and honey gold for stars and love points. */
-  --navy: #1F2A44; --cream: #FBF6EC; --teal: #2A9D8F; --coral: #E76F51; --honey: #E9C46A;
-  --brand: var(--navy);
+  /* The Periwinkle palette: periwinkle blue (Pantone P 102-8 C) is the brand, for buttons, anything
+     done and the selected tab; soft cream (P 17-1 C) is the page by day; burgundy (P 50-16 C) is the
+     morning greeting and marks what needs attention. Ink is a deep indigo (kept under the old --navy
+     name so every rule that used it follows), and honey gold stays for stars and love points.
+     Earlier palettes: Hearth navy #1F2A44, cream #FBF6EC, teal #2A9D8F, coral #E76F51, honey #E9C46A;
+     Autumn rust #A8483D, cream #F3E8D2, mustard #EFA43A, ink #3A2420. */
+  --periwinkle: #3B429A; --wine: #7D1F27;
+  --navy: #1F2352; --cream: #F7E7CB; --teal: var(--periwinkle); --coral: var(--wine); --honey: #E9B44C;
+  --brand: var(--periwinkle);
   --bg: var(--cream);
-  --card: #fffdf9;
-  --card-border: #ede4d3;
-  --muted-surface: #f5eee2;
+  --card: #FFFBF3;
+  --card-border: #E9D8BB;
+  --muted-surface: #F3E6CF;
   --text: var(--navy);
-  --text-2: #586178;
-  --text-3: #8a8f9c;
+  --text-2: #545778;
+  --text-3: #85879E;
   --accent: var(--teal);
-  --accent-soft: #e2f2ef;
+  --accent-soft: #E3E4F5;
   --ok: var(--teal);
-  --warn: #d9a83a;
+  --warn: #C98A1E;
   --danger: var(--coral);
-  --imp: var(--coral); --imp-bg: #fdebe5; --imp-on: #fff;
+  --imp: var(--coral); --imp-bg: #F7E0E0; --imp-on: #fff;
   --glass: rgba(255, 255, 255, .62);
   --glass-border: rgba(255, 255, 255, .85);
   --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .9);
-  --blob-1: rgba(231, 111, 81, .16); --blob-2: rgba(42, 157, 143, .14); --blob-3: rgba(233, 196, 106, .22);
+  --blob-1: rgba(125, 31, 39, .1); --blob-2: rgba(59, 66, 154, .12); --blob-3: rgba(233, 180, 76, .18);
   --shadow: 0 1px 2px rgba(30, 30, 40, .04), 0 6px 20px rgba(30, 30, 40, .05);
   /* The floating tab bar and the More half circle: mostly see-through, blurred behind. */
-  --float: rgba(255, 255, 255, .38); --float-strong: rgba(255, 255, 255, .5); --float-edge: rgba(31, 42, 68, .08);
-  --float-shadow: 0 12px 32px rgba(20, 26, 44, .14), 0 2px 6px rgba(20, 26, 44, .05);
-  --lens-fill: rgba(42, 157, 143, .14); --lens-edge: rgba(42, 157, 143, .28);
+  --float: rgba(255, 255, 255, .38); --float-strong: rgba(255, 255, 255, .5); --float-edge: rgba(31, 35, 82, .08);
+  --float-shadow: 0 12px 32px rgba(22, 24, 56, .14), 0 2px 6px rgba(22, 24, 56, .05);
+  --lens-fill: rgba(59, 66, 154, .12); --lens-edge: rgba(59, 66, 154, .26);
   /* The selected tab sits on a solid brand pill. */
-  --tab-ink: var(--navy); --tab-ink-edge: transparent; --tab-on: var(--cream);
+  --tab-ink: var(--brand); --tab-ink-edge: transparent; --tab-on: var(--cream);
 
   /* Color families (people, cards, charts), tinted to the palette. */
-  --amber-bg: #fdf6e4; --amber-icon: #f7e7bb; --amber-fg: #d4a32f;
+  --amber-bg: #fdf6e4; --amber-icon: #f7e7bb; --amber-fg: #C9922A;
   --blue-bg: #eef1f7;  --blue-icon: #dae0ee;  --blue-fg: #34477a;
-  --green-bg: #eaf6f4; --green-icon: #cdebe6; --green-fg: var(--teal);
+  --green-bg: #eaf6f4; --green-icon: #cdebe6; --green-fg: #2A9D8F;
   --purple-bg: #f5f0ff; --purple-icon: #e6dcff; --purple-fg: #7b56d8;
-  --rose-bg: #fdefea; --rose-icon: #f9d9ce; --rose-fg: #d85c3d;
+  --rose-bg: #fbecec; --rose-icon: #f4d3d4; --rose-fg: #a83a44;
 
   --radius: 20px;
   --radius-sm: 14px;
@@ -43,35 +47,101 @@
 }
 
 :root[data-theme="dark"] {
-  /* At night the whole app sits on the brand navy. */
-  --bg: #131a2c;
-  --card: #1c2640;
-  --card-border: #2a3655;
-  --muted-surface: #243050;
-  --text: #f3eee4;
-  --text-2: #b3b8c6;
-  --text-3: #7f879b;
-  --accent: #3fbcab;
-  --accent-soft: #1b3a42;
-  --ok: #3fbcab;
-  --danger: #f08a70;
+  /* At night the whole app sits on a deep indigo. */
+  --bg: #14162E;
+  --card: #1D2042;
+  --card-border: #2D3163;
+  --muted-surface: #272B55;
+  --text: #F7E7CB;
+  --text-2: #BDBCD6;
+  --text-3: #8587A8;
+  --accent: #7A81DC;
+  --accent-soft: #2A2F66;
+  --ok: #7A81DC;
+  --danger: #E57F88;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
-  --float: rgba(31, 42, 68, .42); --float-strong: rgba(31, 42, 68, .55); --float-edge: rgba(0, 0, 0, .3);
+  --float: rgba(29, 32, 66, .42); --float-strong: rgba(29, 32, 66, .55); --float-edge: rgba(0, 0, 0, .3);
   --float-shadow: 0 12px 32px rgba(0, 0, 0, .4), 0 2px 6px rgba(0, 0, 0, .25);
-  --lens-fill: rgba(63, 188, 171, .18); --lens-edge: rgba(63, 188, 171, .32);
+  --lens-fill: rgba(122, 129, 220, .18); --lens-edge: rgba(122, 129, 220, .32);
   --tab-ink: var(--lens-fill); --tab-ink-edge: var(--lens-edge); --tab-on: var(--accent);
 
   --amber-bg: #2a2719; --amber-icon: #3f371c; --amber-fg: var(--honey);
   --blue-bg: #1d2742;  --blue-icon: #2a3860;  --blue-fg: #9fb2e0;
   --green-bg: #16302f; --green-icon: #1c4440; --green-fg: #3fbcab;
   --purple-bg: #231e33; --purple-icon: #322a4b; --purple-fg: #ab8cff;
-  --rose-bg: #2e2024; --rose-icon: #472b29; --rose-fg: #f08a70;
-  --imp: #f08a70; --imp-bg: #3a2222; --imp-on: #1a0d0d;
-  --glass: rgba(31, 42, 68, .58);
+  --rose-bg: #2e1d26; --rose-icon: #47283a; --rose-fg: #E57F88;
+  --imp: #E57F88; --imp-bg: #3a1f2a; --imp-on: #1a0d0d;
+  --glass: rgba(29, 32, 66, .58);
   --glass-border: rgba(255, 255, 255, .07);
   --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .06);
-  --blob-1: rgba(42, 157, 143, .14); --blob-2: rgba(70, 95, 160, .22); --blob-3: rgba(231, 111, 81, .1);
+  --blob-1: rgba(125, 31, 39, .16); --blob-2: rgba(80, 90, 200, .2); --blob-3: rgba(125, 31, 39, .1);
   color-scheme: dark;
+}
+
+/* The Autumn palette, on by itself from September 1 to November 30: rust red (Pantone 2350 U) for
+   buttons, done ticks, the selected tab and the morning greeting; pale cream (P 24-9 U) for the page;
+   mustard (P 14-8 U) for stars and the night greeting; espresso ink; burnt orange for attention. */
+:root[data-season="autumn"] {
+  --rust: #A8483D; --mustard: #EFA43A;
+  --navy: #3A2420; --cream: #F3E8D2; --teal: var(--rust); --coral: #C2651A; --honey: var(--mustard);
+  --brand: var(--rust); --wine: var(--rust);
+  --card: #FFFAF1; --card-border: #E6D6BA; --muted-surface: #F0E4CE;
+  --text-2: #6E5A50; --text-3: #93806F;
+  --accent-soft: #F6E2DB; --imp-bg: #FBE7D3; --warn: #C98A1E;
+  --blob-1: rgba(168, 72, 61, .13); --blob-2: rgba(239, 164, 58, .16); --blob-3: rgba(239, 164, 58, .2);
+  --float-edge: rgba(58, 36, 32, .08);
+  --lens-fill: rgba(168, 72, 61, .12); --lens-edge: rgba(168, 72, 61, .26);
+  --amber-bg: #FCF0DC; --amber-icon: #F8DDB0; --amber-fg: #C98A1E;
+}
+:root[data-season="autumn"][data-theme="dark"] {
+  --bg: #1C1412; --card: #2A1E1B; --card-border: #3E2D28; --muted-surface: #352723;
+  --text: #F3E8D2; --text-2: #C7B6A2; --text-3: #8E7D6E;
+  --accent: #D46F5A; --accent-soft: #46261F; --ok: #D46F5A; --danger: #F2A65A;
+  --imp: #F2A65A; --imp-bg: #3A2716;
+  --float: rgba(42, 30, 27, .42); --float-strong: rgba(42, 30, 27, .55); --float-edge: rgba(0, 0, 0, .3);
+  --glass: rgba(42, 30, 27, .58);
+  --lens-fill: rgba(212, 111, 90, .18); --lens-edge: rgba(212, 111, 90, .32);
+  --amber-bg: #2E2316; --amber-icon: #46331A; --amber-fg: var(--honey);
+  --purple-bg: #2B1F2E; --purple-icon: #3D2C42;
+  --blob-1: rgba(168, 72, 61, .16); --blob-2: rgba(239, 164, 58, .1); --blob-3: rgba(168, 72, 61, .1);
+}
+:root[data-season="autumn"] .hero { --hill-1: rgba(58, 36, 32, .06); --hill-2: rgba(58, 36, 32, .1); --palm: rgba(58, 36, 32, .22); }
+:root[data-season="autumn"] .hero.night {
+  background: linear-gradient(115deg, #24170F 0%, var(--navy) 55%, #5A2E26 100%); border-color: #3E2D28;
+  --cloud: #5c4840; --hill-1: rgba(251, 246, 236, .05); --hill-2: rgba(251, 246, 236, .08); --palm: rgba(8, 12, 22, .6);
+}
+
+/* The Christmas palette, on by itself from December 1 to January 6 (applyTheme sets data-season).
+   About 60/40 burgundy and pine: burgundy for the greeting, the + button, buttons and what needs
+   attention (and the night page); pine for the ink, the selected tab pill, done ticks and the night
+   greeting card; gold for stars. Cream stays the day page. */
+:root[data-season="christmas"] {
+  --pine: #1E5A3E; --wine: #8E1B2E;
+  --navy: #163828; --cream: #F8EEDC; --teal: var(--wine); --coral: #C8102E; --honey: #D4A93F;
+  --brand: var(--wine); --ok: var(--pine);
+  --card: #FFFAF2; --card-border: #EBD9C2; --muted-surface: #F3E6D2;
+  --text-2: #4E5A50; --text-3: #85897C;
+  --accent-soft: #F5DFE1; --imp-bg: #FBE0E3; --warn: #B8902F;
+  --blob-1: rgba(142, 27, 46, .14); --blob-2: rgba(30, 90, 62, .12); --blob-3: rgba(212, 169, 63, .18);
+  --float-edge: rgba(22, 56, 40, .08);
+  --lens-fill: rgba(30, 90, 62, .12); --lens-edge: rgba(30, 90, 62, .26);
+  --tab-ink: var(--pine); --tab-on: var(--cream);
+}
+:root[data-season="christmas"][data-theme="dark"] {
+  --bg: #1A0D10; --card: #2A1519; --card-border: #43222A; --muted-surface: #361C22;
+  --text: #F8EEDC; --text-2: #CDB5B3; --text-3: #957C7A;
+  --accent: #C94459; --accent-soft: #4A1C26; --ok: #5FA57F; --danger: #F07A86;
+  --imp: #F07A86; --imp-bg: #4A1C26;
+  --float: rgba(42, 21, 25, .42); --float-strong: rgba(42, 21, 25, .55); --float-edge: rgba(0, 0, 0, .3);
+  --glass: rgba(42, 21, 25, .58);
+  --lens-fill: rgba(95, 165, 127, .2); --lens-edge: rgba(95, 165, 127, .36);
+  --tab-ink: var(--lens-fill); --tab-on: #7CC29C;
+  --blob-1: rgba(142, 27, 46, .22); --blob-2: rgba(30, 90, 62, .18); --blob-3: rgba(212, 169, 63, .06);
+}
+:root[data-season="christmas"] .hero { --hill-1: rgba(30, 90, 62, .1); --hill-2: rgba(30, 90, 62, .16); --palm: rgba(30, 90, 62, .4); }
+:root[data-season="christmas"] .hero.night {
+  background: linear-gradient(115deg, #0C1F15 0%, #163828 55%, #24503A 100%); border-color: #2A4A38;
+  --cloud: #3e5a4b; --hill-1: rgba(142, 27, 46, .25); --hill-2: rgba(142, 27, 46, .4); --palm: rgba(10, 22, 16, .75);
 }
 
 * { box-sizing: border-box; }
@@ -119,8 +189,8 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
   border-radius: 24px; padding: 26px 30px; min-height: 136px;
   display: flex; align-items: center; gap: 22px;
   /* The panel uses the app's own surfaces: a card-toned base with a soft wash of sky. */
-  --hill-1: rgba(31, 42, 68, .06); --hill-2: rgba(31, 42, 68, .1); --palm: rgba(31, 42, 68, .22);
-  --greet: var(--brand); --cloud: #ffffff; --cloud-a: .85; --drop: rgba(62, 98, 170, .42); --flake: #b4c3de;
+  --hill-1: rgba(31, 35, 82, .06); --hill-2: rgba(31, 35, 82, .1); --palm: rgba(31, 35, 82, .22);
+  --greet: var(--wine); --cloud: #ffffff; --cloud-a: .85; --drop: rgba(62, 98, 170, .42); --flake: #b4c3de;
   background: linear-gradient(115deg, #fdfaf3 0%, #f6efe2 60%, #efe6d4 100%);
   border: 1px solid var(--card-border);
   box-shadow: var(--shadow);
@@ -130,10 +200,10 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
 .hero.day     { background: linear-gradient(115deg, #fdfaf3 0%, #f3efe4 55%, #e3ece6 100%); }
 .hero.evening { background: linear-gradient(115deg, #fcf7f2 0%, #f7e8df 55%, #ecdfe8 100%); --hill-1: rgba(150, 92, 120, .07); --hill-2: rgba(150, 92, 120, .11); --palm: rgba(70, 44, 60, .22); }
 .hero.night   {
-  background: linear-gradient(115deg, #1a2339 0%, var(--navy) 55%, #2a3a60 100%); color: var(--cream);
-  border-color: #2a3655;
+  background: linear-gradient(115deg, #15173A 0%, var(--navy) 55%, #3A2A5E 100%); color: var(--cream);
+  border-color: #2D3163;
   --hill-1: rgba(251, 246, 236, .05); --hill-2: rgba(251, 246, 236, .08); --palm: rgba(8, 12, 22, .6);
-  --greet: var(--honey); --cloud: #4a5675; --cloud-a: .5; --drop: rgba(170, 195, 255, .38); --flake: #e8eeff;
+  --greet: var(--honey); --cloud: #4a4e7a; --cloud-a: .5; --drop: rgba(170, 195, 255, .38); --flake: #e8eeff;
 }
 /* Gray days dim the sky a touch and soften the sun or moon. */
 .hero.wx-cloud .wx-fx::before, .hero.wx-rain .wx-fx::before, .hero.wx-storm .wx-fx::before, .hero.wx-fog .wx-fx::before, .hero.wx-snow .wx-fx::before {
@@ -323,6 +393,11 @@ body.dome-open .dome-scrim { opacity: 1; pointer-events: auto; }
 }
 .dome-hint { position: absolute; transform: translate(-50%, -100%); font-size: 11px; color: var(--text-3); white-space: nowrap; pointer-events: none; }
 .dome.big .dome-hint { font-size: 13px; }
+.dome-link { position: absolute; transform: translate(-50%, -100%); display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--text-2); text-decoration: none; white-space: nowrap; }
+.dome-link svg { width: 14px; height: 14px; }
+.dome-link:hover, .dome-link:focus-visible, .dome-link.on { background: var(--card-border); color: var(--text); }
+.dome.open .dome-link { pointer-events: auto; }
+.dome.big .dome-link { font-size: 14px; }
 
 /* ---------- Cards ---------- */
 .c-amber  { background: var(--amber-bg);  border-color: color-mix(in srgb, var(--amber-fg) 14%, transparent); }
@@ -1389,3 +1464,18 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .cat-group[open] > summary .chev { transform: rotate(90deg); }
 .cat-items { margin: 10px 0 6px; gap: 6px; }
 .cat-item > span { display: block; font-size: 12px; color: var(--text-2); margin: 0 0 4px 4px; }
+/* Someone new signed in to the household, and the list of who is (Settings) */
+.join-note { flex-wrap: wrap; margin-bottom: 14px; }
+.join-note span { flex: 1 1 260px; }
+.join-note b.plain { display: inline; color: inherit; white-space: normal; font-weight: 600; }
+.join-note .btn { flex: none; padding: 8px 14px; }
+.acct-row small { display: block; margin-top: 2px; overflow-wrap: anywhere; }
+
+/* Privacy */
+.privacy-lead { margin: -4px 4px 4px; }
+.privacy-h { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+.privacy-h svg { width: 20px; height: 20px; flex: none; color: var(--text-3); }
+.privacy-list { margin: 0 0 4px; padding-left: 20px; font-size: 14px; line-height: 1.55; }
+.privacy-list li { margin: 0 0 6px; }
+.privacy-sec .btn.danger { margin-top: 8px; }
+.danger-btns { display: flex; flex-wrap: wrap; gap: 8px; }

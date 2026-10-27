@@ -1,6 +1,6 @@
 import { icon, hydrateIcons } from './icons.js';
 import { createSync, syncAvailable, SYNC_LIMIT } from './sync.js';
-import { accountAvailable, createInvite, homeEmail, joinHome, joinWithCode, myHome, myHomes, renameHome, saveHomeEmail, showCode, signIn as accountSignIn, signOut as accountSignOut, startHome, useHomeFor, watchUser } from './account.js';
+import { accountAvailable, confirmIdentity, createInvite, deleteAccount, deletionPreview, homeEmail, joinHome, joinWithCode, myHome, myHomes, noteAccount, removeAccount, renameHome, saveHomeEmail, showCode, signIn as accountSignIn, signOut as accountSignOut, startHome, useHomeFor, watchHome, watchUser } from './account.js';
 import { FRIDGE_CATS, guessCat, learnFromReceipt, readExpense, readReceipt } from './receipt.js';
 import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpired } from './health.js';
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
@@ -8,8 +8,8 @@ import FEEDBACK_EMAIL from './feedback-config.js';
 import { adminRulesPublished, fmtBytes, isAdmin, loadAdmin, monitors, shortId, worst } from './admin.js';
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, friendsGate, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { createPhotos, shrink } from './photos.js';
-import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, WEEKDAYS } from './schedule.js';
-import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newMember, PERSON_COLORS, sortMembers } from './people.js';
+import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, seasonFor, WEEKDAYS } from './schedule.js';
+import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newJoiners, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -137,8 +137,12 @@ function applyTheme() {
   const { theme } = state.settings;
   const h = new Date().getHours();
   const dark = theme === 'dark' || (theme === 'auto' && (h >= 21 || h < 6));
+  const season = seasonFor(new Date());
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  $('meta[name="theme-color"]').content = dark ? '#131a2c' : '#FBF6EC';
+  if (season) document.documentElement.dataset.season = season;
+  else delete document.documentElement.dataset.season;
+  const bars = { christmas: ['#1A0D10', '#F8EEDC'], autumn: ['#1C1412', '#F3E8D2'] }[season] || ['#14162E', '#F7E7CB'];
+  $('meta[name="theme-color"]').content = bars[dark ? 0 : 1];
 }
 
 // A new greeting each day, the same on every screen.
@@ -736,9 +740,11 @@ const PAGES = [
   { id: 'settings', label: 'Settings', icon: 'settings' },
   ...(ENERGY_ON ? [{ id: 'energy', label: 'Energy', icon: 'zap' }] : []),
   { id: 'health', label: 'Health', icon: 'heart' },
+  // A small link at the foot of the half circle rather than a page of its own in it.
+  { id: 'privacy', label: 'Privacy', icon: 'shield', link: true },
 ];
 const MAIN = PAGES.filter((p) => p.main);
-const MORE = PAGES.filter((p) => !p.main);
+const MORE = PAGES.filter((p) => !p.main && !p.link);
 // The half circle holds the More pages plus Send feedback, which opens an email instead of a page.
 // The site's admins also get Admin, just before Feedback (and a row at the top of Settings).
 const FEEDBACK = { id: 'feedback', label: 'Feedback', icon: 'mail' };
@@ -823,7 +829,8 @@ function buildDome() {
   el.innerHTML = `<div class="dome-disc" style="left:${dome.cx - R}px;top:${dome.cy - R}px;width:${2 * R}px;height:${R}px"></div>
     <div class="dome-arm" style="left:${dome.cx}px;top:${dome.cy}px;--r:${dome.r}px;--lens:${dome.lens}px"><span class="dome-lens"></span></div>
     ${DOME.map((p, i) => `<a class="orb${p.id === r ? ' on' : ''}" role="menuitem" href="${p === FEEDBACK ? feedbackLink() : `#/${p.id}`}" data-i="${i}" style="--orb:${dome.orb}px;--d:${Math.abs(i - (DOME.length - 1) / 2)};left:${dome.xs[i].toFixed(1)}px;top:${(dome.cy - dome.r * Math.sin(rad(ARC[i]))).toFixed(1)}px">${icon(p.icon)}<span class="orb-lbl">${p.label}</span></a>`).join('')}
-    <div class="dome-hint" style="left:${dome.cx}px;top:${dome.cy - 18}px">Slide left or right</div>`;
+    <div class="dome-hint" style="left:${dome.cx}px;top:${dome.cy - 18}px">Slide left or right</div>
+    <a class="dome-link${r === 'privacy' ? ' on' : ''}" href="#/privacy" style="left:${dome.cx}px;top:${dome.cy - (big ? 46 : 38)}px">${icon('shield')}Privacy</a>`;
   el.classList.toggle('big', big);
   // Revealed by a circle growing out of the More tab.
   const mb = $('#tabs [data-page="more"]').getBoundingClientRect();
@@ -899,6 +906,7 @@ function navTrack(e) {
   if (bar !== null) placeInk(tabBox(tabs[bar])); else moveInk();
 }
 function navStart(e) {
+  if (e.target.closest('.dome-link')) return; // an ordinary link
   if (navGesture.id !== null || (e.pointerType === 'mouse' && e.button !== 0)) return;
   const pop = domeSlot(e.clientX, e.clientY);
   const bar = pop === null ? barSlot(e.clientX, e.clientY) : null;
@@ -948,6 +956,7 @@ for (const el of [$('#tabs'), $('#dome')]) {
   el.addEventListener('pointercancel', (e) => navEnd(e, true));
   // Taps are handled above; only keyboard presses (detail 0) go through as clicks.
   el.addEventListener('click', (e) => {
+    if (e.target.closest('.dome-link')) { closeDome(); return; }
     if (e.detail !== 0) { e.preventDefault(); return; }
     if (e.target.closest('[data-page="more"]')) { e.preventDefault(); domeOpen ? closeDome() : (openDome(), $('#dome .orb')?.focus()); }
   });
@@ -1371,6 +1380,18 @@ function forecastCard() {
   </div>`;
 }
 
+// Someone new signed in to the household: every screen says so once, until it's dismissed.
+function joinNotice() {
+  if (!houseRec || !account.user) return '';
+  const fresh = newJoiners(houseAccounts(), account.user.uid, joinsSeen()[houseHome] || []);
+  if (!fresh.length) return '';
+  const who = joinNames(fresh.map((a) => `<b class="plain">${esc(accountLabel(a))}</b>${a.name && a.email ? ` (${esc(a.email)})` : ''}`));
+  return `<div class="sync-banner join-note">${icon('users')}<span>${who} joined this household ${fresh.length === 1 ? fmtShortDate(fresh[0].joined) : 'recently'}. Not someone you know? Remove them in Settings.</span>
+    <a class="btn ghost" href="#/settings">Review</a><button class="btn" data-action="join-seen">OK</button></div>`;
+}
+const fmtShortDate = (ms) => { const d = new Date(ms); const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 864e5);
+  return days === 0 ? 'today' : days === 1 ? 'yesterday' : `on ${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`; };
+
 // On Home too, since nobody visits Settings when sync quietly stops.
 function houseFullBanner() {
   if (houseSync.state !== 'full' && !(houseSync.state === 'ok' && houseFill >= 0.9)) return '';
@@ -1384,7 +1405,7 @@ views.home = () => {
   const tasks = tasksToday().sort((a, b) => isDone(a) - isDone(b) || order.indexOf(a.who) - order.indexOf(b.who));
   const lead = leadLine();
   const next = state.events.filter((e) => e.date > today).sort(byStart).slice(0, 4);
-  return `${houseFullBanner()}${thanksInbox()}${bucketInbox()}${glanceRow()}${notesBoard()}
+  return `${houseFullBanner()}${joinNotice()}${thanksInbox()}${bucketInbox()}${glanceRow()}${notesBoard()}
   <div class="grid-home">
     <div class="card a-today">
       <div class="card-head">${icon('checkSquare')}<h2>Today</h2>${lead ? `<a class="link" href="#/tasks">${lead} ${icon('arrowRight')}</a>` : ''}</div>
@@ -2590,6 +2611,42 @@ let houseAdding = false; // the sheet is for joining or starting another househo
 let houseHomes = []; // [{ id, name }] the signed-in person's households
 try { houseHomes = JSON.parse(localStorage.getItem(HOUSE_HOMES_KEY)) || []; } catch { houseHomes = []; }
 const homeName = (id) => houseHomes.find((h) => h.id === id)?.name || 'Home';
+// The household's record, watched while someone is signed in to it: who is signed in to it
+// (members, accounts) so everyone can see who joined. null until it has loaded.
+let houseRec = null;
+let houseWatch = { key: '', stop: null };
+const JOINS_SEEN_KEY = 'home-dashboard.joins-seen.v1'; // { home: [uids this device was told joined] }
+const joinsSeen = () => { try { return JSON.parse(localStorage.getItem(JOINS_SEEN_KEY)) || {}; } catch { return {}; } };
+function watchHouseRec() {
+  const u = account.user; const home = houseHome;
+  const key = u && home ? `${u.uid}:${home}` : '';
+  if (key === houseWatch.key) return;
+  houseWatch.stop?.(); houseRec = null;
+  houseWatch = { key, stop: null };
+  if (!key) return;
+  watchHome(home, (rec) => {
+    if (houseWatch.key !== key || rec === undefined) return; // offline: keep what was shown
+    houseRec = rec;
+    if (!rec?.members?.[u.uid]) { removedFromHome(home); return; }
+    noteAccount(home, u, rec).catch(() => {});
+    if (['home', 'settings'].includes(currentRoute()) && calmToRender()) renderView();
+  }).then((stop) => { if (houseWatch.key === key) houseWatch.stop = stop; else stop(); }, () => {});
+}
+// Someone in the household removed this account (or the household is gone): this screen stops
+// syncing with it, keeps its copy, and asks what next.
+function removedFromHome(home) {
+  if (home !== houseHome) return;
+  const name = homeName(home);
+  if (house.mode === 'home') house.disconnect();
+  houseHome = ''; writeLocal(HOUSE_HOME_KEY, '');
+  houseInvite = null; writeLocal(HOUSE_INVITE_KEY, '');
+  setHomes(houseHomes.filter((h) => h.id !== home));
+  watchHouseRec(); refreshHomes();
+  houseNote = `You're no longer in ${name}. Ask someone in it for a new invite code to come back, or start a household of your own.`;
+  if (!houseSheetOpen()) openHouseSheet(); else refreshHouse();
+}
+const houseAccounts = () => householdAccounts(houseRec);
+const accountLabel = (a) => a.name || a.email || 'An account';
 // The household's summary email settings, read from its record when Settings opens:
 // { home, on, to: [addresses], ... }, or { home, loading: true } while that's under way.
 let houseEmail = null;
@@ -2713,6 +2770,7 @@ function houseCard() {
     return `<div class="card">${head}${line}
       ${u ? `<p class="hint acct-who">Signed in as <b>${esc(u.email || u.name)}</b></p>` : `<div style="margin:-4px 0 16px"><button class="btn" data-action="acct-signin">${busyLabel('signin', 'Sign in with Google', 'Signing in…')}</button></div>`}
       ${u ? homesBox() : ''}
+      ${u ? accountsBox() : ''}
       ${u ? `<div class="field"><label>Invite someone</label>
         ${houseInvite ? `<div class="invite-code" aria-label="Invite code">${showCode(houseInvite.code)}</div>
           <div class="hint">On their phone or another screen: open this app, sign in with Google, then Join with a code. This code works until ${new Date(houseInvite.expires).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}.</div>` : '<div class="hint">Each person signs in with their own Google account, then types a code to join this household.</div>'}
@@ -2736,6 +2794,19 @@ function houseCard() {
     ${housePass ? '<button class="btn ghost" data-action="house-disconnect">Stop syncing on this device</button>' : ''}
     ${move}
   </div>`;
+}
+
+// Every Google account signed in to this household, newest first, so a new one is easy to spot.
+function accountsBox() {
+  const list = houseAccounts();
+  const me = account.user?.uid;
+  const when = (a) => (a.uid === me ? 'You' : a.joined ? `Joined ${new Date(a.joined).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: new Date(a.joined).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' })}` : 'Joined before this list was kept');
+  const rows = list.map((a) => `<div class="setting-row acct-row"><div><b>${esc(a.name || a.email || 'Not opened the app since joining')}</b>
+      <small class="hint">${a.name && a.email ? `${esc(a.email)} · ` : ''}${when(a)}</small></div>
+      ${a.uid === me ? '' : `<button class="btn ghost" data-action="acct-remove" data-uid="${esc(a.uid)}">Remove</button>`}</div>`).join('');
+  return `<div class="field"><label>Signed in to this household</label>
+    ${houseRec ? rows : '<div class="hint">Loading…</div>'}
+    <div class="hint">Everyone here can see and change everything in this household. Someone you don't know? Remove them: they can only come back with a new invite code.</div></div>`;
 }
 
 // The households this person is in: rename this one, switch to another, or add one.
@@ -2826,6 +2897,7 @@ function useHome(home) {
   houseHome = home; writeLocal(HOUSE_HOME_KEY, home);
   if (houseInvite && houseInvite.home !== home) { houseInvite = null; writeLocal(HOUSE_INVITE_KEY, ''); }
   if (home && !houseHomes.some((h) => h.id === home)) setHomes([...houseHomes, { id: home, name: 'Home' }]);
+  watchHouseRec();
 }
 function setHomes(list) { houseHomes = list; writeLocal(HOUSE_HOMES_KEY, list.length ? JSON.stringify(list) : ''); }
 // Fetches the signed-in person's households (names can change on another device).
@@ -2865,6 +2937,7 @@ async function onAccount(u) {
   writeLocal(SIGNED_IN_KEY, u ? '1' : '');
   socialRedraw(); // Friends waits for this on page load
   checkAdmin(u);
+  watchHouseRec();
   if (u) {
     refreshHomes();
     if (houseMoved) { await followMove(); return; }
@@ -2893,7 +2966,7 @@ async function followMove() {
   if (!account.user || !houseMoved?.home) { if (!houseSheetOpen()) openHouseSheet(); else refreshHouse(); return; }
   const { home, invite } = houseMoved;
   try {
-    await joinHome(account.user.uid, home, invite);
+    await joinHome(account.user, home, invite);
   } catch (e) {
     // The move's code ran out (a screen offline for over a week): someone makes a new one.
     houseNote = e?.code === 'permission-denied' ? 'The code from the move has run out. Ask someone in your household for an invite code (Settings › Household) and type it here.' : accountError(e);
@@ -3706,11 +3779,99 @@ views.settings = () => {
     </div>
     <h3 class="set-group">Danger zone</h3>
     <div class="card">
-      <p class="hint">Display settings stay on this device. Events, chores and expenses are shared with your other devices when sync is on. Weather comes from Open-Meteo.</p>
-      <button class="btn danger" data-action="reset">${icon('trash')} Clear events and chores</button>
+      <p class="hint">Display settings stay on this device. Events, chores and expenses are shared with your other devices when sync is on. <a href="#/privacy">What is kept and who sees it</a></p>
+      <div class="danger-btns">
+        <button class="btn danger" data-action="reset">${icon('trash')} Clear events and chores</button>
+        ${account.user ? `<button class="btn danger" data-action="acct-delete">${icon('trash')} Delete my account</button>` : ''}
+      </div>
     </div>
   </div>`;
 };
+
+// What the app keeps, who sees it and how to delete it. Also the app's privacy policy: it shows
+// before anyone is set up, so #/privacy can be linked from outside the app.
+views.privacy = () => {
+  const u = account.user;
+  const sec = (title, ic, body) => `<div class="card privacy-sec"><h3 class="privacy-h">${icon(ic)}${title}</h3>${body}</div>`;
+  return `
+  <div class="settings privacy">
+  <div class="section-title">Privacy</div>
+  <p class="hint privacy-lead">This page says what the app keeps about you, who can see it, and how to delete it. Last changed October 19, 2026.</p>
+  ${sec('The short version', 'shieldCheck', `<ul class="privacy-list">
+    <li>Your household's events, chores, money and notes are seen only by the people in your household.</li>
+    <li>There are no ads, no tracking and no analytics, and nothing is sold or shared for marketing.</li>
+    <li>You can delete your account and everything that is only yours at any time, from this page or Settings.</li>
+  </ul>`)}
+  ${sec('What is kept', 'lock', `<ul class="privacy-list">
+    <li><b>Your sign-in.</b> Your Google account's name, email address and an account id, so you can sign in on any device. The app never sees your Google password.</li>
+    <li><b>Your household.</b> Whatever you add: events, chores and stars, the kitchen and shopping lists, expenses and receipt pictures, money boxes, the bucket list and check-in pictures, the itinerary with its places, contacts and pictures, thank-yous, notes, and each person's name, color and picture.</li>
+    <li><b>Health, if you connect it.</b> Steps, sleep, resting heart rate and weight from Fitbit, read with your permission. You can disconnect in Settings › Connections.</li>
+    <li><b>Friends, if you use it.</b> Your Friends name and code, who your friends are, your posts, comments and likes, and the groups you are in with their plans, bucket list and shared money.</li>
+    <li><b>Summary email, if your household turns it on.</b> The addresses it goes to, and your household's time zone and weather place.</li>
+    <li><b>On this device.</b> Display settings, a copy of your household so it works offline, and pictures you've seen.</li>
+  </ul>`)}
+  ${sec('Who sees it', 'users', `<ul class="privacy-list">
+    <li>Everything in a household is shared with everyone in that household, on every device they sign in on. Hidden notes are hidden on screen, not from the people in the household.</li>
+    <li>A post on Friends is seen by the friends you had when you posted it. Everything in a group is seen by everyone in the group.</li>
+    <li>Friends and groups never see your household's data.</li>
+    <li>The data is kept by Google Firebase, protected by sign-in rules that let only those people in. It is not end-to-end encrypted, so whoever runs the app could reach it to fix a problem you report.</li>
+  </ul>`)}
+  ${sec('Other services the app uses', 'plug', `<ul class="privacy-list">
+    <li><b>Google Firebase</b> for sign-in and storing the data above.</li>
+    <li><b>Open-Meteo</b> gets the weather place you picked (a city's location) to show the forecast. Nothing else about you.</li>
+    <li><b>Google Health</b> (Fitbit), only when someone connects their own account.</li>
+    <li><b>ntfy</b> sends phone alerts, only if you turn them on. An alert says who did what, never what a note says.</li>
+    <li><b>GitHub</b> hosts the app, runs the job that sends the summary email and, for a household that set it up, reads its PG&amp;E energy use.</li>
+    <li>Receipts are read on this device. The picture only leaves it if you keep it on the expense.</li>
+  </ul>`)}
+  ${sec('Deleting your data', 'trash', `<ul class="privacy-list">
+    <li><b>Delete my account</b> deletes your sign-in, your Friends name, code, friendships, posts and comments, and takes you out of every household and group.</li>
+    <li>A household or group nobody else is in is deleted with everything in it.</li>
+    <li>A household or group other people still use stays for them, so their calendar and money still add up. Your summary email address is taken off it. To remove what you added there, edit or delete it before you go, or ask someone in the household.</li>
+    <li>Invite codes you made stop working within a week. This device's copy is cleared; other devices keep theirs until they are cleared in Settings.</li>
+    <li>Deleting happens straight away and can't be undone.</li>
+  </ul>
+  ${u ? `<button class="btn danger" data-action="acct-delete">${icon('trash')} Delete my account</button>`
+    : '<p class="hint">Sign in (Settings › Household) to delete your account.</p>'}`)}
+  ${sec('Questions', 'mail', `<p class="hint">Write to us with Feedback in the More menu${FEEDBACK_EMAIL ? ` or at <a href="${feedbackLink()}">${esc(FEEDBACK_EMAIL)}</a>` : ''}. If this page changes, the date at the top changes too.</p>`)}
+  </div>`;
+};
+
+// Delete my account: what it will do, then a typed DELETE to go ahead.
+let delAcct = null; // { homes, busy, note } while the sheet is open
+function openDeleteSheet() {
+  const d = delAcct || {};
+  const homes = d.homes;
+  const list = !homes ? '<p class="hint">Checking your households…</p>'
+    : !homes.length ? '<p class="hint">You are not in a household.</p>'
+    : `<ul class="privacy-list">${homes.map((h) => `<li><b>${esc(h.name)}</b>: ${h.gone ? "you're the only one in it, so it is deleted with everything in it."
+      : `stays for the ${h.others === 1 ? 'other person' : `${h.others} others`} in it. You are taken out.`}</li>`).join('')}</ul>`;
+  openSheet(`${sheetHead('Delete my account', 'trash')}
+    <p class="house-intro">This deletes your sign-in, your Friends profile, posts and comments, and takes you out of every household and group. It can't be undone.</p>
+    ${list}
+    ${d.note ? `<div class="sync-banner">${icon('users')}<span>${esc(d.note)}</span></div>` : ''}
+    <div class="field"><label for="del-confirm">Type DELETE to confirm</label>
+      <input class="input" id="del-confirm" autocomplete="off" autocapitalize="characters" spellcheck="false" data-nofocus></div>
+    <p class="hint">Google will ask you to pick your account once more.</p>
+    <div class="sheet-actions">
+      <button class="btn ghost" data-action="close-sheet" ${d.busy ? 'disabled' : ''}>Cancel</button>
+      <button class="btn danger" data-action="acct-delete-go" ${d.busy || !homes ? 'disabled' : ''}>${d.busy ? 'Deleting…' : 'Delete my account'}</button>
+    </div>`);
+  $('#sheet').dataset.kind = 'delete';
+}
+const deleteSheetOpen = () => !$('#sheet').hidden && $('#sheet').dataset.kind === 'delete';
+// This device forgets the account and the household it was showing.
+async function forgetHere() {
+  stopSocial();
+  // An old passphrase household on this screen isn't the account's, so it stays as it is.
+  const signedInHome = house.mode === 'home' || (!!houseHome && house.mode !== 'pass');
+  if (house.mode === 'home') house.disconnect();
+  houseHome = ''; writeLocal(HOUSE_HOME_KEY, '');
+  houseInvite = null; writeLocal(HOUSE_INVITE_KEY, '');
+  setHomes([]); houseAdding = false; houseNote = '';
+  if (signedInHome) { emptyHousehold(); await photos.clearHere().catch(() => {}); }
+  try { await accountSignOut(); } catch { /* signed out here anyway */ }
+}
 
 let wkScroll = null;
 // Replays a CSS entrance animation on an element.
@@ -3731,7 +3892,8 @@ function renderView(anim) {
   const y = window.scrollY;
   const prev = $('#wk-scroll');
   if (prev) wkScroll = prev.scrollTop;
-  view.innerHTML = members().length || r === 'admin' ? views[r]() : views.setup();
+  // Privacy reads the same before anyone is set up, so its link works as the app's privacy policy.
+  view.innerHTML = members().length || r === 'admin' || r === 'privacy' ? views[r]() : views.setup();
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
   window.scrollTo(0, y);
@@ -4382,6 +4544,33 @@ const actions = {
     if (!houseSheetOpen()) toast('Signed out. This device keeps its copy but stops syncing.');
     refreshHouse();
   },
+  'acct-delete': async () => {
+    if (!account.user) return;
+    delAcct = {}; openDeleteSheet();
+    try { delAcct.homes = await deletionPreview(account.user.uid); } catch { delAcct.note = "Couldn't check your households. Are you offline?"; }
+    if (deleteSheetOpen()) openDeleteSheet();
+  },
+  'acct-delete-go': async () => {
+    const u = account.user;
+    if (!u || !delAcct?.homes || delAcct.busy) return;
+    if ($('#del-confirm')?.value.trim().toUpperCase() !== 'DELETE') { delAcct.note = 'Type DELETE in the box first.'; openDeleteSheet(); return; }
+    delAcct.busy = true; delAcct.note = ''; openDeleteSheet();
+    let done = null;
+    try {
+      const who = await confirmIdentity();
+      if (who === 'cancelled') delAcct.note = 'Nothing was deleted.';
+      else done = await deleteAccount(u.uid, u.email);
+    } catch (e) {
+      delAcct.note = e?.code === 'auth/user-mismatch' ? `Pick ${u.email} in the Google window. Nothing was deleted.`
+        : `Couldn't finish (${String(e?.code || e?.message || e).replace(/^auth\//, '')}). Try again; anything already deleted stays deleted.`;
+    }
+    if (!done) { delAcct.busy = false; if (deleteSheetOpen()) openDeleteSheet(); return; }
+    await forgetHere();
+    delAcct = null; closeSheet();
+    toast(done === 'relogin' ? 'Your data is deleted. To delete the sign-in too, sign in again and tap Delete my account once more.'
+      : 'Your account is deleted.');
+    render();
+  },
   'acct-start': async () => {
     const u = account.user;
     if (!u || houseBusy) return;
@@ -4390,7 +4579,7 @@ const actions = {
       // Already in a household: send what's left to it, then start the new one empty.
       const another = !!houseHome && house.mode === 'home';
       if (another && !(await house.leave())) throw Object.assign(new Error(), { code: 'unsynced' });
-      const home = await startHome(u.uid);
+      const home = await startHome(u);
       if (another) emptyHousehold();
       useHome(home);
       const r = await house.connectHome(home, { fresh: another }); // a first household starts from what is on this screen
@@ -4405,7 +4594,7 @@ const actions = {
     if (!code.trim()) { toast('Type the code first'); return; }
     houseBusy = 'join'; houseNote = ''; openHouseSheet();
     try {
-      const home = await joinWithCode(u.uid, code);
+      const home = await joinWithCode(u, code);
       if (home === 'nocode') houseNote = "That code doesn't work. Check it for typos, or ask for a new one.";
       else if (home === 'expired') houseNote = 'That code has run out. Ask for a new one.';
       else {
@@ -4426,6 +4615,19 @@ const actions = {
       }
     } catch (e) { houseNote = accountError(e); }
     houseBusy = ''; refreshHouse();
+  },
+  'join-seen': () => {
+    const seen = joinsSeen();
+    seen[houseHome] = [...new Set([...(seen[houseHome] || []), ...houseAccounts().map((a) => a.uid)])];
+    writeLocal(JOINS_SEEN_KEY, JSON.stringify(seen));
+    renderView();
+  },
+  'acct-remove': async (el) => {
+    const a = houseAccounts().find((x) => x.uid === el.dataset.uid);
+    if (!a || !houseHome || a.uid === account.user?.uid) return;
+    if (!confirm(`Remove ${accountLabel(a)}${a.name && a.email ? ` (${a.email})` : ''} from this household? They won't be able to see or change anything in it. What they added stays.`)) return;
+    try { await removeAccount(houseHome, a.uid); toast(`Removed ${accountLabel(a)}`); } catch (e) { toast(accountError(e)); }
+    renderView();
   },
   'house-add': () => { houseAdding = true; houseNote = ''; openHouseSheet(); },
   'house-switch': async (el) => {
@@ -4481,7 +4683,7 @@ const actions = {
     houseBusy = 'move'; el.disabled = true; el.textContent = 'Moving…';
     const pass = housePass; const base = savedHouseBase();
     try {
-      const home = await startHome(u.uid);
+      const home = await startHome(u);
       const inv = await createInvite(home, u.uid);
       const r = await house.moveTo(home, inv.code);
       if (r !== 'ok') throw new Error(houseMessage().text);
@@ -4675,7 +4877,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');

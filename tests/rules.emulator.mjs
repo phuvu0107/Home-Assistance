@@ -46,6 +46,19 @@ test('joining needs a live invite for that household', async () => {
   await assertSucceeds(getDoc(doc(db('bob'), 'homes/h1/data/main')));
 });
 
+test('the list of signed-in accounts: written after joining, removed with the member', async () => {
+  await assertSucceeds(setDoc(doc(db('dan'), 'homes/h5'), { members: { dan: true }, accounts: { dan: { name: 'Dan', email: 'd@x.com' } }, name: 'Home' }));
+  await assertSucceeds(setDoc(doc(db('dan'), 'invites/DANCODE11'), { home: 'h5', by: 'dan', expires: inDays(7) }));
+  // Not in yet: can't put yourself on the list.
+  await assertFails(updateDoc(doc(db('eve'), 'homes/h5'), { 'accounts.eve': { name: 'Eve' } }));
+  await assertSucceeds(updateDoc(doc(db('eve'), 'homes/h5'), { 'members.eve': true, invite: 'DANCODE11' }));
+  await assertSucceeds(updateDoc(doc(db('eve'), 'homes/h5'), { 'accounts.eve': { name: 'Eve', email: 'e@x.com', joined: Timestamp.now() } }));
+  await assertSucceeds(updateDoc(doc(db('eve'), 'homes/h5'), { 'accounts.eve.name': 'Eve B' }));
+  await assertSucceeds(updateDoc(doc(db('dan'), 'homes/h5'), { 'members.eve': deleteField(), 'accounts.eve': deleteField() }));
+  await assertFails(getDoc(doc(db('eve'), 'homes/h5')));
+  await assertFails(updateDoc(doc(db('eve'), 'homes/h5'), { 'accounts.eve': { name: 'Eve' } }));
+});
+
 test('members rename and remove, but cannot add people', async () => {
   await assertSucceeds(updateDoc(doc(db('ann'), 'homes/h1'), { name: 'Our home' }));
   await assertFails(updateDoc(doc(db('ann'), 'homes/h1'), { 'members.eve': true }));
@@ -73,6 +86,24 @@ test('old passphrase households keep working', async () => {
   const id = 'a'.repeat(64);
   await assertSucceeds(setDoc(doc(db(null), `households/${id}`), { box: { v: 1 }, at: 1 }));
   await assertSucceeds(getDoc(doc(db(null), `households/${id}`)));
+});
+
+test('deleting an account: only a household nobody else is in can be deleted', async () => {
+  await assertSucceeds(setDoc(doc(db('ann'), 'homes/h4'), { members: { ann: true }, name: 'Home' }));
+  await assertSucceeds(setDoc(doc(db('ann'), 'invites/LEAVEME11'), { home: 'h4', by: 'ann', expires: inDays(7) }));
+  await assertSucceeds(updateDoc(doc(db('bob'), 'homes/h4'), { 'members.bob': true, invite: 'LEAVEME11' }));
+  await assertSucceeds(setDoc(doc(db('ann'), 'homes/h4/data/main'), { items: {} }));
+  // Others still use it: nobody can delete it, and outsiders can't touch it.
+  await assertFails(deleteDoc(doc(db('ann'), 'homes/h4')));
+  await assertFails(deleteDoc(doc(db('eve'), 'homes/h4')));
+  // Bob deletes his account: he leaves, Ann keeps everything.
+  await assertSucceeds(updateDoc(doc(db('bob'), 'homes/h4'), { 'members.bob': deleteField() }));
+  await assertSucceeds(getDoc(doc(db('ann'), 'homes/h4/data/main')));
+  // Now Ann is the only one: she can delete the data and the household.
+  await assertFails(deleteDoc(doc(db('bob'), 'homes/h4')));
+  await assertSucceeds(deleteDoc(doc(db('ann'), 'homes/h4/data/main')));
+  await assertSucceeds(deleteDoc(doc(db('ann'), 'homes/h4')));
+  await assertSucceeds(deleteDoc(doc(db('ann'), 'users/ann')));
 });
 
 test('only the admins listed in admin/access can read the admin records, and nobody can write them', async () => {
