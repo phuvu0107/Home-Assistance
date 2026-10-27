@@ -2095,12 +2095,19 @@ const bucketDone = () => (state.bucket || []).filter((b) => b.doneAt).sort((a, b
 // other person's phone opens it, or for three days.
 const isNewDone = (b) => !!b.doneAt && !!userOf(b.from) && !b.seen && Date.now() - b.doneAt < 3 * 864e5 && (!me() || b.from !== me());
 const newDones = () => (state.bucket || []).filter(isNewDone).sort((a, b) => b.doneAt - a.doneAt);
-const wentLine = (b) => (b.doneBy === 'both' ? 'Together' : userOf(b.doneBy)?.name || 'Done');
+// Who went, by name: "Phu & Nhi", "Ann, Bo & Cy", or the one person.
+const andList = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} & ${names.at(-1)}` : names[0] || '');
+const wentLine = (b) => (b.doneBy === 'both' ? andList(members().map((u) => u.name)) || 'Together' : userOf(b.doneBy)?.name || 'Done');
+// A check-in's pictures. `photo` is the first one, which is all that older versions read.
+const bkPhotos = (b) => (b.photos?.length ? b.photos : b.photo ? [b.photo] : []);
+// Pictures side by side that swipe one at a time, with dots when there is more than one.
+const slides = (items) => `<div class="slides-wrap"><div class="slides${items.length > 1 ? ' many' : ''}">${items.join('')}</div>
+  ${items.length > 1 ? `<div class="slide-dots" aria-hidden="true">${items.map((_, i) => `<i${i ? '' : ' class="on"'}></i>`).join('')}</div>` : ''}</div>`;
 
 function bucketRow(b) {
   const done = !!b.doneAt;
   const sub = done ? `${wentLine(b)} · ${dayLabel(isoDay(new Date(b.doneAt)))}` : `Added by ${esc(userOf(b.by)?.name || 'someone')} ${ago(b.at)}`;
-  const lead = b.photo ? `<button class="bk-pic" data-action="view-photo" data-photo-id="${esc(b.photo)}" aria-label="See the check-in picture">${photoImg(b.photo)}</button>`
+  const lead = b.photo ? `<button class="bk-pic" data-action="view-photo" data-photo-id="${esc(b.photo)}" aria-label="See the check-in picture">${photoImg(b.photo)}${bkPhotos(b).length > 1 ? `<span class="bk-count">${bkPhotos(b).length}</span>` : ''}</button>`
     : `<span class="bk-emoji" aria-hidden="true">${kindOf(b)[0]}</span>`;
   return `<div class="task bk${done ? ' done' : ''}">
     ${lead}
@@ -2169,7 +2176,7 @@ function openBucketSheet(b) {
     </div>`;
   if (b?.doneAt) {
     openSheet(`${sheetHead(esc(b.text), 'sparkles')}
-      ${b.photo ? `<button class="bk-memory" data-action="view-photo" data-photo-id="${esc(b.photo)}" aria-label="See the check-in picture full screen">${photoImg(b.photo)}</button>`
+      ${b.photo ? slides(bkPhotos(b).map((id) => `<button class="bk-memory" data-action="view-photo" data-photo-id="${esc(id)}" aria-label="See the check-in picture full screen">${photoImg(id)}</button>`))
         : `<p class="bk-memory none"><span class="bk-emoji">${kindOf(b)[0]}</span><span>Ticked off before check-ins had pictures</span></p>`}
       <p class="bk-went"><b>${esc(wentLine(b))}</b> · ${dayLabel(isoDay(new Date(b.doneAt)))}${loveTag(b)}</p>
       <details class="bk-adjust"><summary>Edit or remove${icon('chevron', 'chev')}</summary>${fields}</details>`);
@@ -2178,20 +2185,32 @@ function openBucketSheet(b) {
   $('#sheet').dataset.kind = 'bucket-edit';
 }
 
-// Ticking off is a check-in: it needs a picture of the two of you doing it, and asks who went.
-// Most things are done together, so that is picked unless this is someone's own phone.
-let bucketPic = null; // { id, data } for the check-in sheet that is open
+// Ticking off is a check-in: it needs at least one picture of the two of you doing it, and asks
+// who went. Most things are done together, so that is picked unless this is someone's own phone.
+const BUCKET_PICS_MAX = 6;
+let bucketPics = []; // [{ id, data }] for the check-in sheet that is open
 function bkPicHtml() {
-  return bucketPic ? `<label class="bk-shot has"><img class="pl-photo" src="${bucketPic.data}" alt="Check-in picture"><span class="bk-retake">${icon('camera')} Retake</span><input type="file" id="bk-photo" accept="image/*" capture="environment" hidden></label>`
-    : `<label class="bk-shot empty">${icon('camera')}<b>Add a picture</b><small>Take one now or pick one from the day</small><input type="file" id="bk-photo" accept="image/*" capture="environment" hidden></label>`;
+  const input = '<input type="file" id="bk-photo" accept="image/*" multiple hidden>';
+  if (!bucketPics.length) return `<label class="bk-shot empty">${icon('camera')}<b>Add pictures</b><small>Take one now or pick a few from the day</small>${input}</label>`;
+  return `<div class="pl-photos edit">${bucketPics.map((p) => `<div class="pl-thumb"><img class="pl-photo" src="${p.data}" alt="">
+    <button class="pl-x" data-action="bk-del-pic" data-photo-id="${p.id}" aria-label="Remove picture">${icon('x')}</button></div>`).join('')}
+    ${bucketPics.length < BUCKET_PICS_MAX ? `<label class="pl-thumb pl-add">${icon('camera')}<span>Add</span>${input}</label>` : ''}</div>`;
+}
+function redrawBucketPics() {
+  const box = $('#bk-shot');
+  if (box) box.innerHTML = bkPicHtml();
+  const go = $('#sheet [data-action="done-bucket"]');
+  if (go) go.disabled = !bucketPics.length;
 }
 function openBucketTick(b) {
-  bucketPic = null;
+  bucketPics = [];
   openSheet(`${sheetHead('Check in', 'sparkles')}
     <p class="thx-for"><span class="bk-emoji">${kindOf(b)[0]}</span><span><b>${esc(b.text)}</b> · +${loveOf(b)} love points</span></p>
-    <div class="field"><label>Picture</label><div id="bk-shot">${bkPicHtml()}</div></div>
+    <div class="field"><label>Pictures</label><div id="bk-shot">${bkPicHtml()}</div></div>
     <div class="field"><label>Who went</label>${whoPicker('both', 'both')}</div>
     ${members().length > 1 ? `<p class="hint">${me() && otherOf(me()) ? `${esc(userOf(otherOf(me())).name)} gets a note on their screen` : members().length === 2 ? 'The other person gets a note on their screen' : 'Everyone else gets a note on their screen'} unless you went together.</p>` : ''}
+    ${account.user ? `<div class="setting-row imp-row"><div><b>Share on Friends</b><div class="hint">Posts the pictures to your Friends feed${social.me?.name ? ` as ${esc(social.me.name)}` : ''}.</div></div>
+      <button class="switch" id="bk-share" role="switch" aria-checked="true" data-action="toggle-important"></button></div>` : ''}
     <div class="sheet-actions">
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
       <button class="btn" data-action="done-bucket" data-id="${b.id}" disabled>${icon('check')} Tick it off</button>
@@ -2199,12 +2218,34 @@ function openBucketTick(b) {
   $('#sheet').dataset.kind = 'bucket-tick';
 }
 
+// A check-in can go on the Friends feed too, as whoever is signed in on this screen. Friends may
+// not have been opened yet, so this starts it and waits for the friends list first. The picture
+// travels inside the post, made smaller, since friends can't read the household's pictures.
+async function shareBucket(b, pics) {
+  startSocial();
+  for (let i = 0; i < 40 && !(social.state === 'ready' && social.friendsIn); i++) await new Promise((ok) => setTimeout(ok, 250));
+  if (social.state !== 'ready' || !social.friendsIn) { toast("Couldn't share it on Friends this time"); return; }
+  if (!social.friends.length) return; // nobody to show it to yet
+  try {
+    // Smaller copies, as many as fit well inside one post (a document tops out at 1 MiB).
+    const shots = [];
+    for (const data of pics) {
+      const small = await shrink(await (await fetch(data)).blob(), 640);
+      if (shots.join('').length + small.length > 800000) break;
+      shots.push(small);
+    }
+    await addPost(FRIENDS_PATH, socialMe(), `Ticked off our bucket list: ${b.text}`, social.friends.map((f) => f.uid),
+      { photo: shots[0], photos: shots, went: wentLine(b), bucket: { kind: b.kind, love: loveOf(b) } });
+    toast('Shared on your Friends feed');
+  } catch (e) { toast(accountError(e)); }
+}
+
 /* =========================================================
    Friends: a feed shared with friends from any household, and groups
    ========================================================= */
 // Everything here lives in its own place in the database (social.js), never in the household's
 // synced data, and needs someone signed in. On a shared screen it posts as whoever signed in.
-const freshSocial = () => ({ uid: '', state: 'off', note: '', me: null, friends: [], incoming: [], outgoing: [], posts: null, groups: [],
+const freshSocial = () => ({ uid: '', state: 'off', note: '', me: null, friends: [], incoming: [], outgoing: [], posts: null, groups: [], friendsIn: false,
   gid: '', group: undefined, items: [], tab: 'feed', open: new Set(), comments: {}, drafts: {}, busy: '', offs: [], groupOff: null, commentOffs: {}, dirty: false });
 let social = freshSocial();
 const GROUP_TABS = { feed: 'Feed', plans: 'Plans', bucket: 'Bucket list', money: 'Money' };
@@ -2225,6 +2266,12 @@ function socialRedraw() {
   if (calmToRender()) { social.dirty = false; renderView(); } else social.dirty = true;
 }
 document.addEventListener('focusout', () => setTimeout(() => { if (social.dirty) socialRedraw(); }, 0));
+document.addEventListener('scroll', (e) => {
+  const box = e.target; if (!box.classList?.contains('slides')) return;
+  const n = box.children.length; const room = box.scrollWidth - box.clientWidth;
+  const at = room > 0 ? Math.round(box.scrollLeft / room * (n - 1)) : 0;
+  box.parentElement.querySelectorAll('.slide-dots i').forEach((d, i) => d.classList.toggle('on', i === at));
+}, true);
 
 function startSocial() {
   const u = account.user;
@@ -2235,7 +2282,7 @@ function startSocial() {
   myProfile(u).then((p) => {
     if (social.uid !== u.uid) return;
     social.me = { uid: u.uid, ...p }; social.state = 'ready';
-    social.offs.push(watchFriends(u.uid, (f) => { Object.assign(social, f); socialRedraw(); }));
+    social.offs.push(watchFriends(u.uid, (f) => { Object.assign(social, f, { friendsIn: true }); socialRedraw(); }));
     social.offs.push(watchPosts(u.uid, (list) => { social.posts = list || []; socialRedraw(); }));
     refreshGroups();
   }).catch((e) => { social.state = 'error'; social.note = accountError(e); }).finally(socialRedraw);
@@ -2265,6 +2312,9 @@ const personAv = (uid, name, size = 'sm') => avatarImg({ name: name || '?', colo
 const nameIn = (uid) => social.group?.members.find((m) => m.uid === uid)?.name || 'Someone';
 const textHtml = (s) => esc(s).replace(/\n/g, '<br>');
 
+// Only a picture carried in the post itself; anything else in the field is ignored.
+const isPic = (v) => typeof v === 'string' && v.startsWith('data:image/');
+const postPhotos = (p) => (Array.isArray(p.photos) ? p.photos : [p.photo]).filter(isPic).slice(0, BUCKET_PICS_MAX);
 function postCard(p, path) {
   const key = `${path}|${p.id}`;
   const likes = Object.keys(p.likes || {}).length; const liked = !!p.likes?.[social.uid];
@@ -2273,6 +2323,8 @@ function postCard(p, path) {
     <div class="post-head">${personAv(p.by, p.name)}<span class="post-who"><b>${esc(p.name || 'Someone')}</b><small>${ago(p.at)}</small></span>
       ${p.by === social.uid ? `<button class="btn-round" data-action="soc-del-post" data-path="${path}" data-id="${p.id}" aria-label="Delete post">${icon('trash')}</button>` : ''}</div>
     <p class="post-text">${textHtml(p.text)}</p>
+    ${postPhotos(p).length ? slides(postPhotos(p).map((src, i) => `<button class="post-photo" data-action="soc-view-photo" data-path="${path}" data-id="${p.id}" data-i="${i}" aria-label="See the picture"><img alt="" src="${esc(src)}"></button>`)) : ''}
+    ${typeof p.went === 'string' && p.went ? `<p class="post-went">With ${esc(p.went.slice(0, 120))}</p>` : ''}
     <div class="post-acts">
       <button class="post-act${liked ? ' on' : ''}" data-action="soc-like" data-path="${path}" data-id="${p.id}" aria-pressed="${liked}">${liked ? '❤️' : '🤍'} ${likes || ''}<span>Like</span></button>
       <button class="post-act" data-action="soc-comments" data-path="${path}" data-id="${p.id}" aria-expanded="${open}">💬 ${open && comments ? comments.length || '' : ''}<span>${open ? 'Hide comments' : 'Comments'}</span></button>
@@ -2481,6 +2533,12 @@ const socialActions = {
     if (!text.trim()) { toast('Write something first'); return; }
     const seen = path === FRIENDS_PATH ? social.friends.map((f) => f.uid) : null;
     socialDo('post', () => addPost(path, socialMe(), text, seen), () => { social.drafts[key] = ''; });
+  },
+  'soc-view-photo': (el) => {
+    const { path, id } = el.dataset;
+    const p = (path === FRIENDS_PATH ? social.posts : social.items).find((x) => x.id === id);
+    const src = p && postPhotos(p)[+el.dataset.i || 0];
+    if (src) viewPhoto(null, src);
   },
   'soc-like': (el) => {
     const { path, id } = el.dataset;
@@ -4464,32 +4522,36 @@ const actions = {
     if (!b) return;
     const at = state.bucket.indexOf(b);
     state.bucket = state.bucket.filter((x) => x !== b);
-    const pic = b.photo && photos.peek(b.photo);
-    if (b.photo) photos.drop(b.photo);
+    const pics = bkPhotos(b).map((id) => [id, photos.peek(id)]);
+    pics.forEach(([id]) => photos.drop(id));
     closeSheet();
-    toast('Removed from the list', ['Undo', () => { state.bucket.splice(at, 0, b); if (pic) photos.add(b.photo, pic); save(); renderView(); }]);
+    toast('Removed from the list', ['Undo', () => { state.bucket.splice(at, 0, b); pics.forEach(([id, d]) => d && photos.add(id, d)); save(); renderView(); }]);
   },
+  'bk-del-pic': (el) => { bucketPics = bucketPics.filter((p) => p.id !== el.dataset.photoId); redrawBucketPics(); },
   'tick-bucket': (el) => {
     const b = state.bucket.find((x) => x.id === el.dataset.id);
     if (!b) return;
     if (!b.doneAt) { openBucketTick(b); return; }
     const was = { ...b };
     // Putting it back on the list throws the check-in picture away; the next check-in takes a new one.
-    const pic = b.photo && photos.peek(b.photo);
-    if (b.photo) photos.drop(b.photo);
-    for (const k of ['doneAt', 'doneBy', 'from', 'seen', 'photo']) delete b[k];
-    toast('Back on the list', ['Undo', () => { Object.assign(b, was); if (pic) photos.add(b.photo, pic); save(); renderView(); }]);
+    const pics = bkPhotos(b).map((id) => [id, photos.peek(id)]);
+    pics.forEach(([id]) => photos.drop(id));
+    for (const k of ['doneAt', 'doneBy', 'from', 'seen', 'photo', 'photos']) delete b[k];
+    toast('Back on the list', ['Undo', () => { Object.assign(b, was); pics.forEach(([id, d]) => d && photos.add(id, d)); save(); renderView(); }]);
   },
   'done-bucket': (el) => {
     const b = state.bucket.find((x) => x.id === el.dataset.id);
     if (!b) return;
-    if (!bucketPic) { toast('Add a picture to check in'); return; }
+    if (!bucketPics.length) { toast('Add a picture to check in'); return; }
     const doneBy = pickedWho() || 'both';
     // Whoever ticked it off: this phone's owner, or on the fridge the one person who went.
     const from = me() || (userOf(doneBy) ? doneBy : '');
-    Object.assign(b, { doneAt: Date.now(), doneBy, photo: bucketPic.id, ...(from && { from }) });
-    photos.add(bucketPic.id, bucketPic.data);
-    bucketPic = null;
+    const share = $('#bk-share')?.getAttribute('aria-checked') === 'true';
+    const ids = bucketPics.map((p) => p.id);
+    Object.assign(b, { doneAt: Date.now(), doneBy, photo: ids[0], ...(ids.length > 1 && { photos: ids }), ...(from && { from }) });
+    bucketPics.forEach((p) => photos.add(p.id, p.data));
+    if (share) shareBucket(b, bucketPics.map((p) => p.data));
+    bucketPics = [];
     burst(`[data-action="tick-bucket"][data-id="${b.id}"]`);
     closeSheet();
     toast(`Ticked off ${b.text} · +${loveOf(b)} love points ❤️`);
@@ -4947,7 +5009,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -5009,15 +5071,12 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('change', async (e) => {
   if (e.target.id !== 'bk-photo' || !e.target.files[0]) return;
-  const f = e.target.files[0];
+  const files = [...e.target.files].slice(0, BUCKET_PICS_MAX - bucketPics.length);
   e.target.value = '';
-  try {
-    bucketPic = { id: `ph${Date.now()}${Math.random().toString(36).slice(2, 6)}`, data: await shrink(f) };
-  } catch (err) { toast(err.message || "Couldn't read that picture"); return; }
-  const box = $('#bk-shot');
-  if (box) box.innerHTML = bkPicHtml();
-  const go = $('#sheet [data-action="done-bucket"]');
-  if (go) go.disabled = false;
+  for (const f of files) {
+    try { bucketPics.push({ id: `ph${Date.now()}${Math.random().toString(36).slice(2, 6)}`, data: await shrink(f) }); } catch (err) { toast(err.message || "Couldn't read that picture"); }
+  }
+  redrawBucketPics();
 });
 document.addEventListener('change', async (e) => {
   if (e.target.id !== 'energy-file') return;

@@ -130,11 +130,12 @@ export async function watchFriends(uid, cb) {
 // A post is shown to the friends its writer had when they posted it. The path is 'posts' for the
 // Friends feed or 'groups/<id>/items' for a group's feed.
 
-export async function addPost(path, me, text, seen) {
+// `extra` adds fields a plain post doesn't have, like the picture on a bucket list check-in.
+export async function addPost(path, me, text, seen, extra = {}) {
   const { fs, db: d } = await db();
   const body = cleanText(text, POST_MAX);
   if (!body) return;
-  const post = { type: 'post', by: me.uid, name: me.name, text: body, at: Date.now(), likes: {} };
+  const post = { ...extra, type: 'post', by: me.uid, name: me.name, text: body, at: Date.now(), likes: {} };
   if (seen) post.seen = [...new Set([me.uid, ...seen])].slice(0, 300);
   await fs.setDoc(fs.doc(d, `${path}/${newestFirstId()}`), post);
 }
