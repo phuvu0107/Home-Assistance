@@ -1458,3 +1458,9 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .cat-group[open] > summary .chev { transform: rotate(90deg); }
 .cat-items { margin: 10px 0 6px; gap: 6px; }
 .cat-item > span { display: block; font-size: 12px; color: var(--text-2); margin: 0 0 4px 4px; }
+/* Someone new signed in to the household, and the list of who is (Settings) */
+.join-note { flex-wrap: wrap; margin-bottom: 14px; }
+.join-note span { flex: 1 1 260px; }
+.join-note b.plain { display: inline; color: inherit; white-space: normal; font-weight: 600; }
+.join-note .btn { flex: none; padding: 8px 14px; }
+.acct-row small { display: block; margin-top: 2px; overflow-wrap: anywhere; }

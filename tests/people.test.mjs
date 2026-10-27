@@ -1,7 +1,7 @@
 // Run with: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { boxChoices, boxesForMonth, boxForDay, boxStats, cleanBoxName, expenseStats, joinNames, LEGACY_MEMBERS, legacyMembersFor, newMember, sortMembers } from '../people.js';
+import { boxChoices, boxesForMonth, boxForDay, boxStats, cleanBoxName, expenseStats, householdAccounts, joinNames, LEGACY_MEMBERS, legacyMembersFor, newJoiners, newMember, sortMembers } from '../people.js';
 
 const two = ['phu', 'nhi'];
 
@@ -178,4 +178,27 @@ test('a new expense starts in the box whose days cover it, and old boxes leave t
 test('box names are tidied and kept short', () => {
   assert.equal(cleanBoxName('  Japan   <Box> '), 'Japan Box');
   assert.equal(cleanBoxName('x'.repeat(50)).length, 30);
+});
+
+test('household accounts: newest first, names cleaned, unknown join dates last', () => {
+  const rec = {
+    members: { a: true, b: true, c: true, gone: false },
+    accounts: { a: { name: 'Adrian', email: 'a@x.com', joined: 1000 }, b: { name: 'Nhi <b>', email: 'n@x.com', joined: { toMillis: () => 5000 } } },
+  };
+  assert.deepEqual(householdAccounts(rec), [
+    { uid: 'b', name: 'Nhi b', email: 'n@x.com', joined: 5000 },
+    { uid: 'a', name: 'Adrian', email: 'a@x.com', joined: 1000 },
+    { uid: 'c', name: '', email: '', joined: 0 },
+  ]);
+  // An entry for someone no longer in members isn't listed.
+  assert.deepEqual(householdAccounts({ members: {}, accounts: { a: { name: 'A' } } }), []);
+  assert.deepEqual(householdAccounts(null), []);
+});
+
+test('new joiners: recent, not me, not seen on this device, date known', () => {
+  const now = 100 * 864e5;
+  const list = [{ uid: 'me', joined: 0 }, { uid: 'n', joined: now - 2 * 864e5 }, { uid: 'old', joined: now - 20 * 864e5 }, { uid: 'x', joined: 0 }, { uid: 's', joined: now - 1 }];
+  assert.deepEqual(newJoiners(list, 'me', ['s'], now).map((a) => a.uid), ['n']);
+  // Someone who was already there when I joined isn't news.
+  assert.deepEqual(newJoiners([{ uid: 'me', joined: now - 1 }, { uid: 'n', joined: now - 2 }], 'me', [], now), []);
 });

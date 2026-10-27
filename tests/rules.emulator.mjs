@@ -46,6 +46,19 @@ test('joining needs a live invite for that household', async () => {
   await assertSucceeds(getDoc(doc(db('bob'), 'homes/h1/data/main')));
 });
 
+test('the list of signed-in accounts: written after joining, removed with the member', async () => {
+  await assertSucceeds(setDoc(doc(db('dan'), 'homes/h5'), { members: { dan: true }, accounts: { dan: { name: 'Dan', email: 'd@x.com' } }, name: 'Home' }));
+  await assertSucceeds(setDoc(doc(db('dan'), 'invites/DANCODE11'), { home: 'h5', by: 'dan', expires: inDays(7) }));
+  // Not in yet: can't put yourself on the list.
+  await assertFails(updateDoc(doc(db('eve'), 'homes/h5'), { 'accounts.eve': { name: 'Eve' } }));
+  await assertSucceeds(updateDoc(doc(db('eve'), 'homes/h5'), { 'members.eve': true, invite: 'DANCODE11' }));
+  await assertSucceeds(updateDoc(doc(db('eve'), 'homes/h5'), { 'accounts.eve': { name: 'Eve', email: 'e@x.com', joined: Timestamp.now() } }));
+  await assertSucceeds(updateDoc(doc(db('eve'), 'homes/h5'), { 'accounts.eve.name': 'Eve B' }));
+  await assertSucceeds(updateDoc(doc(db('dan'), 'homes/h5'), { 'members.eve': deleteField(), 'accounts.eve': deleteField() }));
+  await assertFails(getDoc(doc(db('eve'), 'homes/h5')));
+  await assertFails(updateDoc(doc(db('eve'), 'homes/h5'), { 'accounts.eve': { name: 'Eve' } }));
+});
+
 test('members rename and remove, but cannot add people', async () => {
   await assertSucceeds(updateDoc(doc(db('ann'), 'homes/h1'), { name: 'Our home' }));
   await assertFails(updateDoc(doc(db('ann'), 'homes/h1'), { 'members.eve': true }));
