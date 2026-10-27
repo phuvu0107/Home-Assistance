@@ -3704,6 +3704,45 @@ function adminWhyNot() {
     <li>The Daily summary email job copies <code>ADMIN_EMAILS</code> into the database each hour; run it by hand in Actions to do it now.</li></ul>`;
 }
 
+// What people do in the app, across every household: counts only, from the job's last report.
+const FEATURES = [['chores', 'Chores', 'checkSquare'], ['ticks', 'Chores and events done', 'check'], ['events', 'Events', 'calendar'],
+  ['itinerary', 'Itinerary', 'pin'], ['expenses', 'Expenses', 'piggy'], ['boxes', 'Money boxes', 'box'], ['shopping', 'Shopping list', 'cart'],
+  ['kitchen', 'Kitchen items', 'fridge'], ['notes', 'Sticky notes', 'notes'], ['thanks', 'Thank-yous', 'heart'], ['bucket', 'Bucket list', 'sparkles'],
+  ['fitbit', 'Fitbit (people)', 'activity'], ['people', 'People', 'users']];
+function adminUsage(st) {
+  if (!st.usage) return '<p class="hint">Usage numbers show after the next job run.</p>';
+  const n = st.households || 0;
+  const pct = (v) => (n ? `${Math.round((v / n) * 100)}%` : '–');
+  const a = st.active || {};
+  const ticks = st.ticks || [];
+  const week = ticks.slice(-7).reduce((t, d) => t + d.n, 0);
+  const max = Math.max(1, ...ticks.map((d) => d.n));
+  const w = 300 / Math.max(1, ticks.length);
+  const bars = ticks.map((d, i) => { const h = (d.n / max) * 92; return `<rect class="bar-steps" x="${(i * w + w * 0.15).toFixed(2)}" y="${(100 - h).toFixed(2)}" width="${(w * 0.7).toFixed(2)}" height="${h.toFixed(2)}"><title>${fmtShort(d.day)}: ${d.n}</title></rect>`; }).join('');
+  const rows = FEATURES.filter(([k]) => st.usage[k]).sort((x, y) => st.usage[y[0]].households - st.usage[x[0]].households || st.usage[y[0]].week - st.usage[x[0]].week);
+  const unused = FEATURES.filter(([k]) => !st.usage[k] && k !== 'people').map(([, label]) => label);
+  const tile = (ic, label, v, sub) => `<div class="card tile"><small>${icon(ic)}${label}</small><b>${(v ?? 0).toLocaleString()}</b><span>${sub}</span></div>`;
+  return `<h3 class="set-group">Usage</h3>
+  <div class="energy-tiles admin-tiles">
+    ${tile('sun', 'Active today', a.d1, `of ${n} household${n === 1 ? '' : 's'} changed something`)}
+    ${tile('calendar', 'Active this week', a.d7, pct(a.d7 || 0))}
+    ${tile('chart', 'Active this month', a.d30, pct(a.d30 || 0))}
+    ${tile('check', 'Ticks this week', week, 'Chores and events done')}
+  </div>
+  <div class="page-grid admin-usage">
+    <div class="card"><div class="energy-chart">
+      <div class="chart-top"><span>Ticks per day, last ${ticks.length} days</span><span>top ${max}</span></div>
+      <svg viewBox="0 0 300 100" preserveAspectRatio="none" style="height:150px" role="img" aria-label="Ticks per day">${bars}</svg>
+      <div class="chart-axis"><span>${ticks[0] ? fmtShort(ticks[0].day) : ''}</span><span>${ticks.length ? 'Today' : ''}</span></div></div></div>
+    <div class="card"><div class="card-head">${icon('grid')}<h2>Features</h2><span class="hint">Most used first</span></div>
+      <div class="table-wrap"><table class="energy-table admin-features">
+        <thead><tr><th>Feature</th><th>Homes</th><th>Items</th><th>This week</th></tr></thead>
+        <tbody>${rows.map(([k, label, ic]) => { const u = st.usage[k]; return `<tr><td>${icon(ic)} ${label}</td><td>${u.households} <small class="hint">${pct(u.households)}</small></td><td>${u.items.toLocaleString()}</td><td>${u.week.toLocaleString()}</td></tr>`; }).join('')}</tbody>
+      </table></div>
+      ${unused.length ? `<p class="hint">Nobody uses yet: ${unused.join(', ')}.</p>` : ''}</div>
+  </div>`;
+}
+
 views.admin = () => {
   recheckAdmin();
   if (!admin.on) {
@@ -3736,6 +3775,7 @@ views.admin = () => {
     ${tile('heart', 'Friendships', st.friendships, `${(st.groups || 0).toLocaleString()} groups · ${(st.posts || 0).toLocaleString()} posts`)}
     ${tile('lock', 'Passphrase households', st.legacy, `${st.legacyActive || 0} used in 30 days`)}
   </div>
+  ${adminUsage(st)}
   <div class="card"><div class="card-head">${icon('chart')}<h2>Households</h2><span class="hint">Biggest first · data limit ${fmtBytes(limit)}</span></div>
     ${homes.length ? `<div class="table-wrap"><table class="energy-table admin-homes">
       <thead><tr><th>Household</th><th>People</th><th>Data</th><th>Email</th><th>Last change</th><th></th></tr></thead>
