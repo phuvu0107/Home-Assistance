@@ -1388,8 +1388,19 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .post-head small { color: var(--text-3); font-size: 12px; }
 .post-head .btn-round { width: 32px; height: 32px; font-size: 15px; background: none; border-color: transparent; color: var(--text-3); }
 .post-text { margin: 10px 0 8px; font-size: 16px; line-height: 1.45; overflow-wrap: anywhere; }
-.post-photo { display: block; width: 100%; padding: 0; border: 0; margin: 4px 0 8px; border-radius: 14px; overflow: hidden; background: var(--card); cursor: zoom-in; }
-.post-photo img { display: block; width: 100%; max-height: 420px; object-fit: cover; }
+.post-photo { display: block; width: 100%; padding: 0; border: 0; border-radius: 14px; overflow: hidden; background: var(--card); cursor: zoom-in; }
+.post-photo img { display: block; width: 100%; aspect-ratio: 4 / 3; max-height: 460px; object-fit: cover; }
+.post .slides-wrap { margin: 4px 0 8px; }
+.post-went { margin: 0 0 6px; color: var(--text-2); font-size: 14px; }
+.slides-wrap { position: relative; }
+.slides { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; border-radius: 14px; }
+.slides::-webkit-scrollbar { display: none; }
+.slides > * { flex: 0 0 100%; scroll-snap-align: center; }
+.slide-dots { position: absolute; left: 0; right: 0; bottom: 10px; display: flex; justify-content: center; gap: 6px; pointer-events: none; }
+.slide-dots i { width: 7px; height: 7px; border-radius: 50%; background: rgb(255 255 255 / .55); box-shadow: 0 0 3px rgb(0 0 0 / .4); }
+.slide-dots i.on { background: #fff; }
+.bk-pic { position: relative; }
+.bk-count { position: absolute; right: 2px; bottom: 2px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: rgb(0 0 0 / .6); color: #fff; font-size: 11px; line-height: 16px; text-align: center; }
 .post-acts { display: flex; gap: 6px; }
 .post-act { border: 0; background: none; border-radius: 999px; padding: 6px 10px; display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-weight: 500; font-size: 14px; }
 .post-act span { font-size: 13px; }
