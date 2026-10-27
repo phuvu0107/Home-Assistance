@@ -2174,6 +2174,8 @@ function openBucketTick(b) {
     <div class="field"><label>Picture</label><div id="bk-shot">${bkPicHtml()}</div></div>
     <div class="field"><label>Who went</label>${whoPicker('both', 'both')}</div>
     ${members().length > 1 ? `<p class="hint">${me() && otherOf(me()) ? `${esc(userOf(otherOf(me())).name)} gets a note on their screen` : members().length === 2 ? 'The other person gets a note on their screen' : 'Everyone else gets a note on their screen'} unless you went together.</p>` : ''}
+    ${account.user ? `<div class="setting-row imp-row"><div><b>Share on Friends</b><div class="hint">Posts the picture to your Friends feed${social.me?.name ? ` as ${esc(social.me.name)}` : ''}.</div></div>
+      <button class="switch" id="bk-share" role="switch" aria-checked="true" data-action="toggle-important"></button></div>` : ''}
     <div class="sheet-actions">
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
       <button class="btn" data-action="done-bucket" data-id="${b.id}" disabled>${icon('check')} Tick it off</button>
@@ -2181,12 +2183,29 @@ function openBucketTick(b) {
   $('#sheet').dataset.kind = 'bucket-tick';
 }
 
+// A check-in can go on the Friends feed too, as whoever is signed in on this screen. Friends may
+// not have been opened yet, so this starts it and waits for the friends list first. The picture
+// travels inside the post, made smaller, since friends can't read the household's pictures.
+async function shareBucket(b, data) {
+  startSocial();
+  for (let i = 0; i < 40 && !(social.state === 'ready' && social.friendsIn); i++) await new Promise((ok) => setTimeout(ok, 250));
+  if (social.state !== 'ready' || !social.friendsIn) { toast("Couldn't share it on Friends this time"); return; }
+  if (!social.friends.length) return; // nobody to show it to yet
+  const who = b.doneBy === 'both' ? '' : ` (${userOf(b.doneBy)?.name || ''})`;
+  const text = `🎉 Ticked off our bucket list: ${b.text} ${kindOf(b)[0]}${who}`;
+  try {
+    const photo = await shrink(await (await fetch(data)).blob(), 720);
+    await addPost(FRIENDS_PATH, socialMe(), text, social.friends.map((f) => f.uid), { photo, bucket: { kind: b.kind, love: loveOf(b) } });
+    toast('Shared on your Friends feed');
+  } catch (e) { toast(accountError(e)); }
+}
+
 /* =========================================================
    Friends: a feed shared with friends from any household, and groups
    ========================================================= */
 // Everything here lives in its own place in the database (social.js), never in the household's
 // synced data, and needs someone signed in. On a shared screen it posts as whoever signed in.
-const freshSocial = () => ({ uid: '', state: 'off', note: '', me: null, friends: [], incoming: [], outgoing: [], posts: null, groups: [],
+const freshSocial = () => ({ uid: '', state: 'off', note: '', me: null, friends: [], incoming: [], outgoing: [], posts: null, groups: [], friendsIn: false,
   gid: '', group: undefined, items: [], tab: 'feed', open: new Set(), comments: {}, drafts: {}, busy: '', offs: [], groupOff: null, commentOffs: {}, dirty: false });
 let social = freshSocial();
 const GROUP_TABS = { feed: 'Feed', plans: 'Plans', bucket: 'Bucket list', money: 'Money' };
@@ -2217,7 +2236,7 @@ function startSocial() {
   myProfile(u).then((p) => {
     if (social.uid !== u.uid) return;
     social.me = { uid: u.uid, ...p }; social.state = 'ready';
-    social.offs.push(watchFriends(u.uid, (f) => { Object.assign(social, f); socialRedraw(); }));
+    social.offs.push(watchFriends(u.uid, (f) => { Object.assign(social, f, { friendsIn: true }); socialRedraw(); }));
     social.offs.push(watchPosts(u.uid, (list) => { social.posts = list || []; socialRedraw(); }));
     refreshGroups();
   }).catch((e) => { social.state = 'error'; social.note = accountError(e); }).finally(socialRedraw);
@@ -2247,6 +2266,8 @@ const personAv = (uid, name, size = 'sm') => avatarImg({ name: name || '?', colo
 const nameIn = (uid) => social.group?.members.find((m) => m.uid === uid)?.name || 'Someone';
 const textHtml = (s) => esc(s).replace(/\n/g, '<br>');
 
+// Only a picture carried in the post itself; anything else in the field is ignored.
+const postPhoto = (p) => (typeof p.photo === 'string' && p.photo.startsWith('data:image/') ? p.photo : '');
 function postCard(p, path) {
   const key = `${path}|${p.id}`;
   const likes = Object.keys(p.likes || {}).length; const liked = !!p.likes?.[social.uid];
@@ -2255,6 +2276,7 @@ function postCard(p, path) {
     <div class="post-head">${personAv(p.by, p.name)}<span class="post-who"><b>${esc(p.name || 'Someone')}</b><small>${ago(p.at)}</small></span>
       ${p.by === social.uid ? `<button class="btn-round" data-action="soc-del-post" data-path="${path}" data-id="${p.id}" aria-label="Delete post">${icon('trash')}</button>` : ''}</div>
     <p class="post-text">${textHtml(p.text)}</p>
+    ${postPhoto(p) ? `<button class="post-photo" data-action="soc-view-photo" data-path="${path}" data-id="${p.id}" aria-label="See the picture"><img alt="" src="${esc(postPhoto(p))}"></button>` : ''}
     <div class="post-acts">
       <button class="post-act${liked ? ' on' : ''}" data-action="soc-like" data-path="${path}" data-id="${p.id}" aria-pressed="${liked}">${liked ? '❤️' : '🤍'} ${likes || ''}<span>Like</span></button>
       <button class="post-act" data-action="soc-comments" data-path="${path}" data-id="${p.id}" aria-expanded="${open}">💬 ${open && comments ? comments.length || '' : ''}<span>${open ? 'Hide comments' : 'Comments'}</span></button>
@@ -2463,6 +2485,11 @@ const socialActions = {
     if (!text.trim()) { toast('Write something first'); return; }
     const seen = path === FRIENDS_PATH ? social.friends.map((f) => f.uid) : null;
     socialDo('post', () => addPost(path, socialMe(), text, seen), () => { social.drafts[key] = ''; });
+  },
+  'soc-view-photo': (el) => {
+    const { path, id } = el.dataset;
+    const p = (path === FRIENDS_PATH ? social.posts : social.items).find((x) => x.id === id);
+    if (postPhoto(p || {})) viewPhoto(null, postPhoto(p));
   },
   'soc-like': (el) => {
     const { path, id } = el.dataset;
@@ -4429,8 +4456,10 @@ const actions = {
     const doneBy = pickedWho() || 'both';
     // Whoever ticked it off: this phone's owner, or on the fridge the one person who went.
     const from = me() || (userOf(doneBy) ? doneBy : '');
+    const share = $('#bk-share')?.getAttribute('aria-checked') === 'true';
     Object.assign(b, { doneAt: Date.now(), doneBy, photo: bucketPic.id, ...(from && { from }) });
     photos.add(bucketPic.id, bucketPic.data);
+    if (share) shareBucket(b, bucketPic.data);
     bucketPic = null;
     burst(`[data-action="tick-bucket"][data-id="${b.id}"]`);
     closeSheet();
