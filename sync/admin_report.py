@@ -16,6 +16,7 @@ Firebase's free daily reads for a few hundred households.
 import datetime as dt
 import json
 import os
+import re
 
 SYNC_LIMIT = 1040000  # the most a household's data can hold, as in sync.js
 KEEP_RUNS = 60  # emails kept in admin/runs
@@ -92,7 +93,15 @@ def data_size(box):
 
 
 def admin_emails():
-    return sorted({a.strip().lower() for a in os.environ.get("ADMIN_EMAILS", "").split(",") if "@" in a})
+    """The addresses in ADMIN_EMAILS, however they're written: commas, spaces or new lines between
+    them, with or without quotes or <angle brackets> around them."""
+    return sorted({a.lower() for a in re.findall(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", os.environ.get("ADMIN_EMAILS", ""))})
+
+
+def masked(email):
+    """An address with most of its name hidden, for the job's log (which is public)."""
+    name, _, domain = email.partition("@")
+    return f"{name[:2]}***{name[-1:] if len(name) > 3 else ''}@{domain}"
 
 
 def gather(store, emailing):
@@ -139,6 +148,7 @@ def report(store, emailing, sent):
     emails = admin_emails()
     if emails:
         put(store, "admin/access", {"emails": emails})
+    print(f"Admin page open to: {', '.join(masked(e) for e in emails) or 'nobody (ADMIN_EMAILS has no address)'}")
     put(store, "admin/stats", gather(store, emailing))
     if sent:
         try:
