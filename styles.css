@@ -1488,7 +1488,7 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .photo-view.tall img { max-height: none; width: min(100%, 760px); }
 @media (min-width: 900px) { .trend-places { max-width: 720px; } .trend-bar { height: 160px; } }
 
-/* Kitchen: shopping list */
+/* Inventory: shopping list */
 .shop-card { margin-bottom: 16px; }
 .shop-new { display: flex; gap: 8px; margin-bottom: 12px; }
 .shop-new .input { flex: 1; min-width: 0; }
