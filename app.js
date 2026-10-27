@@ -2134,18 +2134,29 @@ views.bucket = () => {
   </div>`;
 };
 
+// A done item opens on its check-in picture; changing it is folded away under Edit. The kind
+// grid is folded too once an item exists, showing just the kind it has.
 function openBucketSheet(b) {
   const kind = b?.kind || 'trip';
-  openSheet(`${sheetHead(b ? 'Bucket list' : 'Add to the bucket list', 'sparkles')}
-    <div class="field"><label for="bk-text">What</label><input class="input" id="bk-text" maxlength="${BUCKET_MAX}" value="${esc(b?.text || '')}" placeholder="e.g. Cherry blossoms in Kyoto"${b ? ' data-nofocus' : ''}></div>
-    <div class="field"><label>Kind</label><div class="seg bk-kind" id="bk-kind">${Object.entries(BUCKET_KINDS).map(([k, [e, l, n]]) => `<button class="${k === kind ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${e} ${l}<small>❤️ ${n}</small></button>`).join('')}</div></div>
+  const [ke, kl, kn] = BUCKET_KINDS[kind] || BUCKET_KINDS.do;
+  const fields = `<div class="field"><label for="bk-text">What</label><input class="input" id="bk-text" maxlength="${BUCKET_MAX}" value="${esc(b?.text || '')}" placeholder="e.g. Cherry blossoms in Kyoto"${b ? ' data-nofocus' : ''}></div>
+    <details class="field bk-kind-fold"${b ? '' : ' open'}><summary><label>Kind</label><span id="bk-kind-now">${ke} ${kl} · ❤️ ${kn}</span><span class="bk-change">Change</span></summary>
+      <div class="seg bk-kind" id="bk-kind">${Object.entries(BUCKET_KINDS).map(([k, [e, l, n]]) => `<button class="${k === kind ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${e} ${l}<small>❤️ ${n}</small></button>`).join('')}</div></details>
     ${!b && !me() ? `<div class="field"><label>From</label>${whoPicker(state.settings.lastWriter || members()[0].id, false)}</div>` : ''}
     ${b ? `<p class="hint">Added by ${esc(userOf(b.by)?.name || 'someone')} ${ago(b.at)}${b.doneAt ? ` · done ${dayLabel(isoDay(new Date(b.doneAt)))}, ${wentLine(b).toLowerCase()}` : ''}</p>` : ''}
     <div class="sheet-actions">
       ${b ? `<button class="btn danger" data-action="del-bucket" data-id="${b.id}">${icon('trash')} Remove</button><span class="spacer"></span>` : ''}
-      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      ${b?.doneAt ? '' : '<button class="btn ghost" data-action="close-sheet">Cancel</button>'}
       <button class="btn" data-action="save-bucket" data-id="${b?.id || ''}">${b ? 'Save' : 'Add'}</button>
-    </div>`);
+    </div>`;
+  if (b?.doneAt) {
+    openSheet(`${sheetHead(esc(b.text), 'sparkles')}
+      ${b.photo ? `<button class="bk-memory" data-action="view-photo" data-photo-id="${esc(b.photo)}" aria-label="See the check-in picture full screen">${photoImg(b.photo)}</button>`
+        : `<p class="bk-memory none"><span class="bk-emoji">${kindOf(b)[0]}</span><span>Ticked off before check-ins had pictures</span></p>`}
+      <p class="bk-went"><b>${esc(wentLine(b))}</b> · ${dayLabel(isoDay(new Date(b.doneAt)))}${loveTag(b)}</p>
+      <details class="bk-adjust"><summary>Edit or remove${icon('chevron', 'chev')}</summary>${fields}</details>`);
+    fillPhotos($('#sheet'));
+  } else openSheet(`${sheetHead(b ? 'Bucket list' : 'Add to the bucket list', 'sparkles')}${fields}`);
   $('#sheet').dataset.kind = 'bucket-edit';
 }
 
@@ -4116,6 +4127,7 @@ const actions = {
   'pick-seg': (el) => {
     el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
     el.parentElement.dataset.picked = '1'; // stops the expense category following the name
+    if (el.parentElement.id === 'bk-kind') { $('#bk-kind-now').textContent = el.textContent.replace('❤️', ' · ❤️'); el.closest('details').open = false; }
     if (el.parentElement.classList.contains('emoji-pick')) burstOn(el);
   },
 
