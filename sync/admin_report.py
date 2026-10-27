@@ -104,18 +104,55 @@ def masked(email):
     return f"{name[:2]}***{name[-1:] if len(name) > 3 else ''}@{domain}"
 
 
+# What each kind of synced item is, as in sync.js (h: is one person's Fitbit numbers).
+KINDS = {"e": "events", "t": "chores", "x": "expenses", "l": "ticks", "f": "kitchen", "k": "thanks", "n": "notes",
+         "b": "bucket", "p": "people", "i": "itinerary", "g": "shopping", "m": "boxes", "h": "fitbit"}
+TICK_DAYS = 14
+
+
+def usage_of(items, now):
+    """How one household uses the app, as counts only: {kind: [items, changed in the last 7 days]},
+    when anything last changed (ms), and ticks per day ({YYYY-MM-DD: n}) for the last TICK_DAYS."""
+    week = (now - dt.timedelta(days=7)).timestamp() * 1000
+    first = (now - dt.timedelta(days=TICK_DAYS - 1)).date().isoformat()
+    kinds, last, ticks = {}, 0, {}
+    for key, it in (items or {}).items():
+        kind = KINDS.get(key.split(":")[0]) if ":" in key else None
+        if not kind or not isinstance(it, dict):
+            continue
+        u = it.get("u") if isinstance(it.get("u"), (int, float)) else 0
+        k = kinds.setdefault(kind, [0, 0])
+        k[0] += 1
+        k[1] += u >= week
+        last = max(last, u)
+        if kind == "ticks" and str(it.get("date", "")) >= first:
+            ticks[it["date"]] = ticks.get(it["date"], 0) + 1
+    return kinds, last, ticks
+
+
 def gather(store, emailing):
     """The admin/stats record. `emailing(home, rec)` says whether a household gets the email."""
     now = dt.datetime.now(dt.timezone.utc)
     homes = []
+    usage, ticks, last_seen = {}, {}, []
     for home, rec, _ in listing(store, "homes", "members", "email", "emailSent"):
         row = {"id": home, "members": len(rec.get("members") or {}), "email": bool(emailing(home, rec)),
                "emailTo": len((rec.get("email") or {}).get("to") or []) if isinstance(rec.get("email"), dict) else 0,
                "emailSent": rec.get("emailSent") or "", "size": 0, "changed": ""}
         try:
             d = store.call(f"homes/{home}/data/main")
-            row["size"] = data_size(from_fields(d.get("fields")).get("box"))
+            box = from_fields(d.get("fields")).get("box")
+            row["size"] = data_size(box)
             row["changed"] = d.get("updateTime", "")
+            kinds, last, days = usage_of(json.loads(box.get("json") or "{}").get("items"), now)
+            for kind, (n, wk) in kinds.items():
+                u = usage.setdefault(kind, {"households": 0, "items": 0, "week": 0})
+                u["households"] += n > 0
+                u["items"] += n
+                u["week"] += wk
+            for day, n in days.items():
+                ticks[day] = ticks.get(day, 0) + n
+            last_seen.append(last)
         except Exception:  # started but never synced: no data yet
             pass
         homes.append(row)
@@ -135,6 +172,11 @@ def gather(store, emailing):
         "legacy": len(legacy),
         "legacyActive": sum(1 for _, _, t in legacy if t >= month_ago),
         "homes": homes[:200],
+        # How the app is used, across every household: counts only, never what anything says.
+        "usage": usage,
+        "active": {f"d{n}": sum(1 for t in last_seen if t >= (now - dt.timedelta(days=n)).timestamp() * 1000) for n in (1, 7, 30)},
+        "ticks": [{"day": (now - dt.timedelta(days=i)).date().isoformat(),
+                   "n": ticks.get((now - dt.timedelta(days=i)).date().isoformat(), 0)} for i in range(TICK_DAYS - 1, -1, -1)],
         # Which of the job's settings are filled in (never their values).
         "secrets": {"smtp": bool(os.environ.get("EMAIL_SMTP_USER") and os.environ.get("EMAIL_SMTP_PASSWORD")),
                     "admins": len(admin_emails()), "homeId": bool(os.environ.get("HOME_ID", "").strip())},

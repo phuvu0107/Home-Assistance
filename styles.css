@@ -1512,3 +1512,8 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .privacy-list li { margin: 0 0 6px; }
 .privacy-sec .btn.danger { margin-top: 8px; }
 .danger-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-usage { margin-bottom: 16px; align-items: start; }
+.admin-features th, .admin-features td { padding-left: 6px; padding-right: 6px; }
+@media (min-width: 900px) { .admin-usage { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); } }
+.admin-features td .ico { color: var(--text-3); margin-right: 4px; }
+@media (max-width: 600px) { .admin-features td .ico { display: none; } }
