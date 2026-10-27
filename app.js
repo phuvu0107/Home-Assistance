@@ -2246,7 +2246,7 @@ async function shareBucket(b, pics) {
 // Everything here lives in its own place in the database (social.js), never in the household's
 // synced data, and needs someone signed in. On a shared screen it posts as whoever signed in.
 const freshSocial = () => ({ uid: '', state: 'off', note: '', me: null, friends: [], incoming: [], outgoing: [], posts: null, groups: [], friendsIn: false,
-  gid: '', group: undefined, items: [], tab: 'feed', open: new Set(), comments: {}, drafts: {}, busy: '', offs: [], groupOff: null, commentOffs: {}, dirty: false });
+  gid: '', group: undefined, items: [], tab: 'feed', open: new Set(), comments: {}, drafts: {}, pics: {}, busy: '', offs: [], groupOff: null, commentOffs: {}, dirty: false });
 let social = freshSocial();
 const GROUP_TABS = { feed: 'Feed', plans: 'Plans', bucket: 'Bucket list', money: 'Money' };
 const FRIENDS_PATH = 'posts';
@@ -2322,7 +2322,7 @@ function postCard(p, path) {
   return `<div class="post" data-key="${esc(key)}">
     <div class="post-head">${personAv(p.by, p.name)}<span class="post-who"><b>${esc(p.name || 'Someone')}</b><small>${ago(p.at)}</small></span>
       ${p.by === social.uid ? `<button class="btn-round" data-action="soc-del-post" data-path="${path}" data-id="${p.id}" aria-label="Delete post">${icon('trash')}</button>` : ''}</div>
-    <p class="post-text">${textHtml(p.text)}</p>
+    ${p.text ? `<p class="post-text">${textHtml(p.text)}</p>` : ''}
     ${postPhotos(p).length ? slides(postPhotos(p).map((src, i) => `<button class="post-photo" data-action="soc-view-photo" data-path="${path}" data-id="${p.id}" data-i="${i}" aria-label="See the picture"><img alt="" src="${esc(src)}"></button>`)) : ''}
     ${typeof p.went === 'string' && p.went ? `<p class="post-went">With ${esc(p.went.slice(0, 120))}</p>` : ''}
     <div class="post-acts">
@@ -2336,10 +2336,16 @@ function postCard(p, path) {
   </div>`;
 }
 
+// Pictures go inside the post itself, made small, the same way a bucket list check-in shares them.
+const POST_PICS_CHARS = 800000;
 function composer(path, placeholder) {
+  const pics = social.pics[path] || [];
   return `<div class="composer">
     <textarea class="input" rows="2" maxlength="${POST_MAX}" data-draft="p:${path}" placeholder="${placeholder}" aria-label="New post">${esc(social.drafts[`p:${path}`] || '')}</textarea>
+    ${pics.length < BUCKET_PICS_MAX ? `<label class="btn-round composer-pic" aria-label="Add pictures">${icon('camera')}<input type="file" accept="image/*" multiple hidden data-post-pics="${path}"></label>` : ''}
     <button class="btn" data-action="soc-post" data-path="${path}" ${social.busy ? 'disabled' : ''}>${social.busy === 'post' ? 'Posting…' : 'Post'}</button>
+    ${pics.length ? `<div class="pl-photos edit composer-pics">${pics.map((src, i) => `<div class="pl-thumb"><img class="pl-photo" src="${src}" alt="">
+      <button class="pl-x" data-action="soc-del-pic" data-path="${path}" data-i="${i}" aria-label="Remove picture">${icon('x')}</button></div>`).join('')}</div>` : ''}
   </div>`;
 }
 
@@ -2529,11 +2535,13 @@ const socialActions = {
   'soc-copy': (el) => { navigator.clipboard?.writeText(el.dataset.v).then(() => toast('Copied'), () => toast(showCode(el.dataset.v))); },
   'soc-post': (el) => {
     const path = el.dataset.path; const key = `p:${path}`;
-    const text = social.drafts[key] || '';
-    if (!text.trim()) { toast('Write something first'); return; }
+    const text = social.drafts[key] || ''; const pics = social.pics[path] || [];
+    if (!text.trim() && !pics.length) { toast('Write something or add a picture first'); return; }
     const seen = path === FRIENDS_PATH ? social.friends.map((f) => f.uid) : null;
-    socialDo('post', () => addPost(path, socialMe(), text, seen), () => { social.drafts[key] = ''; });
+    socialDo('post', () => addPost(path, socialMe(), text, seen, pics.length ? { photo: pics[0], photos: pics } : {}),
+      () => { social.drafts[key] = ''; delete social.pics[path]; });
   },
+  'soc-del-pic': (el) => { social.pics[el.dataset.path]?.splice(+el.dataset.i, 1); renderView(); },
   'soc-view-photo': (el) => {
     const { path, id } = el.dataset;
     const p = (path === FRIENDS_PATH ? social.posts : social.items).find((x) => x.id === id);
@@ -5077,6 +5085,21 @@ document.addEventListener('change', async (e) => {
     try { bucketPics.push({ id: `ph${Date.now()}${Math.random().toString(36).slice(2, 6)}`, data: await shrink(f) }); } catch (err) { toast(err.message || "Couldn't read that picture"); }
   }
   redrawBucketPics();
+});
+document.addEventListener('change', async (e) => {
+  const path = e.target.dataset?.postPics;
+  if (!path || !e.target.files[0]) return;
+  const files = [...e.target.files]; e.target.value = '';
+  const pics = social.pics[path] || (social.pics[path] = []);
+  for (const f of files) {
+    if (pics.length >= BUCKET_PICS_MAX) break;
+    try {
+      const small = await shrink(f, 640);
+      if (pics.join('').length + small.length > POST_PICS_CHARS) { toast('That is as many pictures as fit in one post'); break; }
+      pics.push(small);
+    } catch (err) { toast(err.message || "Couldn't read that picture"); }
+  }
+  renderView();
 });
 document.addEventListener('change', async (e) => {
   if (e.target.id !== 'energy-file') return;
