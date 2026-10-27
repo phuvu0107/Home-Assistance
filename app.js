@@ -929,7 +929,7 @@ const goTo = (id) => { if (id === currentRoute()) render(); else location.hash =
 function feedbackLink() {
   const page = PAGES.find((p) => p.id === currentRoute())?.label || 'Home';
   const body = `\n\n\n---\nPage: ${page}\nScreen: ${window.innerWidth}x${window.innerHeight}\nVersion: ${appVersion || 'local'}`;
-  return `mailto:${FEEDBACK_EMAIL || ''}?subject=${encodeURIComponent('Home Assistance feedback')}&body=${encodeURIComponent(body)}`;
+  return `mailto:${FEEDBACK_EMAIL || ''}?subject=${encodeURIComponent('Hometide feedback')}&body=${encodeURIComponent(body)}`;
 }
 // The fridge screen often has no email app set up, so the address is offered to copy as well.
 function sendFeedback() {

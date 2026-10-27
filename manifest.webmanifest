@@ -1,6 +1,6 @@
 {
-  "name": "Home Assistant",
-  "short_name": "Home",
+  "name": "Hometide",
+  "short_name": "Hometide",
   "description": "Touch-friendly home dashboard for any tablet, laptop or wall-mounted screen.",
   "start_url": "./",
   "scope": "./",
