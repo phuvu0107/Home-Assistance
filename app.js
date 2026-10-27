@@ -2083,7 +2083,7 @@ const wentLine = (b) => (b.doneBy === 'both' ? andList(members().map((u) => u.na
 // A check-in's pictures. `photo` is the first one, which is all that older versions read.
 const bkPhotos = (b) => (b.photos?.length ? b.photos : b.photo ? [b.photo] : []);
 // Pictures side by side that swipe one at a time, with dots when there is more than one.
-const slides = (items) => `<div class="slides-wrap"><div class="slides">${items.join('')}</div>
+const slides = (items) => `<div class="slides-wrap"><div class="slides${items.length > 1 ? ' many' : ''}">${items.join('')}</div>
   ${items.length > 1 ? `<div class="slide-dots" aria-hidden="true">${items.map((_, i) => `<i${i ? '' : ' class="on"'}></i>`).join('')}</div>` : ''}</div>`;
 
 function bucketRow(b) {
@@ -2250,7 +2250,8 @@ function socialRedraw() {
 document.addEventListener('focusout', () => setTimeout(() => { if (social.dirty) socialRedraw(); }, 0));
 document.addEventListener('scroll', (e) => {
   const box = e.target; if (!box.classList?.contains('slides')) return;
-  const at = Math.round(box.scrollLeft / box.clientWidth);
+  const n = box.children.length; const room = box.scrollWidth - box.clientWidth;
+  const at = room > 0 ? Math.round(box.scrollLeft / room * (n - 1)) : 0;
   box.parentElement.querySelectorAll('.slide-dots i').forEach((d, i) => d.classList.toggle('on', i === at));
 }, true);
 
