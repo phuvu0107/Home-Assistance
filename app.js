@@ -176,6 +176,24 @@ function tickClock() {
   $('#date').textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
   $('#clock').textContent = fmtTime(now);
   updateSky(now.getTime());
+  renderMe();
+}
+
+// Who this screen belongs to, in the panel's top right: the person picked in Settings › Household,
+// or else the Google account signed in here. Tapping it opens Settings.
+function renderMe() {
+  const el = $('#hero-me');
+  const p = userOf(state.settings.me), u = account.user;
+  const name = p?.name || (u ? (u.name || u.email).split(/[\s@]/)[0] : '');
+  const key = name && [p?.id, p?.avatar, p?.color, name, u?.email].join('|');
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  el.hidden = !name;
+  if (!name) return;
+  const label = p && u ? `${p.name}, signed in as ${u.email || u.name}` : u ? `Signed in as ${u.email || u.name}` : `${p.name} uses this device`;
+  el.title = label;
+  el.setAttribute('aria-label', label);
+  el.innerHTML = `${avatarImg(p || { name, color: 'blue' }, 'md')}<span class="hero-me-name">${esc(name)}</span>`;
 }
 
 /* ---------- Sun and moon in the greeting panel ---------- */
