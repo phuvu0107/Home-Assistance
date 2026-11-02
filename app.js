@@ -2218,9 +2218,8 @@ async function openCollage(key) {
   const v = (n) => css.getPropertyValue(n).trim();
   const love = m.items.reduce((n, b) => n + loveOf(b), 0);
   const data = await drawCollage(tiles, {
-    head: `Our ${monthName(key)}`,
-    sub: `${m.items.length} bucket list check-in${m.items.length === 1 ? '' : 's'} · ${love} love points`, love,
-    colors: { bg: v('--cream') || '#F7E7CB', ink: v('--navy') || '#1F2352', sub: v('--brand') || '#3B429A', soft: 'rgba(0, 0, 0, .06)' },
+    head: `Our ${monthName(key)}`, love,
+    colors: { bg: v('--cream') || '#F7E7CB', ink: v('--navy') || '#1F2352', sub: v('--brand') || '#3B429A', on: '#fff', soft: 'rgba(0, 0, 0, .06)' },
   });
   if (collage?.key !== key || $('#sheet').dataset.kind !== 'collage') return; // closed meanwhile
   collage.data = data;
