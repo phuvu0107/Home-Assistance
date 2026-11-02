@@ -733,6 +733,10 @@ label.btn { cursor: pointer; }
 /* First run: who lives here */
 .setup { max-width: 560px; margin: 0 auto; }
 .setup-names { display: grid; gap: 10px; margin: 16px 0; }
+/* First run: the mark, the wordmark and the promise, then who shares this home. */
+.welcome { max-width: 560px; margin: 24px auto 22px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; }
+.welcome-promise { margin: 6px 0 0; font-size: 20px; font-weight: 600; line-height: 1.3; color: var(--text); }
+.welcome-sub { margin: 0; font-size: 15px; color: var(--text-2); max-width: 420px; }
 .setup-actions { display: flex; gap: 10px; justify-content: space-between; flex-wrap: wrap; }
 .setup-join { margin-top: 18px; }
 .setup-join .link { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; }

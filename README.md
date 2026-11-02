@@ -1,5 +1,7 @@
 # Hometide
 
+*The shared screen that keeps a home in rhythm.*
+
 A touch-friendly home dashboard for a shared screen at home: a tablet on the fridge, a laptop on the counter, a wall-mounted display or just your phone. It's a static web app (no build step) hosted on GitHub Pages, with optional encrypted sync between devices, and it can be installed as a full-screen app from Chrome, Edge or Safari.
 
 **Live site:** https://phuvu0107.github.io/Home-Assistance/
@@ -75,12 +77,15 @@ To turn it on, add the Actions secret `ADMIN_EMAILS` (the Google accounts that m
 
 ![Settings page](docs/screenshots/settings.png)
 
+### Look and brand
+Tide Indigo (#3B429A) is the brand all year: buttons, ticks, the + button and the selected tab. Shore Cream is the page by day and night sits on a soft indigo. Seasons only tint the greeting panel and the glow behind the page: rust and mustard from September 1 to November 30, burgundy and pine from December 1 to January 6. The icon is a cream roofline over a honey wave, and the wordmark (home**tide**) shows on the first-run screen, at the bottom of Settings and in the summary email. Poppins ships with the app in `fonts/` (SIL Open Font License), so nothing loads from Google Fonts.
+
 ### Works on any screen
 The layout adapts from a wide display down to a phone. Every screen gets a see-through tab bar floating at the bottom with Home, Calendar, More and Chores, More in the middle. More opens a half circle with Inventory, Money, Settings, Energy and Health: tap one, or hold More, slide up, then left or right, and let go on the page you want. One + button adds whatever fits the page you're on. On touch screens you can swipe left or right to move between Home, Calendar and Chores, with the page following your finger. Motion is turned off when the device asks for reduced motion.
 
 <img src="docs/screenshots/phone.png" alt="Dashboard on a phone" width="320">
 
-The household's people are set up the first time the app opens (**Who lives here?**) and edited in **Settings › Household**: tap a face to rename someone or change their color, or **Add** for someone new. They sync like everything else, and a household that used the app before this keeps Phu and Nhi with their own avatars from `avatars/`; anyone added later shows their initial. Splitting money, Both (Everyone with three or more people) and thank-yous all work for any number of people. Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). **Phone alerts** for a new thank-you or a ticked-off bucket list item come through the free [ntfy](https://ntfy.sh) app: on your phone, pick yourself under **Who uses this device**, tap **Turn on** under Alerts, and subscribe to the channel it shows in ntfy. The channel name is random and only shared within the household, and an alert only says who did what, never what a note says. Display settings are saved in the browser on each device; events, chores, inventory items and expenses are shared across devices once [sync](#sync-across-devices) is on.
+The household's people are set up the first time the app opens (**Who shares this home?**, under the Hometide mark and promise) and edited in **Settings › Household**: tap a face to rename someone or change their color, or **Add** for someone new. They sync like everything else, and a household that used the app before this keeps Phu and Nhi with their own avatars from `avatars/`; anyone added later shows their initial. Splitting money, Both (Everyone with three or more people) and thank-yous all work for any number of people. Weather comes from [Open-Meteo](https://open-meteo.com) (free, no API key). **Phone alerts** for a new thank-you or a ticked-off bucket list item come through the free [ntfy](https://ntfy.sh) app: on your phone, pick yourself under **Who uses this device**, tap **Turn on** under Alerts, and subscribe to the channel it shows in ntfy. The channel name is random and only shared within the household, and an alert only says who did what, never what a note says. Display settings are saved in the browser on each device; events, chores, inventory items and expenses are shared across devices once [sync](#sync-across-devices) is on.
 
 ## Set up on your device
 

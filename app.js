@@ -995,8 +995,9 @@ const FAB = {
 };
 function setFab(r) {
   const fab = $('#fab'); const f = r === 'calendar' && calView() === 'trip' ? { action: 'add-plan', label: 'Add activity' } : FAB[r];
-  fab.hidden = !f;
-  if (!f) return;
+  // Nothing to add to until the first-run screen has named who lives here.
+  fab.hidden = !f || !members().length;
+  if (fab.hidden) return;
   fab.dataset.action = f.action;
   fab.dataset.d = isoDay(new Date());
   fab.setAttribute('aria-label', f.label);
@@ -3293,10 +3294,11 @@ const brandMark = (size = 'md') => `<div class="brand brand-${size}"><img class=
 /* ---------- Who lives here: first run and Settings ---------- */
 // A new household names its people before anything else, since chores, stars and money all
 // belong to someone. A screen joining an existing household gets them from there instead.
-views.setup = () => `<div class="section-title">Welcome</div>
+views.setup = () => `<div class="welcome">${brandMark('lg')}<p class="welcome-promise">${BRAND_PROMISE}</p>
+    <p class="welcome-sub">Chores, plans and money, seen by everyone at home, with every bit of help noticed.</p></div>
   <div class="card setup">
-    <div class="card-head">${icon('users')}<h2>Who lives here?</h2></div>
-    <p class="hint">Add everyone who shares the chores, the calendar and the money. You can change names and colors later in Settings.</p>
+    <div class="card-head">${icon('users')}<h2>Who shares this home?</h2></div>
+    <p class="hint">Add everyone who splits the chores, the bills and the plans. Each of you gets your own chores, stars and love points. You can change names and colors later in Settings.</p>
     <div class="setup-names" id="setup-names">${[0, 1].map((i) => setupRow(i)).join('')}</div>
     <div class="setup-actions">
       <button class="btn ghost" data-action="setup-add-row">${icon('plus')} Add someone</button>
