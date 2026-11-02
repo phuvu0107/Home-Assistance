@@ -7,7 +7,7 @@ import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, 
 import FEEDBACK_EMAIL from './feedback-config.js';
 import { adminRulesPublished, fmtBytes, isAdmin, loadAdmin, monitors, shortId, worst } from './admin.js';
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, friendsGate, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
-import { createPhotos, shrink } from './photos.js';
+import { collagePick, createPhotos, drawCollage, shrink } from './photos.js';
 import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, seasonFor, WEEKDAYS } from './schedule.js';
 import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthReport, monthTrend, newJoiners, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
@@ -1423,7 +1423,7 @@ views.home = () => {
   const tasks = tasksToday().sort((a, b) => isDone(a) - isDone(b) || order.indexOf(a.who) - order.indexOf(b.who));
   const lead = leadLine();
   const next = state.events.filter((e) => e.date > today).sort(byStart).slice(0, 4);
-  return `${houseFullBanner()}${joinNotice()}${thanksInbox()}${bucketInbox()}${glanceRow()}${notesBoard()}
+  return `${houseFullBanner()}${joinNotice()}${thanksInbox()}${bucketInbox()}${collageInbox()}${glanceRow()}${notesBoard()}
   <div class="grid-home">
     <div class="card a-today">
       <div class="card-head">${icon('checkSquare')}<h2>Today</h2>${lead ? `<a class="link" href="#/tasks">${lead} ${icon('arrowRight')}</a>` : ''}</div>
@@ -2235,8 +2235,96 @@ views.bucket = () => {
       ${done.length ? bucketHeat(done) : ''}
       <div class="task-list">${done.map(bucketRow).join('') || '<p class="empty-line">Nothing ticked off yet.</p>'}</div>
     </div>
+    ${collageCard()}
   </div>`;
 };
+
+/* ---------- Month collages ---------- */
+// Each month's check-in pictures as one square-tiled picture to keep or share. It is drawn when
+// opened, from pictures the household already has, so nothing extra is stored or synced. Early in
+// a new month Home offers last month's, once per screen.
+const monthOnly = (key) => monthName(key).split(' ')[0];
+// Months with check-in pictures, newest first; each month's check-ins oldest first.
+function bucketMonths() {
+  const by = new Map();
+  for (const b of bucketDone().filter((x) => bkPhotos(x).length).reverse()) {
+    const k = monthKey(new Date(b.doneAt));
+    if (!by.has(k)) by.set(k, []);
+    by.get(k).push(b);
+  }
+  return [...by].map(([key, items]) => ({ key, items, pics: items.reduce((n, b) => n + bkPhotos(b).length, 0) })).sort((a, b) => (a.key < b.key ? 1 : -1));
+}
+const COLLAGE_SEEN = 'home-dashboard.collage-seen';
+const lastMonthKey = () => { const d = new Date(); return monthKey(new Date(d.getFullYear(), d.getMonth() - 1, 15)); };
+function collageInbox() {
+  if (new Date().getDate() > 7) return '';
+  const m = bucketMonths().find((x) => x.key === lastMonthKey());
+  let seen = ''; try { seen = localStorage.getItem(COLLAGE_SEEN) || ''; } catch { /* private window */ }
+  if (!m || seen === m.key) return '';
+  return `<div class="inbox"><button class="inbox-strip" data-action="open-collage" data-month="${m.key}">
+    <span class="inbox-face collage-face">${photoImg(bkPhotos(m.items.at(-1))[0])}<i>🖼️</i></span>
+    <span><b>Your ${monthOnly(m.key)} collage is ready</b><small>${m.items.length} bucket list check-in${m.items.length === 1 ? '' : 's'} in one picture · Tap to see</small></span>${icon('chevron', 'chev')}</button></div>`;
+}
+function collageCard() {
+  const months = bucketMonths();
+  if (!months.length) return '';
+  const now = monthKey(new Date());
+  return `<div class="card">
+    <div class="card-head">${icon('camera')}<h2>Month collages</h2><span class="hint">One picture a month</span></div>
+    <div class="collage-list">${months.map((m) => `<button class="collage-row" data-action="open-collage" data-month="${m.key}">
+      <span class="collage-thumbs">${m.items.slice(-4).map((b) => photoImg(bkPhotos(b)[0])).join('')}</span>
+      <span><b>${monthName(m.key)}${m.key === now ? ' so far' : ''}</b><small>${m.items.length} check-in${m.items.length === 1 ? '' : 's'} · ${m.pics} picture${m.pics === 1 ? '' : 's'} · ❤️ ${m.items.reduce((n, b) => n + loveOf(b), 0)}</small></span>${icon('chevron', 'chev')}</button>`).join('')}</div>
+  </div>`;
+}
+let collage = null; // { key, data } for the collage sheet that is open
+async function openCollage(key) {
+  const m = bucketMonths().find((x) => x.key === key);
+  if (!m) return;
+  try { if (key === lastMonthKey()) localStorage.setItem(COLLAGE_SEEN, key); } catch { /* private window */ }
+  collage = { key, data: '' };
+  openSheet(`${sheetHead(`${monthOnly(key)} collage`, 'camera')}
+    <div class="collage-view" id="collage-view"><p class="hint">Putting ${m.pics} picture${m.pics === 1 ? '' : 's'} together…</p></div>
+    <div class="sheet-actions">
+      ${account.user ? `<button class="btn ghost" data-action="collage-post" disabled>${icon('users')} Post on Friends</button>` : ''}
+      <span class="spacer"></span>
+      <button class="btn ghost" data-action="collage-save" disabled>${icon('download')} Save</button>
+      <button class="btn" data-action="collage-share" disabled>${icon('share')} Share</button>
+    </div>`);
+  $('#sheet').dataset.kind = 'collage';
+  const picks = collagePick(m.items.map((b) => ({ text: b.text, photos: bkPhotos(b) })));
+  const tiles = await Promise.all(picks.map(async (p) => ({ text: p.text, data: await photos.get(p.id) })));
+  const css = getComputedStyle(document.documentElement);
+  const v = (n) => css.getPropertyValue(n).trim();
+  const love = m.items.reduce((n, b) => n + loveOf(b), 0);
+  const data = await drawCollage(tiles, {
+    head: `Our ${monthName(key)}`, love,
+    colors: { bg: v('--cream') || '#F7E7CB', ink: v('--navy') || '#1F2352', sub: v('--brand') || '#3B429A', on: '#fff', soft: 'rgba(0, 0, 0, .06)' },
+  });
+  if (collage?.key !== key || $('#sheet').dataset.kind !== 'collage') return; // closed meanwhile
+  collage.data = data;
+  $('#collage-view').innerHTML = `<button class="collage-img" data-action="collage-zoom" aria-label="See the collage full screen"><img alt="${esc(monthName(key))} bucket list collage" src="${data}"></button>`;
+  document.querySelectorAll('#sheet [data-action^="collage-"]').forEach((b) => { b.disabled = false; });
+}
+const collageFile = () => `bucket-list-${collage.key}.jpg`;
+function saveCollage() {
+  const a = Object.assign(document.createElement('a'), { href: collage.data, download: collageFile() });
+  document.body.append(a); a.click(); a.remove();
+}
+async function shareCollage() {
+  const file = new File([await (await fetch(collage.data)).blob()], collageFile(), { type: 'image/jpeg' });
+  if (navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: `Our ${monthName(collage.key)}` }); } catch { /* closed the share sheet */ }
+  } else { saveCollage(); toast('Saved the collage to this device'); }
+}
+async function postCollage() {
+  if (!(await socialReady())) return;
+  if (!social.friends.length) { toast('Add a friend on the Friends tab first'); return; }
+  try {
+    const shot = await shrink(await (await fetch(collage.data)).blob(), 1080);
+    await addPost(FRIENDS_PATH, socialMe(), `Our bucket list in ${monthOnly(collage.key)}`, social.friends.map((f) => f.uid), { photo: shot, photos: [shot] });
+    toast('Posted on your Friends feed');
+  } catch (e) { toast(accountError(e)); }
+}
 
 // A done item opens on its check-in picture; changing it is folded away under Edit. The kind
 // grid is folded too once an item exists, showing just the kind it has.
@@ -2330,10 +2418,15 @@ function openBucketTick(b) {
 // A check-in can go on the Friends feed too, as whoever is signed in on this screen. Friends may
 // not have been opened yet, so this starts it and waits for the friends list first. The picture
 // travels inside the post, made smaller, since friends can't read the household's pictures.
-async function shareBucket(b, pics) {
+async function socialReady() {
   startSocial();
   for (let i = 0; i < 40 && !(social.state === 'ready' && social.friendsIn); i++) await new Promise((ok) => setTimeout(ok, 250));
-  if (social.state !== 'ready' || !social.friendsIn) { toast("Couldn't share it on Friends this time"); return; }
+  if (social.state === 'ready' && social.friendsIn) return true;
+  toast("Couldn't share it on Friends this time");
+  return false;
+}
+async function shareBucket(b, pics) {
+  if (!(await socialReady())) return;
   if (!social.friends.length) return; // nobody to show it to yet
   try {
     // Smaller copies, as many as fit well inside one post (a document tops out at 1 MiB).
@@ -4708,6 +4801,11 @@ const actions = {
     if (me()) newDones().forEach((b) => { b.seen = Date.now(); });
     goTo('bucket');
   },
+  'open-collage': (el) => { if (el.classList.contains('inbox-strip')) el.closest('.inbox').remove(); openCollage(el.dataset.month); },
+  'collage-zoom': () => viewPhoto(null, collage?.data),
+  'collage-save': () => collage?.data && saveCollage(),
+  'collage-share': () => collage?.data && shareCollage(),
+  'collage-post': () => collage?.data && postCollage(),
   'add-bucket': () => openBucketSheet(null),
   'bk-heat-day': (el) => pickHeatDay(el.dataset.day),
   'edit-bucket': (el) => { const b = state.bucket.find((x) => x.id === el.dataset.id); if (b) openBucketSheet(b); },
@@ -5233,7 +5331,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'bk-done-now', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'bk-heat-day', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'piggy-report', 'print-report', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'edit-shop', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-collage', 'collage-zoom', 'collage-save', 'collage-share', 'collage-post', 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'bk-done-now', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'bk-heat-day', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'piggy-report', 'print-report', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'edit-shop', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');

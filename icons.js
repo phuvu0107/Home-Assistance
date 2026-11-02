@@ -56,6 +56,8 @@ const P = {
   fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4s-4 3-6 3zM14 12c4 0 7 1 7 4 0 2-2 3-4 2s-3-4-3-6zM12 14c0 4-1 7-4 7-2 0-3-2-2-4s4-3 6-3zM10 12c-4 0-7-1-7-4 0-2 2-3 4-2s3 4 3 6z"/>',
   door: '<path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17M3 21h18"/><path d="M15 12h.01"/>',
   camera: '<path d="M3 8a2 2 0 0 1 2-2h2l2-3h6l2 3h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="4"/>',
+  download: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
+  share: '<path d="M12 15V3M7 8l5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',

@@ -1330,6 +1330,19 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .bk-memory { display: block; width: 100%; padding: 0; border: 0; border-radius: 16px; overflow: hidden; background: var(--card); cursor: zoom-in; }
 .bk-memory .pl-photo { height: auto; max-height: min(52vh, 460px); aspect-ratio: 4 / 3; }
 .bk-memory.none { display: flex; align-items: center; gap: 8px; padding: 14px; cursor: default; color: var(--text-2); }
+/* Month collages: one picture of a month's check-ins */
+.collage-list { display: flex; flex-direction: column; gap: 8px; }
+.collage-row { display: flex; align-items: center; gap: 14px; width: 100%; padding: 10px 12px 10px 10px; border: 1px solid var(--card-border); border-radius: var(--radius-sm); background: var(--muted-surface); color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.collage-row > span:nth-child(2) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.collage-row b { font-weight: 600; }
+.collage-row small { color: var(--text-2); font-size: 13px; }
+.collage-row .chev { color: var(--text-3); }
+.collage-thumbs { display: grid; grid-template-columns: repeat(2, 26px); grid-auto-rows: 26px; gap: 3px; flex: none; }
+.collage-thumbs img { width: 26px; height: 26px; object-fit: cover; border-radius: 6px; background: var(--card); }
+.collage-face img { width: 40px; height: 40px; object-fit: cover; border-radius: 10px; display: block; }
+.collage-view { min-height: 200px; display: grid; place-items: center; }
+.collage-img { display: block; width: 100%; padding: 0; border: 0; border-radius: 16px; overflow: hidden; background: none; cursor: zoom-in; }
+.collage-img img { display: block; width: 100%; max-height: min(62vh, 640px); object-fit: contain; }
 .bk-went { display: flex; align-items: center; gap: 6px; margin: 12px 2px 4px; color: var(--text-2); }
 .bk-went b { color: var(--text); font-weight: 600; }
 .bk-went .love { margin-left: auto; }
