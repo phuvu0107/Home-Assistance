@@ -1,6 +1,6 @@
 // Offline support: cache the app shell, always try the network first for weather.
-const CACHE = 'home-dashboard-v76';
-const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'icons.js', 'people.js', 'schedule.js', 'alerts.js', 'firebase.js', 'account.js', 'admin.js', 'sync.js', 'social.js', 'photos.js', 'receipt.js', 'receipt-words.js', 'sync-config.js', 'health.js', 'health-config.js', 'feedback-config.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'avatars/phu.svg', 'avatars/nhi.svg'];
+const CACHE = 'home-dashboard-v77';
+const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'icons.js', 'people.js', 'schedule.js', 'alerts.js', 'firebase.js', 'account.js', 'admin.js', 'sync.js', 'social.js', 'photos.js', 'receipt.js', 'receipt-words.js', 'sync-config.js', 'health.js', 'health-config.js', 'feedback-config.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'fonts/poppins-latin-400.woff2', 'fonts/poppins-latin-500.woff2', 'fonts/poppins-latin-600.woff2', 'fonts/poppins-latin-700.woff2', 'avatars/phu.svg', 'avatars/nhi.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
