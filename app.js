@@ -141,7 +141,7 @@ function applyTheme() {
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   if (season) document.documentElement.dataset.season = season;
   else delete document.documentElement.dataset.season;
-  const bars = { christmas: ['#1A0D10', '#F8EEDC'], autumn: ['#1C1412', '#F3E8D2'] }[season] || ['#14162E', '#F7E7CB'];
+  const bars = { christmas: ['#3A1C22', '#F8EEDC'], autumn: ['#3A2A24', '#F3E8D2'] }[season] || ['#262A52', '#F7E7CB'];
   $('meta[name="theme-color"]').content = bars[dark ? 0 : 1];
 }
 
