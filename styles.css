@@ -828,7 +828,7 @@ label.btn { cursor: pointer; }
   transition: transform .15s ease, opacity .2s;
 }
 .fab:active { transform: scale(.92); }
-body.dome-open .fab { opacity: 0; transform: scale(.6); pointer-events: none; }
+body.dome-open .fab, body.fab-away .fab { opacity: 0; transform: scale(.6); pointer-events: none; }
 @media (max-width: 899.98px) {
   .fab { right: 16px; bottom: calc(88px + env(safe-area-inset-bottom)); width: 56px; height: 56px; }
   .toast { bottom: calc(150px + env(safe-area-inset-bottom)); }
@@ -1132,10 +1132,14 @@ a.conn { display: block; color: inherit; text-decoration: none; }
 }
 .app > .main { width: 100%; }
 @media (max-width: 600px) {
-  .glances { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
-  .glance { flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px; }
+  /* Two by two on a phone, each card a row (face or icon, then the count and its label), so the
+     labels get room and never squeeze into three lines. */
+  .glances { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .glance { gap: 10px; padding: 12px; }
   .glance small { white-space: normal; line-height: 1.3; }
   .glance b { font-size: 22px; }
+  /* The calendar view switcher fits all four views, Itinerary included. */
+  .cal-bar .seg:not(.cal-who) button { padding: 8px 4px; min-width: 0; white-space: nowrap; }
 }
 @media (max-width: 600px) {
   /* The two rankings sit side by side so the chore lists start higher. */
@@ -1335,10 +1339,11 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
   .cal-bar .chip-toggle .ico { font-size: 19px; }
   .cal-bar .seg button { padding: 8px 6px; }
 }
-/* Small phones: names get their own full row, and the List/Week/Month switch moves up beside Today. */
+/* Small phones: Today and the Chores icon share a row, then whose schedule, then all four views
+   (List, Week, Month, Itinerary) on a full row of their own so none of them is cut off. */
 @media (max-width: 420px) {
-  .cal-bar .seg:not(.cal-who) { order: 4; flex: 1; min-width: 0; width: auto; }
   .cal-bar .seg.cal-who { order: 5; flex: 1 0 100%; }
+  .cal-bar .seg:not(.cal-who) { order: 6; flex: 1 0 100%; min-width: 0; }
 }
 
 /* Private notes on events and chores: an icon in lists, the words in a bubble once tapped. */
@@ -1658,3 +1663,9 @@ button.hm-cell { cursor: pointer; }
 .brand-lg .wordmark { font-size: 44px; }
 .about { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 0 8px; text-align: center; }
 .about .hint { margin: 0; }
+
+@media (max-width: 600px) {
+  /* Two sticky notes fit side by side on a phone; the rest scroll in from the right. */
+  .sticky { width: calc(50vw - 36px); min-height: 140px; padding: 28px 12px 12px; }
+  .sticky-text { font-size: 15px; }
+}

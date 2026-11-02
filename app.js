@@ -2475,6 +2475,15 @@ document.addEventListener('scroll', (e) => {
   box.parentElement.querySelectorAll('.slide-dots i').forEach((d, i) => d.classList.toggle('on', i === at));
 }, true);
 
+// The + button steps aside while you scroll down a list, so it never hides a row's tick, and
+// comes back as soon as you scroll up or reach the top or the end.
+let fabY = 0;
+addEventListener('scroll', () => {
+  const y = scrollY; const end = y + innerHeight >= document.documentElement.scrollHeight - 40;
+  document.body.classList.toggle('fab-away', y > 80 && y > fabY && !end);
+  fabY = y;
+}, { passive: true });
+
 function startSocial() {
   const u = account.user;
   if (!u) { if (social.uid) stopSocial(); return; }
