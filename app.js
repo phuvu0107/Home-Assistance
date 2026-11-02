@@ -2019,11 +2019,39 @@ const TILTS = [-1.4, 1, -0.5, 1.5, -1, 0.6];
 const tiltOf = (id) => TILTS[[...String(id)].reduce((a, c) => a + c.charCodeAt(0), 0) % TILTS.length];
 function stickyNote(n) {
   const until = !n.until ? '' : n.until === isoDay(new Date()) ? ' · today only' : ` · until ${dayLabel(n.until)}`;
-  return `<button class="sticky p-${NOTE_COLORS.includes(n.color) ? n.color : 'butter'}${isNewNote(n) ? ' new' : ''}" style="--tilt:${tiltOf(n.id)}deg" data-action="edit-note" data-id="${n.id}">
+  return `<div class="sticky p-${NOTE_COLORS.includes(n.color) ? n.color : 'butter'}${isNewNote(n) ? ' new' : ''}" style="--tilt:${tiltOf(n.id)}deg" data-id="${n.id}">
     ${avatar(n.by, 'sm')}${isNewNote(n) ? '<span class="sticky-new">New</span>' : ''}
-    <span class="sticky-text">${esc(n.text)}</span>
-    <small>${esc(userOf(n.by)?.name || '')} · ${ago(n.at)}${until}</small></button>`;
+    <button class="sticky-open" data-action="edit-note" data-id="${n.id}" aria-label="Note from ${esc(userOf(n.by)?.name || '')}">
+      <span class="sticky-text">${esc(n.text)}</span>
+      <small>${esc(userOf(n.by)?.name || '')} · ${ago(n.at)}${until}</small></button>
+    ${noteReacts(n)}</div>`;
 }
+
+// Reactions on a sticky note: one icon per person, like a tapback. Stored on the note itself as
+// reacts: { personId: emoji }, so older app versions keep the field untouched when they save a note.
+const NOTE_REACTS = ['❤️', '😂', '😍', '😮', '🙏', '👍'];
+let reactFor = ''; // the note whose icon picker is open
+let reactWho = ''; // who is reacting on a shared screen
+const reactsOf = (n) => Object.entries(n.reacts || {}).filter(([who, e]) => userOf(who) && typeof e === 'string' && e);
+// This screen's person, or on the fridge whoever was picked, else someone other than the writer.
+const reactorFor = (n) => me() || (userOf(reactWho) ? reactWho : (members().find((u) => u.id !== n.by) || members()[0]).id);
+function noteReacts(n) {
+  if (reactFor === n.id) {
+    const who = reactorFor(n);
+    const faces = me() ? '' : `<div class="nr-who">${members().map((u) => `<button class="${u.id === who ? 'on' : ''}" data-action="react-who" data-id="${n.id}" data-who="${u.id}" aria-label="${esc(u.name)} reacts">${avatar(u.id, 'xs')}</button>`).join('')}</div>`;
+    return `<div class="note-reacts open">${faces}<div class="nr-pick">${NOTE_REACTS.map((e) => `<button class="${n.reacts?.[who] === e ? 'on' : ''}" data-action="react-note" data-id="${n.id}" data-v="${e}" aria-label="React ${e}">${e}</button>`).join('')}</div></div>`;
+  }
+  const groups = {};
+  for (const [who, e] of reactsOf(n)) (groups[e] ||= []).push(who);
+  const order = (e) => (NOTE_REACTS.includes(e) ? NOTE_REACTS.indexOf(e) : 99);
+  const chips = Object.entries(groups).sort(([a], [b]) => order(a) - order(b)).map(([e, whos]) => {
+    const names = whos.map((w) => userOf(w).name).join(' and ');
+    // On a personal screen a chip toggles that person's own icon; the fridge asks who first.
+    return `<button class="nr-chip${me() && whos.includes(me()) ? ' mine' : ''}" data-action="${me() ? 'react-note' : 'react-open'}" data-id="${n.id}" data-v="${e}" aria-label="${e} from ${esc(names)}" title="${esc(names)}"><span class="nr-emoji">${e}</span><span class="av-pair">${whos.map((w) => avatar(w, 'xs')).join('')}</span></button>`;
+  }).join('');
+  return `<div class="note-reacts">${chips}<button class="nr-add" data-action="react-open" data-id="${n.id}" aria-label="React to this note" title="React">${icon('smile')}</button></div>`;
+}
+
 function notesBoard() {
   const list = liveNotes();
   if (!list.length) return `<button class="note-add solo" data-action="add-note">${icon('notes')} Leave a note</button>`;
@@ -2056,14 +2084,19 @@ function announceArrivals(before) {
   const notes = liveNotes().filter((n) => !before.has(n.id) && (!me() || n.by !== me()));
   const ticked = newDones().filter((b) => !before.has(`${b.id}✓`));
   const added = (state.bucket || []).filter((b) => !before.has(b.id) && !b.doneAt && (!me() || b.by !== me()));
+  // Someone reacted to a note: tell the writer, or anyone on the fridge.
+  const reacted = liveNotes().filter((n) => before.has(n.id) && (!me() || n.by === me()))
+    .flatMap((n) => reactsOf(n).filter(([who, e]) => who !== me() && !before.has(`${n.id}~${who}~${e}`)).map(([who, e]) => ({ n, who, e })));
   if (fresh.length) toast(`${userOf(fresh[0].from)?.name} sent ${me() ? 'you' : userOf(fresh[0].to)?.name} a thank-you ${fresh[0].emoji || '💌'}`);
   else if (ticked.length) toast(`${userOf(ticked[0].from)?.name} ticked off ${ticked[0].text} 🎉`);
   else if (notes.length) toast(`${userOf(notes[0].by)?.name} left a note`);
+  else if (reacted.length) { const r = reacted[0]; toast(`${userOf(r.who).name} reacted ${r.e} to ${me() ? 'your' : `${userOf(r.n.by)?.name}'s`} note`); }
   else if (added.length) toast(`${userOf(added[0].by)?.name} added ${added[0].text} to the bucket list`);
 }
-// Ids seen so far, plus a ✓ mark for each bucket list item already ticked off.
+// Ids seen so far, plus a ✓ mark for each bucket list item already ticked off and each note reaction.
 const knownIds = () => new Set([...(state.thanks || []), ...(state.notes || []), ...(state.bucket || [])].map((x) => x.id)
-  .concat((state.bucket || []).filter((b) => b.doneAt).map((b) => `${b.id}✓`)));
+  .concat((state.bucket || []).filter((b) => b.doneAt).map((b) => `${b.id}✓`))
+  .concat((state.notes || []).flatMap((n) => reactsOf(n).map(([who, e]) => `${n.id}~${who}~${e}`))));
 
 /* =========================================================
    Bucket list: trips, dinners and places to do together
@@ -4625,6 +4658,19 @@ const actions = {
     if (isNewNote(n)) n.seen = { ...n.seen, [me()]: Date.now() };
     openNoteSheet(n);
   },
+  'react-open': (el) => { reactFor = reactFor === el.dataset.id ? '' : el.dataset.id; reactWho = ''; },
+  'react-who': (el) => { reactWho = el.dataset.who; },
+  'react-note': (el) => {
+    const n = state.notes.find((x) => x.id === el.dataset.id);
+    reactFor = '';
+    if (!n) return;
+    const who = reactorFor(n); const e = el.dataset.v;
+    // Tapping your own icon again takes it back; another icon replaces it.
+    if (n.reacts?.[who] === e) { const { [who]: _, ...rest } = n.reacts; n.reacts = rest; }
+    else { n.reacts = { ...n.reacts, [who]: e }; burst(`.sticky[data-id="${n.id}"] .nr-chip[data-v="${e}"]`); }
+    if (!Object.keys(n.reacts).length) delete n.reacts;
+    if (isNewNote(n)) n.seen = { ...n.seen, [me()]: Date.now() };
+  },
   'pick-color': (el) => {
     el.parentElement.querySelectorAll('.swatch').forEach((b) => b.classList.toggle('on', b === el));
     $('#note-paper').className = `note-edit p-${el.dataset.v}`;
@@ -5195,12 +5241,15 @@ document.addEventListener('click', (e) => {
   const peeked = $('#note-peek')?.dataset.for;
   closePeek();
   if (el?.dataset.action === 'peek-note' && peeked === `${el.dataset.kind}:${el.dataset.id}`) return;
-  if (!el) return;
-  const name = el.dataset.action;
+  // Any tap outside an open reaction picker closes it.
+  const closeReact = reactFor && !el?.dataset.action?.startsWith('react-');
+  if (closeReact) reactFor = '';
+  const name = el?.dataset.action;
   const fn = actions[name];
-  if (!fn) return;
+  if (!fn) { if (closeReact) renderView(); return; }
   fn(el, e);
   save();
+  if (closeReact && NO_RERENDER.has(name)) renderView();
   if (!NO_RERENDER.has(name)) renderView(['cal-move', 'cal-today', 'cal-view', 'cal-chores', 'cal-who'].includes(name) ? 'cal' : undefined);
 });
 
