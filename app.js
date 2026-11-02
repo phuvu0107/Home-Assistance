@@ -753,7 +753,7 @@ const PAGES = [
   { id: 'tasks', label: 'Chores', icon: 'checkSquare', main: true },
   { id: 'friends', label: 'Friends', icon: 'users', main: true },
   { id: 'fridge', label: 'Inventory', icon: 'fridge' },
-  { id: 'piggy', label: 'Piggy Bank', icon: 'piggy' },
+  { id: 'piggy', label: 'Money', icon: 'piggy' },
   { id: 'bucket', label: 'Bucket list', icon: 'sparkles' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
   ...(ENERGY_ON ? [{ id: 'energy', label: 'Energy', icon: 'zap' }] : []),
@@ -3312,7 +3312,7 @@ function openMemberSheet(u) {
   $('#sheet').dataset.kind = 'member';
 }
 
-/* ---------- Piggy Bank (shared expenses) ---------- */
+/* ---------- Money (shared expenses; the route is still #/piggy so old links work) ---------- */
 const fmtCash = (n) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const monthKey = (d) => isoDay(d).slice(0, 7);
 let piggyMonth = monthKey(new Date());
@@ -3374,7 +3374,7 @@ views.piggy = () => {
   const share = (u) => (st.total ? (st.paid[u.id] / st.total) * 100 : 0);
   // Boxes for this month go near the top; with none, a short hint sits at the bottom instead.
   const boxes = boxesForMonth(state.boxes, state.expenses, key, isoDay(new Date())).length ? boxesCard(key) : '';
-  return `<div class="section-title">Piggy Bank</div>
+  return `<div class="section-title">Money</div>
   <div class="month-nav">
     <button class="btn-round" data-action="piggy-move" data-d="-1" aria-label="Previous month">${icon('chevronLeft')}</button>
     <div class="piggy-month"><h2>${monthName(key)}</h2><span>${monthRange(key)}</span></div>
@@ -3443,7 +3443,7 @@ function openBoxView(b) {
   const share = (u) => (st.total ? (st.paid[u.id] / st.total) * 100 : 0);
   const owes = showSplit && members().length > 1 && st.transfers.length
     ? `<div class="box-owes">${st.transfers.map((t) => `<div>${avatar(t.from, 'sm')}<span>For this box, ${userOf(t.from)?.name} owes ${userOf(t.to)?.name} <b>${fmtCash(t.amount)}</b></span></div>`).join('')}
-      <div class="hint">This is already in each month's balance on Piggy Bank, so settle up there.</div></div>` : '';
+      <div class="hint">This is already in each month's balance on Money, so settle up there.</div></div>` : '';
   openSheet(`${sheetHead(esc(b.name), 'box')}
     <div class="spend box-spend">
       <div class="spend-top"><b>${fmtCash(st.total)}</b><span>${[boxDays(b), `${st.count} expense${st.count === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}</span></div>

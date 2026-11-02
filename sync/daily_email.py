@@ -343,7 +343,7 @@ def build(state, now, energy, sky, slot="morning"):
         spent = [x for x in month if x.get("kind") != "settle"]
         owing = transfers(month, list(USERS))
         owe = "" if len(USERS) < 2 else " ".join(f"{USERS[f]} owes {USERS[t]} ${v:.2f}." for f, t, v in owing) or "All square."
-        sections.append(("Piggy Bank", [f"{now.strftime('%B')} so far: ${sum(x['amount'] for x in spent):.2f}. {owe}".strip()]))
+        sections.append(("Money", [f"{now.strftime('%B')} so far: ${sum(x['amount'] for x in spent):.2f}. {owe}".strip()]))
 
     if energy and slot == "morning":
         sections.append(("Energy", [f"Yesterday: {energy}"]))
@@ -404,7 +404,7 @@ THEMES = {  # soft background tint, accent, small label above the greeting
     "night": ("#f2f3f9", "#4338ca", "Tonight's recap"),
 }
 ICONS = {"Today": "📅", "Still to come today": "⏳", "Tomorrow": "📅", "Tasks": "✅", "Tasks still open": "✅", "Stars": "⭐",
-         "Today's stars": "⭐", "Use soon from the fridge": "🥬", "Piggy Bank": "🐷", "Energy": "⚡", "Coming up this week": "🗓️", "Shopping list": "🛒"}
+         "Today's stars": "⭐", "Use soon from the fridge": "🥬", "Money": "🐷", "Energy": "⚡", "Coming up this week": "🗓️", "Shopping list": "🛒"}
 STOP = "To stop these emails, turn them off in the app: Settings › Connections › Summary email."
 FONT = "-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
 
