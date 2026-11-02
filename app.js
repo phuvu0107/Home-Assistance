@@ -9,7 +9,7 @@ import { adminRulesPublished, fmtBytes, isAdmin, loadAdmin, monitors, shortId, w
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, friendsGate, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { createPhotos, shrink } from './photos.js';
 import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, seasonFor, WEEKDAYS } from './schedule.js';
-import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newJoiners, newMember, PERSON_COLORS, sortMembers } from './people.js';
+import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthReport, monthTrend, newJoiners, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -3204,6 +3204,7 @@ views.piggy = () => {
     <div class="piggy-month"><h2>${monthName(key)}</h2><span>${monthRange(key)}</span></div>
     <button class="btn-round" data-action="piggy-move" data-d="1" aria-label="Next month">${icon('chevron')}</button>
     ${isNow ? '' : '<button class="btn ghost sm" data-action="piggy-today">This month</button>'}
+    ${list.length ? `<button class="btn ghost sm piggy-report-btn" data-action="piggy-report">${icon('chart')} Month report</button>` : ''}
   </div>
   ${balance}
   ${boxes ? boxes : ''}
@@ -3336,6 +3337,70 @@ function trendCard(key, months) {
     <div class="list">${months.map((m) => { const s2 = expenseStats(expensesIn(m)); return `<button class="row month-row${m === key ? ' on' : ''}" data-action="piggy-goto" data-m="${m}">
       <span class="ex-main"><b>${monthName(m)}</b><small>${members().map((u) => `${u.name} ${fmtCash(s2.paid[u.id])}`).join(' · ')}</small></span><span class="ex-amt">${fmtCash(s2.total)}</span></button>`; }).join('')}</div>` : ''}
   </div>`;
+}
+
+// The end-of-month report: the month's totals and stats on one page, to read on the fridge or
+// print. The numbers come from monthReport() in people.js, the same sums the page shows.
+function openMonthReport(key) {
+  const ids = members().map((u) => u.id);
+  const r = monthReport(state.expenses, ids, key);
+  const st = r.stats;
+  const many = members().length > 1;
+  const showSplit = state.settings.showSplit !== false;
+  const month = monthName(key).split(' ')[0];
+  const short = (k) => monthBounds(k)[0].toLocaleDateString([], { month: 'short' });
+  const whole = (n) => fmtCash(Math.round(n)).replace(/\.00$/, '');
+  const isNow = key === monthKey(new Date());
+  const days = isNow ? new Date().getDate() : monthBounds(key)[1].getDate();
+  const pct = (a, b) => (b ? `${a > b ? '+' : ''}${Math.round(((a - b) / b) * 100)}%` : '–');
+  const cls = (a, b) => (!b ? '' : a > b ? 'up' : 'down');
+  const share = (u) => (st.total ? (st.paid[u.id] / st.total) * 100 : 0);
+  const boxes = boxesForMonth(state.boxes, state.expenses, key, isoDay(new Date()))
+    .map((b) => ({ b, total: spending(expensesIn(key)).filter((x) => x.box === b.id).reduce((n, x) => n + x.amount, 0) }))
+    .filter((x) => x.total);
+  const tile = (label, value, c = '') => `<div><small>${label}</small><b class="${c}">${value}</b></div>`;
+  const line = (left, right, sub = '') => `<div class="rp-line"><span>${left}${sub ? `<small>${sub}</small>` : ''}</span><b>${right}</b></div>`;
+  const bal = !showSplit || !many ? ''
+    : st.transfers.length ? st.transfers.map((t) => `<div class="rp-owe">${avatar(t.from, 'sm')}<span>${userOf(t.from)?.name} owes ${userOf(t.to)?.name}</span><b>${fmtCash(t.amount)}</b></div>`).join('')
+      : `<div class="rp-owe even">${icon('check')}<span>All square for ${month}</span></div>`;
+  const maxMonth = Math.max(1, ...r.months.map((m) => m.total));
+  openSheet(`<h3>${icon('piggy')}<span class="rp-title">${monthName(key)} report<small>${isNow ? `So far · ${monthRange(key).split(' – ')[0]} – ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}` : monthRange(key)}</small></span>
+      <button class="btn ghost sm rp-print" data-action="print-report">${icon('receipt')} Print</button>
+      <button class="btn-round close" data-action="close-sheet" aria-label="Close">${icon('x')}</button></h3>
+    <div class="rp-tiles">
+      ${tile('Spent', fmtCash(st.total))}
+      ${tile('Expenses', `${r.count} <small>on ${r.days} day${r.days === 1 ? '' : 's'}</small>`)}
+      ${tile('A day', fmtCash(st.total / days))}
+      ${tile(`vs ${short(r.prev.key)}`, pct(st.total, r.prev.total), cls(st.total, r.prev.total))}
+      ${tile('vs 6-month avg', pct(st.total, r.average), cls(st.total, r.average))}
+    </div>
+    <div class="rp-grid">
+      <section>
+        <h4>Who paid</h4>
+        ${many && st.total ? `<div class="spend-bar">${members().map((u) => `<i class="bar-${u.color}" style="width:${share(u).toFixed(1)}%"></i>`).join('')}</div>` : ''}
+        ${members().map((u) => line(`${avatarImg(u, 'xs')} ${esc(u.name)}`, fmtCash(st.paid[u.id] || 0), many ? `${Math.round(share(u))}%` : '')).join('')}
+        ${many ? `<h4>Split</h4>
+        ${line('Shared', fmtCash(st.shared), `${fmtCash(st.each)} each`)}
+        ${line('Personal', fmtCash(r.personal))}
+        ${st.total - st.shared - r.personal > 0.004 ? line(`${everyoneLabel()} paid`, fmtCash(st.total - st.shared - r.personal)) : ''}` : ''}
+        ${bal ? `<h4>Balance</h4>${bal}` : ''}
+        ${r.settled.length ? `<p class="rp-note">Settled up this month: ${r.settled.map((x) => `${userOf(x.paidBy)?.name} paid ${userOf(x.to)?.name} ${fmtCash(x.amount)}`).join(', ')}</p>` : ''}
+      </section>
+      <section>
+        <h4>By category</h4>
+        ${r.cats.map((c) => `<div class="rp-cat"><span>${EXPENSE_CATS[c.id][0]} ${EXPENSE_CATS[c.id][1]}<small>${Math.round((c.total / st.total) * 100)}%</small></span>
+          <i class="rp-cbar"><i style="width:${((c.total / r.cats[0].total) * 100).toFixed(1)}%"></i></i><b>${fmtCash(c.total)}</b></div>`).join('')}
+        <h4>Last 6 months</h4>
+        <div class="rp-months">${r.months.map((m) => `<div class="${m.key === key ? 'on' : ''}"><small>${m.total ? whole(m.total) : ''}</small><i style="height:${((m.total / maxMonth) * 100).toFixed(1)}%"></i><span>${short(m.key)}</span></div>`).join('')}</div>
+      </section>
+      <section>
+        <h4>Biggest expenses</h4>
+        ${r.top.map((x) => line(`${EXPENSE_CATS[expenseCat(x)][0]} ${esc(x.title)}`, fmtCash(x.amount), `${shortDay(x.date)} · ${x.paidBy === 'both' ? everyoneLabel() : userOf(x.paidBy)?.name || ''}`)).join('')}
+        ${r.biggestDay ? `<h4>Biggest day</h4>${line(dayLabel(r.biggestDay.date), fmtCash(r.biggestDay.total))}` : ''}
+        ${boxes.length ? `<h4>Boxes</h4>${boxes.map(({ b, total }) => line(`${icon('box')} ${esc(b.name)}`, fmtCash(total), `in ${month}`)).join('')}` : ''}
+      </section>
+    </div>`);
+  $('#sheet').dataset.kind = 'report';
 }
 
 // The expense being edited: its receipt picture id, and the picture itself when it is new.
@@ -5058,6 +5123,8 @@ const actions = {
     piggyMonth = monthKey(new Date(y, m - 1 + Number(el.dataset.d), 1));
   },
   'piggy-today': () => { piggyMonth = monthKey(new Date()); },
+  'piggy-report': () => openMonthReport(piggyMonth),
+  'print-report': () => window.print(),
   'piggy-goto': (el) => { piggyMonth = el.dataset.m; window.scrollTo({ top: 0, behavior: 'smooth' }); },
   'toggle-split': () => { state.settings.showSplit = state.settings.showSplit === false; },
 
@@ -5071,7 +5138,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'bk-done-now', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'edit-shop', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'bk-done-now', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'piggy-report', 'print-report', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'edit-shop', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');

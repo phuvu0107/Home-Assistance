@@ -202,3 +202,37 @@ test('new joiners: recent, not me, not seen on this device, date known', () => {
   // Someone who was already there when I joined isn't news.
   assert.deepEqual(newJoiners([{ uid: 'me', joined: now - 1 }, { uid: 'n', joined: now - 2 }], 'me', [], now), []);
 });
+
+test('the month report sums one month and leaves the others out', async () => {
+  const { monthReport } = await import('../people.js');
+  const list = [
+    { id: 'a', date: '2026-10-02', amount: 100, paidBy: 'phu', split: true, cat: 'groceries' },
+    { id: 'b', date: '2026-10-02', amount: 20, paidBy: 'nhi', split: true, cat: 'dining' },
+    { id: 'c', date: '2026-10-15', amount: 60, paidBy: 'nhi', split: false, cat: 'shopping' },
+    { id: 'd', date: '2026-10-20', amount: 30, paidBy: 'both', split: true, cat: 'dining' },
+    { id: 's', date: '2026-10-28', kind: 'settle', paidBy: 'nhi', to: 'phu', amount: 10 },
+    { id: 'e', date: '2026-09-10', amount: 105, paidBy: 'phu', split: true },
+    { id: 'f', date: '2026-11-01', amount: 999, paidBy: 'phu', split: true },
+  ];
+  const r = monthReport(list, two, '2026-10');
+  assert.equal(r.stats.total, 210);
+  assert.equal(r.count, 4);
+  assert.equal(r.days, 3);
+  assert.equal(r.personal, 60);
+  assert.deepEqual(r.biggestDay, { date: '2026-10-02', total: 120 });
+  assert.deepEqual(r.top.map((x) => x.id), ['a', 'c', 'd', 'b']);
+  assert.deepEqual(r.cats.map((c) => c.id), ['groceries', 'shopping', 'dining']);
+  assert.equal(r.prev.key, '2026-09');
+  assert.equal(r.prev.total, 105);
+  assert.equal(r.average, (105 + 210) / 2);
+  assert.deepEqual(r.settled.map((x) => x.id), ['s']);
+  // Shared 150: Phu paid 100 + 15, Nhi 20 + 15, each owes 75; Nhi already paid 10 back.
+  assert.deepEqual(r.stats.transfers, [{ from: 'nhi', to: 'phu', amount: 30 }]);
+});
+
+test('an empty month gives an empty report', async () => {
+  const { monthReport } = await import('../people.js');
+  const r = monthReport([], two, '2026-10');
+  assert.equal(r.stats.total, 0); assert.equal(r.count, 0); assert.equal(r.biggestDay, null);
+  assert.deepEqual(r.top, []); assert.deepEqual(r.cats, []);
+});
