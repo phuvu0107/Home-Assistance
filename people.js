@@ -134,6 +134,29 @@ export function monthTrend(list, ids, last, count = 6) {
   return { months, spent, average, max: Math.max(0, ...months.map((mo) => mo.total)) };
 }
 
+// Everything the end-of-month report shows for one month ('YYYY-MM'), from the same sums as the
+// Piggy Bank page: totals and who paid (expenseStats), the month before and the six-month average
+// (monthTrend), categories (categoryTotals), the biggest expenses, the biggest day and the
+// settle-ups made. `transfers` is what is still owed once that month's settle-ups count.
+export function monthReport(list, ids, key) {
+  const all = list.filter((x) => x.date?.startsWith(key));
+  const spent = all.filter((x) => x.kind !== 'settle');
+  const stats = expenseStats(all, ids);
+  const trend = monthTrend(list, ids, key, 6);
+  const byDay = new Map();
+  spent.forEach((x) => byDay.set(x.date, (byDay.get(x.date) || 0) + x.amount));
+  const [day, dayTotal] = [...byDay].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] || [];
+  return {
+    key, stats, count: spent.length, days: byDay.size,
+    personal: spent.filter((x) => !x.split && x.paidBy !== 'both').reduce((n, x) => n + x.amount, 0),
+    prev: trend.months.at(-2), average: trend.average, months: trend.months,
+    cats: categoryTotals(spent),
+    top: [...spent].sort((a, b) => b.amount - a.amount || a.date.localeCompare(b.date)).slice(0, 5),
+    biggestDay: day ? { date: day, total: dayTotal } : null,
+    settled: all.filter((x) => x.kind === 'settle'),
+  };
+}
+
 // General spending categories, in the order the picker shows them. An expense keeps the id in
 // `cat`; one without it (logged before categories) or with an id this version doesn't know counts
 // as Other.
