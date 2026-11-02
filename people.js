@@ -135,7 +135,7 @@ export function monthTrend(list, ids, last, count = 6) {
 }
 
 // Everything the end-of-month report shows for one month ('YYYY-MM'), from the same sums as the
-// Piggy Bank page: totals and who paid (expenseStats), the month before and the six-month average
+// Money page: totals and who paid (expenseStats), the month before and the six-month average
 // (monthTrend), categories (categoryTotals), the biggest expenses, the biggest day and the
 // settle-ups made. `transfers` is what is still owed once that month's settle-ups count.
 export function monthReport(list, ids, key) {

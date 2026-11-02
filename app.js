@@ -141,8 +141,8 @@ function applyTheme() {
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   if (season) document.documentElement.dataset.season = season;
   else delete document.documentElement.dataset.season;
-  const bars = { christmas: ['#3A1C22', '#F8EEDC'], autumn: ['#3A2A24', '#F3E8D2'] }[season] || ['#262A52', '#F7E7CB'];
-  $('meta[name="theme-color"]').content = bars[dark ? 0 : 1];
+  // The brand stays rust all year; a season only tints the greeting panel, so the bars don't change.
+  $('meta[name="theme-color"]').content = dark ? '#3A2A24' : '#F3E8D2';
 }
 
 // A new greeting each day, the same on every screen.
@@ -753,7 +753,7 @@ const PAGES = [
   { id: 'tasks', label: 'Chores', icon: 'checkSquare', main: true },
   { id: 'friends', label: 'Friends', icon: 'users', main: true },
   { id: 'fridge', label: 'Inventory', icon: 'fridge' },
-  { id: 'piggy', label: 'Piggy Bank', icon: 'piggy' },
+  { id: 'piggy', label: 'Money', icon: 'piggy' },
   { id: 'bucket', label: 'Bucket list', icon: 'sparkles' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
   ...(ENERGY_ON ? [{ id: 'energy', label: 'Energy', icon: 'zap' }] : []),
@@ -995,8 +995,9 @@ const FAB = {
 };
 function setFab(r) {
   const fab = $('#fab'); const f = r === 'calendar' && calView() === 'trip' ? { action: 'add-plan', label: 'Add activity' } : FAB[r];
-  fab.hidden = !f;
-  if (!f) return;
+  // Nothing to add to until the first-run screen has named who lives here.
+  fab.hidden = !f || !members().length;
+  if (fab.hidden) return;
   fab.dataset.action = f.action;
   fab.dataset.d = isoDay(new Date());
   fab.setAttribute('aria-label', f.label);
@@ -2298,7 +2299,7 @@ async function openCollage(key) {
   const love = m.items.reduce((n, b) => n + loveOf(b), 0);
   const data = await drawCollage(tiles, {
     head: `Our ${monthName(key)}`, love,
-    colors: { bg: v('--cream') || '#F7E7CB', ink: v('--navy') || '#1F2352', sub: v('--brand') || '#3B429A', on: '#fff', soft: 'rgba(0, 0, 0, .06)' },
+    colors: { bg: v('--cream') || '#F3E8D2', ink: v('--navy') || '#3A2420', sub: v('--brand') || '#A8483D', on: '#fff', soft: 'rgba(0, 0, 0, .06)' },
   });
   if (collage?.key !== key || $('#sheet').dataset.kind !== 'collage') return; // closed meanwhile
   collage.data = data;
@@ -2474,6 +2475,15 @@ document.addEventListener('scroll', (e) => {
   const at = room > 0 ? Math.round(box.scrollLeft / room * (n - 1)) : 0;
   box.parentElement.querySelectorAll('.slide-dots i').forEach((d, i) => d.classList.toggle('on', i === at));
 }, true);
+
+// The + button steps aside while you scroll down a list, so it never hides a row's tick, and
+// comes back as soon as you scroll up or reach the top or the end.
+let fabY = 0;
+addEventListener('scroll', () => {
+  const y = scrollY; const end = y + innerHeight >= document.documentElement.scrollHeight - 40;
+  document.body.classList.toggle('fab-away', y > 80 && y > fabY && !end);
+  fabY = y;
+}, { passive: true });
 
 function startSocial() {
   const u = account.user;
@@ -3277,13 +3287,18 @@ async function followMove() {
   refreshHouse();
 }
 
+/* ---------- The Hometide mark and wordmark ---------- */
+const BRAND_PROMISE = 'The shared screen that keeps a home in rhythm.';
+const brandMark = (size = 'md') => `<div class="brand brand-${size}"><img class="brand-icon" src="icons/icon.svg" alt="" width="48" height="48"><span class="wordmark" aria-label="Hometide">home<b>tide</b></span></div>`;
+
 /* ---------- Who lives here: first run and Settings ---------- */
 // A new household names its people before anything else, since chores, stars and money all
 // belong to someone. A screen joining an existing household gets them from there instead.
-views.setup = () => `<div class="section-title">Welcome</div>
+views.setup = () => `<div class="welcome">${brandMark('lg')}<p class="welcome-promise">${BRAND_PROMISE}</p>
+    <p class="welcome-sub">Chores, plans and money, seen by everyone at home, with every bit of help noticed.</p></div>
   <div class="card setup">
-    <div class="card-head">${icon('users')}<h2>Who lives here?</h2></div>
-    <p class="hint">Add everyone who shares the chores, the calendar and the money. You can change names and colors later in Settings.</p>
+    <div class="card-head">${icon('users')}<h2>Who shares this home?</h2></div>
+    <p class="hint">Add everyone who splits the chores, the bills and the plans. Each of you gets your own chores, stars and love points. You can change names and colors later in Settings.</p>
     <div class="setup-names" id="setup-names">${[0, 1].map((i) => setupRow(i)).join('')}</div>
     <div class="setup-actions">
       <button class="btn ghost" data-action="setup-add-row">${icon('plus')} Add someone</button>
@@ -3308,7 +3323,7 @@ function openMemberSheet(u) {
   $('#sheet').dataset.kind = 'member';
 }
 
-/* ---------- Piggy Bank (shared expenses) ---------- */
+/* ---------- Money (shared expenses; the route is still #/piggy so old links work) ---------- */
 const fmtCash = (n) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const monthKey = (d) => isoDay(d).slice(0, 7);
 let piggyMonth = monthKey(new Date());
@@ -3370,7 +3385,7 @@ views.piggy = () => {
   const share = (u) => (st.total ? (st.paid[u.id] / st.total) * 100 : 0);
   // Boxes for this month go near the top; with none, a short hint sits at the bottom instead.
   const boxes = boxesForMonth(state.boxes, state.expenses, key, isoDay(new Date())).length ? boxesCard(key) : '';
-  return `<div class="section-title">Piggy Bank</div>
+  return `<div class="section-title">Money</div>
   <div class="month-nav">
     <button class="btn-round" data-action="piggy-move" data-d="-1" aria-label="Previous month">${icon('chevronLeft')}</button>
     <div class="piggy-month"><h2>${monthName(key)}</h2><span>${monthRange(key)}</span></div>
@@ -3439,7 +3454,7 @@ function openBoxView(b) {
   const share = (u) => (st.total ? (st.paid[u.id] / st.total) * 100 : 0);
   const owes = showSplit && members().length > 1 && st.transfers.length
     ? `<div class="box-owes">${st.transfers.map((t) => `<div>${avatar(t.from, 'sm')}<span>For this box, ${userOf(t.from)?.name} owes ${userOf(t.to)?.name} <b>${fmtCash(t.amount)}</b></span></div>`).join('')}
-      <div class="hint">This is already in each month's balance on Piggy Bank, so settle up there.</div></div>` : '';
+      <div class="hint">This is already in each month's balance on Money, so settle up there.</div></div>` : '';
   openSheet(`${sheetHead(esc(b.name), 'box')}
     <div class="spend box-spend">
       <div class="spend-top"><b>${fmtCash(st.total)}</b><span>${[boxDays(b), `${st.count} expense${st.count === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}</span></div>
@@ -4198,6 +4213,7 @@ views.settings = () => {
         ${account.user ? `<button class="btn danger" data-action="acct-delete">${icon('trash')} Delete my account</button>` : ''}
       </div>
     </div>
+    <div class="about">${brandMark('sm')}<p class="hint">${BRAND_PROMISE}</p></div>
   </div>`;
 };
 

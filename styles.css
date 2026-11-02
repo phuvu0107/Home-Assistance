@@ -1,41 +1,51 @@
+/* Poppins ships with the app (SIL Open Font License, fonts/OFL.txt), so no page load reaches Google Fonts. */
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/poppins-latin-400.woff2') format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/poppins-latin-ext-400.woff2') format('woff2'); unicode-range: U+0100-02AF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/poppins-latin-500.woff2') format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/poppins-latin-ext-500.woff2') format('woff2'); unicode-range: U+0100-02AF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/poppins-latin-600.woff2') format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/poppins-latin-ext-600.woff2') format('woff2'); unicode-range: U+0100-02AF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/poppins-latin-700.woff2') format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'Poppins'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/poppins-latin-ext-700.woff2') format('woff2'); unicode-range: U+0100-02AF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+
 :root {
-  /* The Periwinkle palette: periwinkle blue (Pantone P 102-8 C) is the brand, for buttons, anything
-     done and the selected tab; soft cream (P 17-1 C) is the page by day; burgundy (P 50-16 C) is the
-     morning greeting and marks what needs attention. Ink is a deep indigo (kept under the old --navy
-     name so every rule that used it follows), and honey gold stays for stars and love points.
+  /* The Hometide brand, all year: rust red (Pantone 2350 U) is the brand, for buttons, anything done
+     and the selected tab; pale cream (P 24-9 U) is the page by day; mustard (P 14-8 U) for stars and
+     love points; burnt orange marks what needs attention; burgundy is the morning greeting. Ink is
+     espresso (kept under the old --navy name so every rule that used it follows). Night is warm cocoa.
      Earlier palettes: Hearth navy #1F2A44, cream #FBF6EC, teal #2A9D8F, coral #E76F51, honey #E9C46A;
-     Autumn rust #A8483D, cream #F3E8D2, mustard #EFA43A, ink #3A2420. */
-  --periwinkle: #3B429A; --wine: #7D1F27;
-  --navy: #1F2352; --cream: #F7E7CB; --teal: var(--periwinkle); --coral: var(--wine); --honey: #E9B44C;
-  --brand: var(--periwinkle);
+     Periwinkle #3B429A with indigo ink #1F2352 and an indigo night #262A52; Sea Teal #1F6F78. */
+  --rust: #A8483D; --wine: #7D1F27;
+  --navy: #3A2420; --cream: #F3E8D2; --teal: var(--rust); --coral: #C2651A; --honey: #EFA43A;
+  --brand: var(--rust);
   --bg: var(--cream);
-  --card: #FFFBF3;
-  --card-border: #E9D8BB;
-  --muted-surface: #F3E6CF;
+  --card: #FFFAF1;
+  --card-border: #E6D6BA;
+  --muted-surface: #F0E4CE;
   --text: var(--navy);
-  --text-2: #545778;
-  --text-3: #85879E;
+  --text-2: #6E5A50;
+  --text-3: #93806F;
   --accent: var(--teal);
   --on-accent: #fff; /* text and ticks on a filled accent button */
-  --accent-soft: #E3E4F5;
+  --accent-soft: #F6E2DB;
   --ok: var(--teal);
   --warn: #C98A1E;
   --danger: var(--coral);
-  --imp: var(--coral); --imp-bg: #F7E0E0; --imp-on: #fff;
+  --imp: var(--coral); --imp-bg: #FBE7D3; --imp-on: #fff;
   --glass: rgba(255, 255, 255, .62);
   --glass-border: rgba(255, 255, 255, .85);
   --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .9);
-  --blob-1: rgba(125, 31, 39, .1); --blob-2: rgba(59, 66, 154, .12); --blob-3: rgba(233, 180, 76, .18);
+  --blob-1: rgba(168, 72, 61, .13); --blob-2: rgba(239, 164, 58, .16); --blob-3: rgba(239, 164, 58, .2);
   --shadow: 0 1px 2px rgba(30, 30, 40, .04), 0 6px 20px rgba(30, 30, 40, .05);
   /* The floating tab bar and the More half circle: mostly see-through, blurred behind. */
-  --float: rgba(255, 255, 255, .38); --float-strong: rgba(255, 255, 255, .5); --float-edge: rgba(31, 35, 82, .08);
-  --float-shadow: 0 12px 32px rgba(22, 24, 56, .14), 0 2px 6px rgba(22, 24, 56, .05);
-  --lens-fill: rgba(59, 66, 154, .12); --lens-edge: rgba(59, 66, 154, .26);
+  --float: rgba(255, 255, 255, .38); --float-strong: rgba(255, 255, 255, .5); --float-edge: rgba(58, 36, 32, .08);
+  --float-shadow: 0 12px 32px rgba(42, 23, 18, .14), 0 2px 6px rgba(42, 23, 18, .05);
+  --lens-fill: rgba(168, 72, 61, .12); --lens-edge: rgba(168, 72, 61, .26);
   /* The selected tab sits on a solid brand pill. */
   --tab-ink: var(--brand); --tab-ink-edge: transparent; --tab-on: var(--cream);
 
   /* Color families (people, cards, charts), tinted to the palette. */
-  --amber-bg: #fdf6e4; --amber-icon: #f7e7bb; --amber-fg: #C9922A;
+  --amber-bg: #FCF0DC; --amber-icon: #F8DDB0; --amber-fg: #C98A1E;
   --blue-bg: #eef1f7;  --blue-icon: #dae0ee;  --blue-fg: #34477a;
   --green-bg: #eaf6f4; --green-icon: #cdebe6; --green-fg: #2A9D8F;
   --purple-bg: #f5f0ff; --purple-icon: #e6dcff; --purple-fg: #7b56d8;
@@ -48,110 +58,68 @@
 }
 
 :root[data-theme="dark"] {
-  /* At night the whole app sits on a dusky indigo: dark enough to be calm on the fridge at night,
+  /* At night the whole app sits on warm cocoa rather than near black: calm on the fridge at night,
      light enough that cards, borders, muted text and the little dots all still read. */
-  --bg: #262A52;
-  --card: #323766;
-  --card-border: #5C6299;
-  --muted-surface: #3C4275;
-  --text: #FBEFD9;
-  --text-2: #E2E1F2;
-  --text-3: #BDBEDC;
-  --accent: #8F96E8;
-  --on-accent: #161937;
-  --accent-soft: #434A8C;
-  --ok: #8F96E8;
-  --danger: #F5A3AA;
+  --bg: #3A2A24;
+  --card: #4A362F;
+  --card-border: #7A5D52;
+  --muted-surface: #57413A;
+  --text: #FBF2E2;
+  --text-2: #EDDDC8;
+  --text-3: #D2BDA8;
+  --accent: #E07B64;
+  --on-accent: #2A1712;
+  --accent-soft: #6A3F34;
+  --ok: #E07B64;
+  --danger: #FFBE78;
   --shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 6px 20px rgba(0, 0, 0, .2);
-  --float: rgba(50, 55, 102, .5); --float-strong: rgba(50, 55, 102, .66); --float-edge: rgba(0, 0, 0, .25);
+  --float: rgba(74, 54, 47, .5); --float-strong: rgba(74, 54, 47, .66); --float-edge: rgba(0, 0, 0, .25);
   --float-shadow: 0 12px 32px rgba(0, 0, 0, .35), 0 2px 6px rgba(0, 0, 0, .2);
-  --lens-fill: rgba(143, 150, 232, .24); --lens-edge: rgba(143, 150, 232, .45);
+  --lens-fill: rgba(224, 123, 100, .24); --lens-edge: rgba(224, 123, 100, .45);
   --tab-ink: var(--lens-fill); --tab-ink-edge: var(--lens-edge); --tab-on: var(--accent);
 
-  --amber-bg: #4A4430; --amber-icon: #615632; --amber-fg: var(--honey);
-  --blue-bg: #34406A;  --blue-icon: #45548A;  --blue-fg: #BCCBF2;
-  --green-bg: #284A4A; --green-icon: #2F625C; --green-fg: #6FD6C6;
-  --purple-bg: #3E3766; --purple-icon: #524887; --purple-fg: #C7B2FF;
-  --rose-bg: #4C3048; --rose-icon: #66405E; --rose-fg: #F5A3AA;
-  --imp: #F5A3AA; --imp-bg: #5A3550; --imp-on: #1a0d0d;
-  --glass: rgba(50, 55, 102, .62);
-  --glass-border: rgba(255, 255, 255, .1);
-  --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .08);
-  --blob-1: rgba(125, 31, 39, .14); --blob-2: rgba(120, 130, 230, .16); --blob-3: rgba(125, 31, 39, .08);
-  color-scheme: dark;
-}
-
-/* The Autumn palette, on by itself from September 1 to November 30: rust red (Pantone 2350 U) for
-   buttons, done ticks, the selected tab and the morning greeting; pale cream (P 24-9 U) for the page;
-   mustard (P 14-8 U) for stars and the night greeting; espresso ink; burnt orange for attention. */
-:root[data-season="autumn"] {
-  --rust: #A8483D; --mustard: #EFA43A;
-  --navy: #3A2420; --cream: #F3E8D2; --teal: var(--rust); --coral: #C2651A; --honey: var(--mustard);
-  --brand: var(--rust); --wine: var(--rust);
-  --card: #FFFAF1; --card-border: #E6D6BA; --muted-surface: #F0E4CE;
-  --text-2: #6E5A50; --text-3: #93806F;
-  --accent-soft: #F6E2DB; --imp-bg: #FBE7D3; --warn: #C98A1E;
-  --blob-1: rgba(168, 72, 61, .13); --blob-2: rgba(239, 164, 58, .16); --blob-3: rgba(239, 164, 58, .2);
-  --float-edge: rgba(58, 36, 32, .08);
-  --lens-fill: rgba(168, 72, 61, .12); --lens-edge: rgba(168, 72, 61, .26);
-  --amber-bg: #FCF0DC; --amber-icon: #F8DDB0; --amber-fg: #C98A1E;
-}
-:root[data-season="autumn"][data-theme="dark"] {
-  /* Warm cocoa rather than near black, so everything on it stays easy to read. */
-  --bg: #3A2A24; --card: #4A362F; --card-border: #7A5D52; --muted-surface: #57413A;
-  --text: #FBF2E2; --text-2: #EDDDC8; --text-3: #D2BDA8;
-  --accent: #E07B64; --on-accent: #2A1712; --accent-soft: #6A3F34; --ok: #E07B64; --danger: #FFBE78;
-  --imp: #FFBE78; --imp-bg: #5E4228;
-  --float: rgba(74, 54, 47, .5); --float-strong: rgba(74, 54, 47, .66); --float-edge: rgba(0, 0, 0, .25);
-  --glass: rgba(74, 54, 47, .62);
-  --lens-fill: rgba(224, 123, 100, .24); --lens-edge: rgba(224, 123, 100, .45);
   --amber-bg: #574429; --amber-icon: #705430; --amber-fg: var(--honey);
   --blue-bg: #3E4058; --blue-icon: #50547A; --blue-fg: #BCCBF2;
   --green-bg: #34483C; --green-icon: #415E4C; --green-fg: #8FD3B0;
   --purple-bg: #4D3A4E; --purple-icon: #634A66; --purple-fg: #D9B8F0;
   --rose-bg: #5A3634; --rose-icon: #744644; --rose-fg: #F7A79C;
+  --imp: #FFBE78; --imp-bg: #5E4228; --imp-on: #2A1712;
+  --glass: rgba(74, 54, 47, .62);
+  --glass-border: rgba(255, 255, 255, .1);
+  --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .08);
   --blob-1: rgba(224, 123, 100, .12); --blob-2: rgba(239, 164, 58, .08); --blob-3: rgba(224, 123, 100, .08);
+  color-scheme: dark;
 }
-:root[data-season="autumn"] .hero { --hill-1: rgba(58, 36, 32, .06); --hill-2: rgba(58, 36, 32, .1); --palm: rgba(58, 36, 32, .22); }
+
+/* Seasons are accents, not a new brand. Rust stays on every button, tick and the selected tab
+   all year; a season only tints the greeting panel and the soft glow behind the page.
+   Autumn, September 1 to November 30: rust greeting, mustard at night, a cocoa night sky.
+   (The full Autumn palette was rust #A8483D, cream #F3E8D2, mustard #EFA43A, espresso ink #3A2420.) */
+:root[data-season="autumn"] {
+  --blob-1: rgba(168, 72, 61, .12); --blob-2: rgba(239, 164, 58, .16); --blob-3: rgba(239, 164, 58, .2);
+}
+:root[data-season="autumn"][data-theme="dark"] {
+  --blob-1: rgba(224, 123, 100, .1); --blob-2: rgba(239, 164, 58, .08); --blob-3: rgba(239, 164, 58, .06);
+}
+:root[data-season="autumn"] .hero { --greet: #A8483D; --hill-1: rgba(58, 36, 32, .06); --hill-2: rgba(58, 36, 32, .1); --palm: rgba(58, 36, 32, .22); }
 :root[data-season="autumn"] .hero.night {
+  --greet: #EFA43A;
   background: linear-gradient(115deg, #3A2619 0%, #4E312A 55%, #74392F 100%); border-color: #7A5D52;
   --cloud: #5c4840; --hill-1: rgba(251, 246, 236, .05); --hill-2: rgba(251, 246, 236, .08); --palm: rgba(8, 12, 22, .6);
 }
 
-/* The Christmas palette, on by itself from December 1 to January 6 (applyTheme sets data-season).
-   About 60/40 burgundy and pine: burgundy for the greeting, the + button, buttons and what needs
-   attention (and the night page); pine for the ink, the selected tab pill, done ticks and the night
-   greeting card; gold for stars. Cream stays the day page. */
+/* Christmas, December 1 to January 6: burgundy greeting with pine hills by day, a pine night sky
+   with a gold greeting, and a burgundy and pine glow. (The full palette was wine #8E1B2E, pine
+   #1E5A3E, gold #D4A93F, cream #F8EEDC.) */
 :root[data-season="christmas"] {
-  --pine: #1E5A3E; --wine: #8E1B2E;
-  --navy: #163828; --cream: #F8EEDC; --teal: var(--wine); --coral: #C8102E; --honey: #D4A93F;
-  --brand: var(--wine); --ok: var(--pine);
-  --card: #FFFAF2; --card-border: #EBD9C2; --muted-surface: #F3E6D2;
-  --text-2: #4E5A50; --text-3: #85897C;
-  --accent-soft: #F5DFE1; --imp-bg: #FBE0E3; --warn: #B8902F;
   --blob-1: rgba(142, 27, 46, .14); --blob-2: rgba(30, 90, 62, .12); --blob-3: rgba(212, 169, 63, .18);
-  --float-edge: rgba(22, 56, 40, .08);
-  --lens-fill: rgba(30, 90, 62, .12); --lens-edge: rgba(30, 90, 62, .26);
-  --tab-ink: var(--pine); --tab-on: var(--cream);
 }
 :root[data-season="christmas"][data-theme="dark"] {
-  --bg: #3A1C22; --card: #4A262D; --card-border: #7A4A54; --muted-surface: #57303A;
-  --text: #FBF2E4; --text-2: #EED7D4; --text-3: #D0B3B0;
-  --accent: #E8788A; --on-accent: #2A0E14; --accent-soft: #6A2E3A; --ok: #6DB58D; --danger: #FF9AA5;
-  --imp: #FF9AA5; --imp-bg: #6A2E3A;
-  --float: rgba(74, 38, 45, .5); --float-strong: rgba(74, 38, 45, .66); --float-edge: rgba(0, 0, 0, .25);
-  --glass: rgba(74, 38, 45, .62);
-  --lens-fill: rgba(109, 181, 141, .24); --lens-edge: rgba(109, 181, 141, .45);
-  --tab-ink: var(--lens-fill); --tab-on: #8FD3AC;
-  --amber-bg: #574229; --amber-icon: #705430; --amber-fg: var(--honey);
-  --blue-bg: #403A58; --blue-icon: #524C7A; --blue-fg: #BCCBF2;
-  --green-bg: #2E4A3C; --green-icon: #3A604C; --green-fg: #8FD3AC;
-  --purple-bg: #4D3450; --purple-icon: #634466; --purple-fg: #D9B8F0;
-  --rose-bg: #5E2E38; --rose-icon: #7A3E4A; --rose-fg: #FF9AA5;
-  --blob-1: rgba(142, 27, 46, .18); --blob-2: rgba(30, 90, 62, .14); --blob-3: rgba(212, 169, 63, .06);
+  --blob-1: rgba(232, 120, 138, .12); --blob-2: rgba(109, 181, 141, .1); --blob-3: rgba(212, 169, 63, .06);
 }
-:root[data-season="christmas"] .hero { --hill-1: rgba(30, 90, 62, .1); --hill-2: rgba(30, 90, 62, .16); --palm: rgba(30, 90, 62, .4); }
+:root[data-season="christmas"] .hero { --greet: #8E1B2E; --hill-1: rgba(30, 90, 62, .1); --hill-2: rgba(30, 90, 62, .16); --palm: rgba(30, 90, 62, .4); }
 :root[data-season="christmas"] .hero.night {
+  --greet: #D4A93F;
   background: linear-gradient(115deg, #17382A 0%, #1F4A36 55%, #2E6248 100%); border-color: #3E6A52;
   --cloud: #3e5a4b; --hill-1: rgba(142, 27, 46, .25); --hill-2: rgba(142, 27, 46, .4); --palm: rgba(10, 22, 16, .75);
 }
@@ -201,7 +169,7 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
   border-radius: 24px; padding: 26px 30px; min-height: 136px;
   display: flex; align-items: center; gap: 22px;
   /* The panel uses the app's own surfaces: a card-toned base with a soft wash of sky. */
-  --hill-1: rgba(31, 35, 82, .06); --hill-2: rgba(31, 35, 82, .1); --palm: rgba(31, 35, 82, .22);
+  --hill-1: rgba(58, 36, 32, .06); --hill-2: rgba(58, 36, 32, .1); --palm: rgba(58, 36, 32, .22);
   --greet: var(--wine); --cloud: #ffffff; --cloud-a: .85; --drop: rgba(62, 98, 170, .42); --flake: #b4c3de;
   background: linear-gradient(115deg, #fdfaf3 0%, #f6efe2 60%, #efe6d4 100%);
   border: 1px solid var(--card-border);
@@ -212,10 +180,10 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
 .hero.day     { background: linear-gradient(115deg, #fdfaf3 0%, #f3efe4 55%, #e3ece6 100%); }
 .hero.evening { background: linear-gradient(115deg, #fcf7f2 0%, #f7e8df 55%, #ecdfe8 100%); --hill-1: rgba(150, 92, 120, .07); --hill-2: rgba(150, 92, 120, .11); --palm: rgba(70, 44, 60, .22); }
 .hero.night   {
-  background: linear-gradient(115deg, #22264F 0%, #2E3470 55%, #4A3A7A 100%); color: var(--cream);
-  border-color: #5C6299;
+  background: linear-gradient(115deg, #3A2619 0%, #4E312A 55%, #74392F 100%); color: var(--cream);
+  border-color: #7A5D52;
   --hill-1: rgba(251, 246, 236, .05); --hill-2: rgba(251, 246, 236, .08); --palm: rgba(8, 12, 22, .6);
-  --greet: var(--honey); --cloud: #4a4e7a; --cloud-a: .5; --drop: rgba(170, 195, 255, .38); --flake: #e8eeff;
+  --greet: var(--honey); --cloud: #5c4840; --cloud-a: .5; --drop: rgba(170, 195, 255, .38); --flake: #e8eeff;
 }
 /* Gray days dim the sky a touch and soften the sun or moon. */
 .hero.wx-cloud .wx-fx::before, .hero.wx-rain .wx-fx::before, .hero.wx-storm .wx-fx::before, .hero.wx-fog .wx-fx::before, .hero.wx-snow .wx-fx::before {
@@ -765,6 +733,10 @@ label.btn { cursor: pointer; }
 /* First run: who lives here */
 .setup { max-width: 560px; margin: 0 auto; }
 .setup-names { display: grid; gap: 10px; margin: 16px 0; }
+/* First run: the mark, the wordmark and the promise, then who shares this home. */
+.welcome { max-width: 560px; margin: 24px auto 22px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; }
+.welcome-promise { margin: 6px 0 0; font-size: 20px; font-weight: 600; line-height: 1.3; color: var(--text); }
+.welcome-sub { margin: 0; font-size: 15px; color: var(--text-2); max-width: 420px; }
 .setup-actions { display: flex; gap: 10px; justify-content: space-between; flex-wrap: wrap; }
 .setup-join { margin-top: 18px; }
 .setup-join .link { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer; }
@@ -870,7 +842,7 @@ label.btn { cursor: pointer; }
   transition: transform .15s ease, opacity .2s;
 }
 .fab:active { transform: scale(.92); }
-body.dome-open .fab { opacity: 0; transform: scale(.6); pointer-events: none; }
+body.dome-open .fab, body.fab-away .fab { opacity: 0; transform: scale(.6); pointer-events: none; }
 @media (max-width: 899.98px) {
   .fab { right: 16px; bottom: calc(88px + env(safe-area-inset-bottom)); width: 56px; height: 56px; }
   .toast { bottom: calc(150px + env(safe-area-inset-bottom)); }
@@ -1174,10 +1146,14 @@ a.conn { display: block; color: inherit; text-decoration: none; }
 }
 .app > .main { width: 100%; }
 @media (max-width: 600px) {
-  .glances { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
-  .glance { flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px; }
+  /* Two by two on a phone, each card a row (face or icon, then the count and its label), so the
+     labels get room and never squeeze into three lines. */
+  .glances { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .glance { gap: 10px; padding: 12px; }
   .glance small { white-space: normal; line-height: 1.3; }
   .glance b { font-size: 22px; }
+  /* The calendar view switcher fits all four views, Itinerary included. */
+  .cal-bar .seg:not(.cal-who) button { padding: 8px 4px; min-width: 0; white-space: nowrap; }
 }
 @media (max-width: 600px) {
   /* The two rankings sit side by side so the chore lists start higher. */
@@ -1377,10 +1353,11 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
   .cal-bar .chip-toggle .ico { font-size: 19px; }
   .cal-bar .seg button { padding: 8px 6px; }
 }
-/* Small phones: names get their own full row, and the List/Week/Month switch moves up beside Today. */
+/* Small phones: Today and the Chores icon share a row, then whose schedule, then all four views
+   (List, Week, Month, Itinerary) on a full row of their own so none of them is cut off. */
 @media (max-width: 420px) {
-  .cal-bar .seg:not(.cal-who) { order: 4; flex: 1; min-width: 0; width: auto; }
   .cal-bar .seg.cal-who { order: 5; flex: 1 0 100%; }
+  .cal-bar .seg:not(.cal-who) { order: 6; flex: 1 0 100%; min-width: 0; }
 }
 
 /* Private notes on events and chores: an icon in lists, the words in a bubble once tapped. */
@@ -1684,4 +1661,25 @@ button.hm-cell { cursor: pointer; }
   .sheet[data-kind="report"] .rp-tiles > div:first-child { grid-column: auto; display: block; }
   .sheet[data-kind="report"] .close, .sheet[data-kind="report"] .rp-print { display: none; }
   .sheet[data-kind="report"] * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+/* ---------- The Hometide wordmark ---------- */
+/* "home" in ink, "tide" in rust, beside the roofline-and-wave mark. */
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-icon { width: 48px; height: 48px; border-radius: 22%; flex: none; }
+.wordmark { font-size: 30px; font-weight: 700; letter-spacing: -.03em; line-height: 1; color: var(--navy); }
+.wordmark b { font-weight: 700; color: var(--brand); }
+:root[data-theme="dark"] .wordmark { color: var(--text); }
+:root[data-theme="dark"] .wordmark b { color: var(--accent); }
+.brand-sm .brand-icon { width: 32px; height: 32px; }
+.brand-sm .wordmark { font-size: 20px; }
+.brand-lg .brand-icon { width: 64px; height: 64px; }
+.brand-lg .wordmark { font-size: 44px; }
+.about { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 0 8px; text-align: center; }
+.about .hint { margin: 0; }
+
+@media (max-width: 600px) {
+  /* Two sticky notes fit side by side on a phone; the rest scroll in from the right. */
+  .sticky { width: calc(50vw - 36px); min-height: 140px; padding: 28px 12px 12px; }
+  .sticky-text { font-size: 15px; }
 }
