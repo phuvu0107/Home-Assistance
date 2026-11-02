@@ -134,7 +134,7 @@ export async function watchFriends(uid, cb) {
 export async function addPost(path, me, text, seen, extra = {}) {
   const { fs, db: d } = await db();
   const body = cleanText(text, POST_MAX);
-  if (!body) return;
+  if (!body && !extra.photos?.length) return;
   const post = { ...extra, type: 'post', by: me.uid, name: me.name, text: body, at: Date.now(), likes: {} };
   if (seen) post.seen = [...new Set([me.uid, ...seen])].slice(0, 300);
   await fs.setDoc(fs.doc(d, `${path}/${newestFirstId()}`), post);
