@@ -2138,6 +2138,51 @@ function bucketInbox() {
     <span><b>${esc(head)}</b><small>Bucket list${list.length === 1 ? ` · +${loveOf(b)} love points${b.doneBy === 'both' ? ' together' : ''}` : ''} · Tap to see</small></span>${icon('chevron', 'chev')}</button></div>`;
 }
 
+// Done: a year of days as little squares, shaded by how many things were ticked off that day.
+// Weeks run left to right with the newest on the right; tap a square to see that day's items.
+const HEAT_WEEKS = 53;
+function bucketHeat(done) {
+  const byDay = {};
+  for (const b of done) (byDay[isoDay(new Date(b.doneAt))] ||= []).push(b);
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  const start = addDays(today, -today.getDay() - (HEAT_WEEKS - 1) * 7); // a Sunday
+  const startIso = isoDay(start);
+  const inYear = done.filter((b) => isoDay(new Date(b.doneAt)) >= startIso).length;
+  const weeks = []; const months = [];
+  for (let w = 0; w < HEAT_WEEKS; w++) {
+    const days = [];
+    for (let d = 0; d < 7; d++) {
+      const day = addDays(start, w * 7 + d); const iso = isoDay(day);
+      if (day > today) { days.push('<i class="hm-cell out"></i>'); continue; }
+      const n = byDay[iso]?.length || 0;
+      const label = `${dayLabel(iso)}: ${n ? `${n} ticked off` : 'nothing ticked off'}`;
+      days.push(`<button class="hm-cell l${Math.min(n, 3)}" data-action="bk-heat-day" data-day="${iso}" aria-label="${esc(label)}" title="${esc(label)}"></button>`);
+    }
+    // A month's name sits over the first week that starts in it.
+    const first = addDays(start, w * 7);
+    const mo = first.getDate() <= 7 && w ? first.toLocaleDateString([], { month: 'short' }) : '';
+    months.push(`<span>${mo}</span>`);
+    weeks.push(`<div class="hm-week">${days.join('')}</div>`);
+  }
+  return `<div class="hm" id="bk-heat">
+    <div class="hm-head"><b>When we ticked things off</b><span class="hint">${inYear} in the last year</span></div>
+    <div class="hm-body">
+      <div class="hm-days" aria-hidden="true"><span></span><span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span></div>
+      <div class="hm-scroll" id="hm-scroll"><div class="hm-months" aria-hidden="true">${months.join('')}</div><div class="hm-grid">${weeks.join('')}</div></div>
+    </div>
+    <div class="hm-foot"><span class="hm-pick" id="hm-pick">Tap a square to see that day.</span>
+      <span class="hm-key" aria-hidden="true">Less <i class="hm-cell l0"></i><i class="hm-cell l1"></i><i class="hm-cell l2"></i><i class="hm-cell l3"></i> More</span></div>
+  </div>`;
+}
+function pickHeatDay(iso) {
+  document.querySelectorAll('#bk-heat .hm-cell.on').forEach((c) => c.classList.remove('on'));
+  $(`#bk-heat [data-day="${iso}"]`)?.classList.add('on');
+  const list = bucketDone().filter((b) => isoDay(new Date(b.doneAt)) === iso);
+  $('#hm-pick').innerHTML = `<b>${dayLabel(iso)}</b> · ${list.length
+    ? list.map((b) => `<button class="hm-item" data-action="edit-bucket" data-id="${b.id}">${kindOf(b)[0]} ${esc(b.text)}</button>`).join('')
+    : 'nothing ticked off'}`;
+}
+
 // The Bucket list page: everything still to do, kind by kind, then everything done.
 views.bucket = () => {
   const open = bucketOpen(); const done = bucketDone();
@@ -2154,6 +2199,7 @@ views.bucket = () => {
     <div class="card">
       <div class="love-total"><b>❤️ ${lovePoints()}</b><span>love points earned together</span></div>
       <div class="card-head">${icon('check')}<h2>Done</h2></div>
+      ${done.length ? bucketHeat(done) : ''}
       <div class="task-list">${done.map(bucketRow).join('') || '<p class="empty-line">Nothing ticked off yet.</p>'}</div>
     </div>
   </div>`;
@@ -4137,6 +4183,8 @@ function renderView(anim) {
   view.innerHTML = members().length || r === 'admin' || r === 'privacy' ? views[r]() : views.setup();
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
+  const hm = $('#hm-scroll');
+  if (hm) hm.scrollLeft = hm.scrollWidth; // newest weeks in view
   window.scrollTo(0, y);
   if (swipeNav) {
     // Arrived by swipe: the page already slid in, so just swap it in place.
@@ -4615,6 +4663,7 @@ const actions = {
     goTo('bucket');
   },
   'add-bucket': () => openBucketSheet(null),
+  'bk-heat-day': (el) => pickHeatDay(el.dataset.day),
   'edit-bucket': (el) => { const b = state.bucket.find((x) => x.id === el.dataset.id); if (b) openBucketSheet(b); },
   'save-bucket': (el) => {
     const text = $('#bk-text').value.trim().replace(/\s+/g, ' ').slice(0, BUCKET_MAX);
@@ -5138,7 +5187,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'bk-done-now', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'piggy-report', 'print-report', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'edit-shop', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'bk-done-now', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'bk-heat-day', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'piggy-report', 'print-report', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'edit-shop', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');

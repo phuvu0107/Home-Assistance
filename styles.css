@@ -1549,6 +1549,35 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .admin-features td .ico { color: var(--text-3); margin-right: 4px; }
 @media (max-width: 600px) { .admin-features td .ico { display: none; } }
 
+/* Bucket list Done: a year of days shaded by how many things were ticked off. */
+.hm { --hm: 13px; --hm-gap: 3px; margin: 0 0 16px; padding: 12px 14px; border-radius: 14px; background: var(--muted-surface); }
+.hm-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.hm-head b { font-size: 14px; font-weight: 600; }
+.hm-head .hint { white-space: nowrap; }
+.hm-body { display: flex; gap: 6px; }
+.hm-days { display: grid; grid-template-rows: 14px repeat(7, var(--hm)); gap: var(--hm-gap); font-size: 10px; line-height: var(--hm); color: var(--text-3); flex: none; }
+.hm-scroll { overflow-x: auto; scrollbar-width: none; min-width: 0; }
+.hm-scroll::-webkit-scrollbar { display: none; }
+.hm-months { display: grid; grid-auto-flow: column; grid-auto-columns: var(--hm); gap: var(--hm-gap); height: 14px; margin-bottom: var(--hm-gap); font-size: 10px; line-height: 14px; color: var(--text-3); }
+.hm-months span { overflow: visible; white-space: nowrap; }
+.hm-grid { display: flex; gap: var(--hm-gap); width: max-content; }
+.hm-week { display: grid; grid-template-rows: repeat(7, var(--hm)); gap: var(--hm-gap); }
+.hm-cell { display: inline-block; width: var(--hm); height: var(--hm); padding: 0; border: 0; border-radius: 3px; background: color-mix(in srgb, var(--text) 9%, transparent); }
+button.hm-cell { cursor: pointer; }
+.hm-cell.out { background: transparent; }
+.hm-cell.l1 { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+.hm-cell.l2 { background: color-mix(in srgb, var(--accent) 70%, transparent); }
+.hm-cell.l3 { background: var(--accent); }
+.hm-cell.on { outline: 2px solid var(--text); outline-offset: 1px; }
+.hm-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin-top: 10px; font-size: 13px; color: var(--text-2); }
+.hm-pick { flex: 1 1 200px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.hm-pick b { color: var(--text); font-weight: 600; }
+.hm-item { padding: 4px 10px; border: 0; border-radius: 999px; background: var(--card); color: var(--text); font: inherit; cursor: pointer; }
+.hm-key { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; font-size: 11px; color: var(--text-3); }
+.hm-key .hm-cell { --hm: 10px; }
+/* The fridge has room for bigger squares. */
+@media (min-width: 900px) and (pointer: coarse), (min-width: 1200px) { .hm { --hm: 15px; } }
+
 /* Piggy Bank: end-of-month report, one page (one screen on the fridge, one sheet of paper) */
 .month-nav .piggy-report-btn { margin-left: auto; }
 .sheet[data-kind="report"] { width: min(1180px, calc(100vw - 32px)); padding: 20px 24px; }
