@@ -156,6 +156,17 @@
   --cloud: #3e5a4b; --hill-1: rgba(142, 27, 46, .25); --hill-2: rgba(142, 27, 46, .4); --palm: rgba(10, 22, 16, .75);
 }
 
+/* Plain white page by day, in every palette (Adrian asked for just white, 2026-11-02).
+   The coloured blobs are switched off so the white stays clean; cards keep their cream tint,
+   border and shadow so they still stand off the page. Night mode keeps its palette background. */
+:root:not([data-theme="dark"]) {
+  --bg: #FFFFFF;
+  --blob-1: transparent; --blob-2: transparent; --blob-3: transparent;
+  /* White cards on a white page need a visible edge: use the palette's card border. */
+  --glass-border: var(--card-border);
+  --shadow: 0 1px 2px rgba(30, 30, 40, .05), 0 6px 20px rgba(30, 30, 40, .07);
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
