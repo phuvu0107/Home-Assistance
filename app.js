@@ -9,7 +9,7 @@ import { adminRulesPublished, fmtBytes, isAdmin, loadAdmin, monitors, shortId, w
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, friendsGate, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { collagePick, createPhotos, drawCollage, shrink } from './photos.js';
 import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, seasonFor, WEEKDAYS } from './schedule.js';
-import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthTrend, newJoiners, newMember, PERSON_COLORS, sortMembers } from './people.js';
+import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthReport, monthTrend, newJoiners, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -141,7 +141,7 @@ function applyTheme() {
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   if (season) document.documentElement.dataset.season = season;
   else delete document.documentElement.dataset.season;
-  const bars = { christmas: ['#1A0D10', '#F8EEDC'], autumn: ['#1C1412', '#F3E8D2'] }[season] || ['#14162E', '#F7E7CB'];
+  const bars = { christmas: ['#3A1C22', '#F8EEDC'], autumn: ['#3A2A24', '#F3E8D2'] }[season] || ['#262A52', '#F7E7CB'];
   $('meta[name="theme-color"]').content = bars[dark ? 0 : 1];
 }
 
@@ -752,7 +752,7 @@ const PAGES = [
   { id: 'calendar', label: 'Calendar', icon: 'calendar', main: true },
   { id: 'tasks', label: 'Chores', icon: 'checkSquare', main: true },
   { id: 'friends', label: 'Friends', icon: 'users', main: true },
-  { id: 'fridge', label: 'Kitchen', icon: 'fridge' },
+  { id: 'fridge', label: 'Inventory', icon: 'fridge' },
   { id: 'piggy', label: 'Piggy Bank', icon: 'piggy' },
   { id: 'bucket', label: 'Bucket list', icon: 'sparkles' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
@@ -989,7 +989,7 @@ const FAB = {
   home: { action: 'add-menu', label: 'Add' },
   calendar: { action: 'add-event', label: 'Add event' },
   tasks: { action: 'add-task', label: 'Add chore' },
-  fridge: { action: 'add-menu', label: 'Add to kitchen' },
+  fridge: { action: 'add-menu', label: 'Add to inventory' },
   piggy: { action: 'add-menu', label: 'Add expense' },
   bucket: { action: 'add-bucket', label: 'Add to the bucket list' },
 };
@@ -1010,9 +1010,9 @@ function openAddMenu() {
   const items = r === 'fridge' ? [opt('add-fridge', 'plus', 'Add an item', 'Type in one thing'), scan]
     : r === 'piggy' ? [opt('add-expense', 'plus', 'Add an expense', 'Type it in'), scanMoney, opt('add-box', 'box', 'Open a box', 'For a trip or a day out, like Japan Box')]
     : [opt('add-task', 'checkSquare', 'Chore', 'Something to do, with stars'), opt('add-event', 'calendar', 'Event', 'Something on the calendar'),
-      opt('add-fridge', 'fridge', 'Kitchen item', 'Something in the fridge'), opt('add-expense', 'piggy', 'Expense', 'Something you paid for'),
+      opt('add-fridge', 'fridge', 'Inventory item', 'Something in the fridge'), opt('add-expense', 'piggy', 'Expense', 'Something you paid for'),
       opt('add-note', 'notes', 'Note', 'A sticky note on Home'), opt('add-bucket', 'sparkles', 'Bucket list', 'A trip, dinner or place to go together')];
-  openSheet(`${sheetHead(r === 'fridge' ? 'Add to kitchen' : r === 'piggy' ? 'Add expense' : 'Add', 'plus')}<div class="list more-list">${items.join('')}</div>`);
+  openSheet(`${sheetHead(r === 'fridge' ? 'Add to inventory' : r === 'piggy' ? 'Add expense' : 'Add', 'plus')}<div class="list more-list">${items.join('')}</div>`);
   $('#sheet').dataset.kind = 'add';
 }
 // The bar can change width without a window resize (a page scrollbar appearing, fonts loading).
@@ -1366,7 +1366,7 @@ function glanceRow() {
   });
   const soon = (state.fridge || []).filter((it) => daysLeft(it) !== null && daysLeft(it) <= 2).length;
   const kitchen = (state.fridge || []).length
-    ? `<a class="glance" href="#/fridge"><span class="ibox c-amber-ico">${icon('fridge')}</span><span><b>${soon || icon('check')}</b><small>${soon ? 'to use soon' : 'kitchen all fresh'}</small></span></a>` : '';
+    ? `<a class="glance" href="#/fridge"><span class="ibox c-amber-ico">${icon('fridge')}</span><span><b>${soon || icon('check')}</b><small>${soon ? 'to use soon' : 'inventory all fresh'}</small></span></a>` : '';
   const buy = (state.shopping || []).length;
   const shop = buy ? `<a class="glance" href="#/fridge"><span class="ibox c-green-ico">${icon('cart')}</span><span><b>${buy}</b><small>to buy</small></span></a>` : '';
   // Someone in more than one household sees which one this is; tapping it goes to switching.
@@ -2019,11 +2019,39 @@ const TILTS = [-1.4, 1, -0.5, 1.5, -1, 0.6];
 const tiltOf = (id) => TILTS[[...String(id)].reduce((a, c) => a + c.charCodeAt(0), 0) % TILTS.length];
 function stickyNote(n) {
   const until = !n.until ? '' : n.until === isoDay(new Date()) ? ' · today only' : ` · until ${dayLabel(n.until)}`;
-  return `<button class="sticky p-${NOTE_COLORS.includes(n.color) ? n.color : 'butter'}${isNewNote(n) ? ' new' : ''}" style="--tilt:${tiltOf(n.id)}deg" data-action="edit-note" data-id="${n.id}">
+  return `<div class="sticky p-${NOTE_COLORS.includes(n.color) ? n.color : 'butter'}${isNewNote(n) ? ' new' : ''}" style="--tilt:${tiltOf(n.id)}deg" data-id="${n.id}">
     ${avatar(n.by, 'sm')}${isNewNote(n) ? '<span class="sticky-new">New</span>' : ''}
-    <span class="sticky-text">${esc(n.text)}</span>
-    <small>${esc(userOf(n.by)?.name || '')} · ${ago(n.at)}${until}</small></button>`;
+    <button class="sticky-open" data-action="edit-note" data-id="${n.id}" aria-label="Note from ${esc(userOf(n.by)?.name || '')}">
+      <span class="sticky-text">${esc(n.text)}</span>
+      <small>${esc(userOf(n.by)?.name || '')} · ${ago(n.at)}${until}</small></button>
+    ${noteReacts(n)}</div>`;
 }
+
+// Reactions on a sticky note: one icon per person, like a tapback. Stored on the note itself as
+// reacts: { personId: emoji }, so older app versions keep the field untouched when they save a note.
+const NOTE_REACTS = ['❤️', '😂', '😍', '😮', '🙏', '👍'];
+let reactFor = ''; // the note whose icon picker is open
+let reactWho = ''; // who is reacting on a shared screen
+const reactsOf = (n) => Object.entries(n.reacts || {}).filter(([who, e]) => userOf(who) && typeof e === 'string' && e);
+// This screen's person, or on the fridge whoever was picked, else someone other than the writer.
+const reactorFor = (n) => me() || (userOf(reactWho) ? reactWho : (members().find((u) => u.id !== n.by) || members()[0]).id);
+function noteReacts(n) {
+  if (reactFor === n.id) {
+    const who = reactorFor(n);
+    const faces = me() ? '' : `<div class="nr-who">${members().map((u) => `<button class="${u.id === who ? 'on' : ''}" data-action="react-who" data-id="${n.id}" data-who="${u.id}" aria-label="${esc(u.name)} reacts">${avatar(u.id, 'xs')}</button>`).join('')}</div>`;
+    return `<div class="note-reacts open">${faces}<div class="nr-pick">${NOTE_REACTS.map((e) => `<button class="${n.reacts?.[who] === e ? 'on' : ''}" data-action="react-note" data-id="${n.id}" data-v="${e}" aria-label="React ${e}">${e}</button>`).join('')}</div></div>`;
+  }
+  const groups = {};
+  for (const [who, e] of reactsOf(n)) (groups[e] ||= []).push(who);
+  const order = (e) => (NOTE_REACTS.includes(e) ? NOTE_REACTS.indexOf(e) : 99);
+  const chips = Object.entries(groups).sort(([a], [b]) => order(a) - order(b)).map(([e, whos]) => {
+    const names = whos.map((w) => userOf(w).name).join(' and ');
+    // On a personal screen a chip toggles that person's own icon; the fridge asks who first.
+    return `<button class="nr-chip${me() && whos.includes(me()) ? ' mine' : ''}" data-action="${me() ? 'react-note' : 'react-open'}" data-id="${n.id}" data-v="${e}" aria-label="${e} from ${esc(names)}" title="${esc(names)}"><span class="nr-emoji">${e}</span><span class="av-pair">${whos.map((w) => avatar(w, 'xs')).join('')}</span></button>`;
+  }).join('');
+  return `<div class="note-reacts">${chips}<button class="nr-add" data-action="react-open" data-id="${n.id}" aria-label="React to this note" title="React">${icon('smile')}</button></div>`;
+}
+
 function notesBoard() {
   const list = liveNotes();
   if (!list.length) return `<button class="note-add solo" data-action="add-note">${icon('notes')} Leave a note</button>`;
@@ -2056,14 +2084,19 @@ function announceArrivals(before) {
   const notes = liveNotes().filter((n) => !before.has(n.id) && (!me() || n.by !== me()));
   const ticked = newDones().filter((b) => !before.has(`${b.id}✓`));
   const added = (state.bucket || []).filter((b) => !before.has(b.id) && !b.doneAt && (!me() || b.by !== me()));
+  // Someone reacted to a note: tell the writer, or anyone on the fridge.
+  const reacted = liveNotes().filter((n) => before.has(n.id) && (!me() || n.by === me()))
+    .flatMap((n) => reactsOf(n).filter(([who, e]) => who !== me() && !before.has(`${n.id}~${who}~${e}`)).map(([who, e]) => ({ n, who, e })));
   if (fresh.length) toast(`${userOf(fresh[0].from)?.name} sent ${me() ? 'you' : userOf(fresh[0].to)?.name} a thank-you ${fresh[0].emoji || '💌'}`);
   else if (ticked.length) toast(`${userOf(ticked[0].from)?.name} ticked off ${ticked[0].text} 🎉`);
   else if (notes.length) toast(`${userOf(notes[0].by)?.name} left a note`);
+  else if (reacted.length) { const r = reacted[0]; toast(`${userOf(r.who).name} reacted ${r.e} to ${me() ? 'your' : `${userOf(r.n.by)?.name}'s`} note`); }
   else if (added.length) toast(`${userOf(added[0].by)?.name} added ${added[0].text} to the bucket list`);
 }
-// Ids seen so far, plus a ✓ mark for each bucket list item already ticked off.
+// Ids seen so far, plus a ✓ mark for each bucket list item already ticked off and each note reaction.
 const knownIds = () => new Set([...(state.thanks || []), ...(state.notes || []), ...(state.bucket || [])].map((x) => x.id)
-  .concat((state.bucket || []).filter((b) => b.doneAt).map((b) => `${b.id}✓`)));
+  .concat((state.bucket || []).filter((b) => b.doneAt).map((b) => `${b.id}✓`))
+  .concat((state.notes || []).flatMap((n) => reactsOf(n).map(([who, e]) => `${n.id}~${who}~${e}`))));
 
 /* =========================================================
    Bucket list: trips, dinners and places to do together
@@ -2138,6 +2171,51 @@ function bucketInbox() {
     <span><b>${esc(head)}</b><small>Bucket list${list.length === 1 ? ` · +${loveOf(b)} love points${b.doneBy === 'both' ? ' together' : ''}` : ''} · Tap to see</small></span>${icon('chevron', 'chev')}</button></div>`;
 }
 
+// Done: a year of days as little squares, shaded by how many things were ticked off that day.
+// Weeks run left to right with the newest on the right; tap a square to see that day's items.
+const HEAT_WEEKS = 53;
+function bucketHeat(done) {
+  const byDay = {};
+  for (const b of done) (byDay[isoDay(new Date(b.doneAt))] ||= []).push(b);
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  const start = addDays(today, -today.getDay() - (HEAT_WEEKS - 1) * 7); // a Sunday
+  const startIso = isoDay(start);
+  const inYear = done.filter((b) => isoDay(new Date(b.doneAt)) >= startIso).length;
+  const weeks = []; const months = [];
+  for (let w = 0; w < HEAT_WEEKS; w++) {
+    const days = [];
+    for (let d = 0; d < 7; d++) {
+      const day = addDays(start, w * 7 + d); const iso = isoDay(day);
+      if (day > today) { days.push('<i class="hm-cell out"></i>'); continue; }
+      const n = byDay[iso]?.length || 0;
+      const label = `${dayLabel(iso)}: ${n ? `${n} ticked off` : 'nothing ticked off'}`;
+      days.push(`<button class="hm-cell l${Math.min(n, 3)}" data-action="bk-heat-day" data-day="${iso}" aria-label="${esc(label)}" title="${esc(label)}"></button>`);
+    }
+    // A month's name sits over the first week that starts in it.
+    const first = addDays(start, w * 7);
+    const mo = first.getDate() <= 7 && w ? first.toLocaleDateString([], { month: 'short' }) : '';
+    months.push(`<span>${mo}</span>`);
+    weeks.push(`<div class="hm-week">${days.join('')}</div>`);
+  }
+  return `<div class="hm" id="bk-heat">
+    <div class="hm-head"><b>When we ticked things off</b><span class="hint">${inYear} in the last year</span></div>
+    <div class="hm-body">
+      <div class="hm-days" aria-hidden="true"><span></span><span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span></div>
+      <div class="hm-scroll" id="hm-scroll"><div class="hm-months" aria-hidden="true">${months.join('')}</div><div class="hm-grid">${weeks.join('')}</div></div>
+    </div>
+    <div class="hm-foot"><span class="hm-pick" id="hm-pick">Tap a square to see that day.</span>
+      <span class="hm-key" aria-hidden="true">Less <i class="hm-cell l0"></i><i class="hm-cell l1"></i><i class="hm-cell l2"></i><i class="hm-cell l3"></i> More</span></div>
+  </div>`;
+}
+function pickHeatDay(iso) {
+  document.querySelectorAll('#bk-heat .hm-cell.on').forEach((c) => c.classList.remove('on'));
+  $(`#bk-heat [data-day="${iso}"]`)?.classList.add('on');
+  const list = bucketDone().filter((b) => isoDay(new Date(b.doneAt)) === iso);
+  $('#hm-pick').innerHTML = `<b>${dayLabel(iso)}</b> · ${list.length
+    ? list.map((b) => `<button class="hm-item" data-action="edit-bucket" data-id="${b.id}">${kindOf(b)[0]} ${esc(b.text)}</button>`).join('')
+    : 'nothing ticked off'}`;
+}
+
 // The Bucket list page: everything still to do, kind by kind, then everything done.
 views.bucket = () => {
   const open = bucketOpen(); const done = bucketDone();
@@ -2154,6 +2232,7 @@ views.bucket = () => {
     <div class="card">
       <div class="love-total"><b>❤️ ${lovePoints()}</b><span>love points earned together</span></div>
       <div class="card-head">${icon('check')}<h2>Done</h2></div>
+      ${done.length ? bucketHeat(done) : ''}
       <div class="task-list">${done.map(bucketRow).join('') || '<p class="empty-line">Nothing ticked off yet.</p>'}</div>
     </div>
     ${collageCard()}
@@ -2250,12 +2329,16 @@ async function postCollage() {
 // A done item opens on its check-in picture; changing it is folded away under Edit. The kind
 // grid is folded too once an item exists, showing just the kind it has.
 function openBucketSheet(b) {
+  bucketPics = [];
   const kind = b?.kind || 'trip';
   const [ke, kl, kn] = BUCKET_KINDS[kind] || BUCKET_KINDS.do;
   const fields = `<div class="field"><label for="bk-text">What</label><input class="input" id="bk-text" maxlength="${BUCKET_MAX}" value="${esc(b?.text || '')}" placeholder="e.g. Cherry blossoms in Kyoto"${b ? ' data-nofocus' : ''}></div>
     <details class="field bk-kind-fold"${b ? '' : ' open'}><summary><label>Kind</label><span id="bk-kind-now">${ke} ${kl} · ❤️ ${kn}</span><span class="bk-change">Change</span></summary>
       <div class="seg bk-kind" id="bk-kind">${Object.entries(BUCKET_KINDS).map(([k, [e, l, n]]) => `<button class="${k === kind ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${e} ${l}<small>❤️ ${n}</small></button>`).join('')}</div></details>
     ${!b && !me() ? `<div class="field"><label>From</label>${whoPicker(state.settings.lastWriter || members()[0].id, false)}</div>` : ''}
+    ${b ? '' : `<div class="setting-row imp-row"><div><b>Done it already</b><div class="hint">Tick it off now with a picture from the day.</div></div>
+      <button class="switch" id="bk-done-now" role="switch" aria-checked="false" data-action="bk-done-now"></button></div>
+      <div id="bk-done-box" hidden>${checkInFields()}</div>`}
     ${b ? `<p class="hint">Added by ${esc(userOf(b.by)?.name || 'someone')} ${ago(b.at)}${b.doneAt ? ` · done ${dayLabel(isoDay(new Date(b.doneAt)))}, ${wentLine(b).toLowerCase()}` : ''}</p>` : ''}
     <div class="sheet-actions">
       ${b ? `<button class="btn danger" data-action="del-bucket" data-id="${b.id}">${icon('trash')} Remove</button><span class="spacer"></span>` : ''}
@@ -2289,16 +2372,42 @@ function redrawBucketPics() {
   if (box) box.innerHTML = bkPicHtml();
   const go = $('#sheet [data-action="done-bucket"]');
   if (go) go.disabled = !bucketPics.length;
+  // The add sheet with "Done it already" on adds and ticks off in one go, so it needs a picture too.
+  const add = $('#sheet [data-action="save-bucket"]');
+  if (add && !add.dataset.id) {
+    add.disabled = doneNow() && !bucketPics.length;
+    add.innerHTML = doneNow() ? `${icon('check')} Add and tick off` : 'Add';
+  }
 }
+// Ticks off b with the pictures in the open sheet: who went, the notice, the phone alert, Friends.
+function checkInBucket(b) {
+  const doneBy = $('#bk-went .who-opt.on')?.dataset.who || 'both';
+  // Whoever ticked it off: this phone's owner, or on the fridge the one person who went.
+  const from = me() || (userOf(doneBy) ? doneBy : '');
+  const share = $('#bk-share')?.getAttribute('aria-checked') === 'true';
+  const ids = bucketPics.map((p) => p.id);
+  Object.assign(b, { doneAt: Date.now(), doneBy, photo: ids[0], ...(ids.length > 1 && { photos: ids }), ...(from && { from }) });
+  bucketPics.forEach((p) => photos.add(p.id, p.data));
+  if (share) shareBucket(b, bucketPics.map((p) => p.data));
+  bucketPics = [];
+  burst(`[data-action="tick-bucket"][data-id="${b.id}"]`);
+  toast(`Ticked off ${b.text} · +${loveOf(b)} love points ❤️`);
+  // Same people as the Home notice: everyone but the one who ticked it off.
+  if (from) phoneAlert(alertRecipients(members(), from), bucketAlert(userOf(from).name, loveOf(b)));
+}
+// The check-in part (pictures, who went, share), shared by the tick sheet and the add sheet's
+// "Done it already". Who went has its own picker id so it doesn't clash with the add sheet's From.
+const checkInFields = () => `<div class="field"><label>Pictures</label><div id="bk-shot">${bkPicHtml()}</div></div>
+    <div class="field"><label>Who went</label>${whoPicker('both', 'both', 'bk-went')}</div>
+    ${members().length > 1 ? `<p class="hint">${me() && otherOf(me()) ? `${esc(userOf(otherOf(me())).name)} gets a note on their screen` : members().length === 2 ? 'The other person gets a note on their screen' : 'Everyone else gets a note on their screen'} unless you went together.</p>` : ''}
+    ${account.user ? `<div class="setting-row imp-row"><div><b>Share on Friends</b><div class="hint">Posts the pictures to your Friends feed${social.me?.name ? ` as ${esc(social.me.name)}` : ''}.</div></div>
+      <button class="switch" id="bk-share" role="switch" aria-checked="true" data-action="toggle-important"></button></div>` : ''}`;
+const doneNow = () => $('#bk-done-now')?.getAttribute('aria-checked') === 'true';
 function openBucketTick(b) {
   bucketPics = [];
   openSheet(`${sheetHead('Check in', 'sparkles')}
     <p class="thx-for"><span class="bk-emoji">${kindOf(b)[0]}</span><span><b>${esc(b.text)}</b> · +${loveOf(b)} love points</span></p>
-    <div class="field"><label>Pictures</label><div id="bk-shot">${bkPicHtml()}</div></div>
-    <div class="field"><label>Who went</label>${whoPicker('both', 'both')}</div>
-    ${members().length > 1 ? `<p class="hint">${me() && otherOf(me()) ? `${esc(userOf(otherOf(me())).name)} gets a note on their screen` : members().length === 2 ? 'The other person gets a note on their screen' : 'Everyone else gets a note on their screen'} unless you went together.</p>` : ''}
-    ${account.user ? `<div class="setting-row imp-row"><div><b>Share on Friends</b><div class="hint">Posts the pictures to your Friends feed${social.me?.name ? ` as ${esc(social.me.name)}` : ''}.</div></div>
-      <button class="switch" id="bk-share" role="switch" aria-checked="true" data-action="toggle-important"></button></div>` : ''}
+    ${checkInFields()}
     <div class="sheet-actions">
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
       <button class="btn" data-action="done-bucket" data-id="${b.id}" disabled>${icon('check')} Tick it off</button>
@@ -2339,7 +2448,7 @@ async function shareBucket(b, pics) {
 // Everything here lives in its own place in the database (social.js), never in the household's
 // synced data, and needs someone signed in. On a shared screen it posts as whoever signed in.
 const freshSocial = () => ({ uid: '', state: 'off', note: '', me: null, friends: [], incoming: [], outgoing: [], posts: null, groups: [], friendsIn: false,
-  gid: '', group: undefined, items: [], tab: 'feed', open: new Set(), comments: {}, drafts: {}, busy: '', offs: [], groupOff: null, commentOffs: {}, dirty: false });
+  gid: '', group: undefined, items: [], tab: 'feed', open: new Set(), comments: {}, drafts: {}, pics: {}, busy: '', offs: [], groupOff: null, commentOffs: {}, dirty: false });
 let social = freshSocial();
 const GROUP_TABS = { feed: 'Feed', plans: 'Plans', bucket: 'Bucket list', money: 'Money' };
 const FRIENDS_PATH = 'posts';
@@ -2415,7 +2524,7 @@ function postCard(p, path) {
   return `<div class="post" data-key="${esc(key)}">
     <div class="post-head">${personAv(p.by, p.name)}<span class="post-who"><b>${esc(p.name || 'Someone')}</b><small>${ago(p.at)}</small></span>
       ${p.by === social.uid ? `<button class="btn-round" data-action="soc-del-post" data-path="${path}" data-id="${p.id}" aria-label="Delete post">${icon('trash')}</button>` : ''}</div>
-    <p class="post-text">${textHtml(p.text)}</p>
+    ${p.text ? `<p class="post-text">${textHtml(p.text)}</p>` : ''}
     ${postPhotos(p).length ? slides(postPhotos(p).map((src, i) => `<button class="post-photo" data-action="soc-view-photo" data-path="${path}" data-id="${p.id}" data-i="${i}" aria-label="See the picture"><img alt="" src="${esc(src)}"></button>`)) : ''}
     ${typeof p.went === 'string' && p.went ? `<p class="post-went">With ${esc(p.went.slice(0, 120))}</p>` : ''}
     <div class="post-acts">
@@ -2429,10 +2538,16 @@ function postCard(p, path) {
   </div>`;
 }
 
+// Pictures go inside the post itself, made small, the same way a bucket list check-in shares them.
+const POST_PICS_CHARS = 800000;
 function composer(path, placeholder) {
+  const pics = social.pics[path] || [];
   return `<div class="composer">
     <textarea class="input" rows="2" maxlength="${POST_MAX}" data-draft="p:${path}" placeholder="${placeholder}" aria-label="New post">${esc(social.drafts[`p:${path}`] || '')}</textarea>
+    ${pics.length < BUCKET_PICS_MAX ? `<label class="btn-round composer-pic" aria-label="Add pictures">${icon('camera')}<input type="file" accept="image/*" multiple hidden data-post-pics="${path}"></label>` : ''}
     <button class="btn" data-action="soc-post" data-path="${path}" ${social.busy ? 'disabled' : ''}>${social.busy === 'post' ? 'Posting…' : 'Post'}</button>
+    ${pics.length ? `<div class="pl-photos edit composer-pics">${pics.map((src, i) => `<div class="pl-thumb"><img class="pl-photo" src="${src}" alt="">
+      <button class="pl-x" data-action="soc-del-pic" data-path="${path}" data-i="${i}" aria-label="Remove picture">${icon('x')}</button></div>`).join('')}</div>` : ''}
   </div>`;
 }
 
@@ -2622,11 +2737,13 @@ const socialActions = {
   'soc-copy': (el) => { navigator.clipboard?.writeText(el.dataset.v).then(() => toast('Copied'), () => toast(showCode(el.dataset.v))); },
   'soc-post': (el) => {
     const path = el.dataset.path; const key = `p:${path}`;
-    const text = social.drafts[key] || '';
-    if (!text.trim()) { toast('Write something first'); return; }
+    const text = social.drafts[key] || ''; const pics = social.pics[path] || [];
+    if (!text.trim() && !pics.length) { toast('Write something or add a picture first'); return; }
     const seen = path === FRIENDS_PATH ? social.friends.map((f) => f.uid) : null;
-    socialDo('post', () => addPost(path, socialMe(), text, seen), () => { social.drafts[key] = ''; });
+    socialDo('post', () => addPost(path, socialMe(), text, seen, pics.length ? { photo: pics[0], photos: pics } : {}),
+      () => { social.drafts[key] = ''; delete social.pics[path]; });
   },
+  'soc-del-pic': (el) => { social.pics[el.dataset.path]?.splice(+el.dataset.i, 1); renderView(); },
   'soc-view-photo': (el) => {
     const { path, id } = el.dataset;
     const p = (path === FRIENDS_PATH ? social.posts : social.items).find((x) => x.id === id);
@@ -3259,6 +3376,7 @@ views.piggy = () => {
     <div class="piggy-month"><h2>${monthName(key)}</h2><span>${monthRange(key)}</span></div>
     <button class="btn-round" data-action="piggy-move" data-d="1" aria-label="Next month">${icon('chevron')}</button>
     ${isNow ? '' : '<button class="btn ghost sm" data-action="piggy-today">This month</button>'}
+    ${list.length ? `<button class="btn ghost sm piggy-report-btn" data-action="piggy-report">${icon('chart')} Month report</button>` : ''}
   </div>
   ${balance}
   ${boxes ? boxes : ''}
@@ -3393,6 +3511,70 @@ function trendCard(key, months) {
   </div>`;
 }
 
+// The end-of-month report: the month's totals and stats on one page, to read on the fridge or
+// print. The numbers come from monthReport() in people.js, the same sums the page shows.
+function openMonthReport(key) {
+  const ids = members().map((u) => u.id);
+  const r = monthReport(state.expenses, ids, key);
+  const st = r.stats;
+  const many = members().length > 1;
+  const showSplit = state.settings.showSplit !== false;
+  const month = monthName(key).split(' ')[0];
+  const short = (k) => monthBounds(k)[0].toLocaleDateString([], { month: 'short' });
+  const whole = (n) => fmtCash(Math.round(n)).replace(/\.00$/, '');
+  const isNow = key === monthKey(new Date());
+  const days = isNow ? new Date().getDate() : monthBounds(key)[1].getDate();
+  const pct = (a, b) => (b ? `${a > b ? '+' : ''}${Math.round(((a - b) / b) * 100)}%` : '–');
+  const cls = (a, b) => (!b ? '' : a > b ? 'up' : 'down');
+  const share = (u) => (st.total ? (st.paid[u.id] / st.total) * 100 : 0);
+  const boxes = boxesForMonth(state.boxes, state.expenses, key, isoDay(new Date()))
+    .map((b) => ({ b, total: spending(expensesIn(key)).filter((x) => x.box === b.id).reduce((n, x) => n + x.amount, 0) }))
+    .filter((x) => x.total);
+  const tile = (label, value, c = '') => `<div><small>${label}</small><b class="${c}">${value}</b></div>`;
+  const line = (left, right, sub = '') => `<div class="rp-line"><span>${left}${sub ? `<small>${sub}</small>` : ''}</span><b>${right}</b></div>`;
+  const bal = !showSplit || !many ? ''
+    : st.transfers.length ? st.transfers.map((t) => `<div class="rp-owe">${avatar(t.from, 'sm')}<span>${userOf(t.from)?.name} owes ${userOf(t.to)?.name}</span><b>${fmtCash(t.amount)}</b></div>`).join('')
+      : `<div class="rp-owe even">${icon('check')}<span>All square for ${month}</span></div>`;
+  const maxMonth = Math.max(1, ...r.months.map((m) => m.total));
+  openSheet(`<h3>${icon('piggy')}<span class="rp-title">${monthName(key)} report<small>${isNow ? `So far · ${monthRange(key).split(' – ')[0]} – ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric' })}` : monthRange(key)}</small></span>
+      <button class="btn ghost sm rp-print" data-action="print-report">${icon('receipt')} Print</button>
+      <button class="btn-round close" data-action="close-sheet" aria-label="Close">${icon('x')}</button></h3>
+    <div class="rp-tiles">
+      ${tile('Spent', fmtCash(st.total))}
+      ${tile('Expenses', `${r.count} <small>on ${r.days} day${r.days === 1 ? '' : 's'}</small>`)}
+      ${tile('A day', fmtCash(st.total / days))}
+      ${tile(`vs ${short(r.prev.key)}`, pct(st.total, r.prev.total), cls(st.total, r.prev.total))}
+      ${tile('vs 6-month avg', pct(st.total, r.average), cls(st.total, r.average))}
+    </div>
+    <div class="rp-grid">
+      <section>
+        <h4>Who paid</h4>
+        ${many && st.total ? `<div class="spend-bar">${members().map((u) => `<i class="bar-${u.color}" style="width:${share(u).toFixed(1)}%"></i>`).join('')}</div>` : ''}
+        ${members().map((u) => line(`${avatarImg(u, 'xs')} ${esc(u.name)}`, fmtCash(st.paid[u.id] || 0), many ? `${Math.round(share(u))}%` : '')).join('')}
+        ${many ? `<h4>Split</h4>
+        ${line('Shared', fmtCash(st.shared), `${fmtCash(st.each)} each`)}
+        ${line('Personal', fmtCash(r.personal))}
+        ${st.total - st.shared - r.personal > 0.004 ? line(`${everyoneLabel()} paid`, fmtCash(st.total - st.shared - r.personal)) : ''}` : ''}
+        ${bal ? `<h4>Balance</h4>${bal}` : ''}
+        ${r.settled.length ? `<p class="rp-note">Settled up this month: ${r.settled.map((x) => `${userOf(x.paidBy)?.name} paid ${userOf(x.to)?.name} ${fmtCash(x.amount)}`).join(', ')}</p>` : ''}
+      </section>
+      <section>
+        <h4>By category</h4>
+        ${r.cats.map((c) => `<div class="rp-cat"><span>${EXPENSE_CATS[c.id][0]} ${EXPENSE_CATS[c.id][1]}<small>${Math.round((c.total / st.total) * 100)}%</small></span>
+          <i class="rp-cbar"><i style="width:${((c.total / r.cats[0].total) * 100).toFixed(1)}%"></i></i><b>${fmtCash(c.total)}</b></div>`).join('')}
+        <h4>Last 6 months</h4>
+        <div class="rp-months">${r.months.map((m) => `<div class="${m.key === key ? 'on' : ''}"><small>${m.total ? whole(m.total) : ''}</small><i style="height:${((m.total / maxMonth) * 100).toFixed(1)}%"></i><span>${short(m.key)}</span></div>`).join('')}</div>
+      </section>
+      <section>
+        <h4>Biggest expenses</h4>
+        ${r.top.map((x) => line(`${EXPENSE_CATS[expenseCat(x)][0]} ${esc(x.title)}`, fmtCash(x.amount), `${shortDay(x.date)} · ${x.paidBy === 'both' ? everyoneLabel() : userOf(x.paidBy)?.name || ''}`)).join('')}
+        ${r.biggestDay ? `<h4>Biggest day</h4>${line(dayLabel(r.biggestDay.date), fmtCash(r.biggestDay.total))}` : ''}
+        ${boxes.length ? `<h4>Boxes</h4>${boxes.map(({ b, total }) => line(`${icon('box')} ${esc(b.name)}`, fmtCash(total), `in ${month}`)).join('')}` : ''}
+      </section>
+    </div>`);
+  $('#sheet').dataset.kind = 'report';
+}
+
 // The expense being edited: its receipt picture id, and the picture itself when it is new.
 // A receipt is its own document like itinerary pictures (photos.js); the expense keeps the id.
 const RECEIPT_SIDE = 1800;
@@ -3511,15 +3693,26 @@ function shoppingCard() {
       <button class="btn" data-action="add-shop" aria-label="Add to the shopping list">${icon('plus')}</button></div>
     ${list.length ? `<div class="fr-list shop-list">${list.map((x) => `<div class="fr-row shop-row">
       <button class="check" data-action="got-shop" data-id="${x.id}" aria-label="Got ${esc(x.name)}">${icon('check')}</button>
-      <span class="fr-main"><b>${esc(x.name)}</b>${userOf(x.by) ? `<small>Added by ${esc(userOf(x.by).name)}</small>` : ''}</span></div>`).join('')}</div>`
+      <button class="fr-main" data-action="edit-shop" data-id="${x.id}" aria-label="Edit ${esc(x.name)}"><b>${esc(x.name)}</b>${userOf(x.by) ? `<small>Added by ${esc(userOf(x.by).name)}</small>` : ''}</button></div>`).join('')}</div>`
     : '<p class="muted shop-empty">Nothing to buy. Things you run out of can be added with one tap.</p>'}</div>`;
+}
+// Tapping a shopping list item opens it to fix the name or take it off the list.
+function openShopSheet(x) {
+  openSheet(`${sheetHead('Edit shopping item', 'cart')}
+    <div class="field"><label for="shop-name">Item</label><input class="input" id="shop-name" maxlength="${SHOP_MAX}" value="${esc(x.name)}" placeholder="e.g. Milk"></div>
+    ${userOf(x.by) ? `<p class="hint">Added by ${esc(userOf(x.by).name)} ${ago(x.at)}</p>` : ''}
+    <div class="sheet-actions">
+      <button class="btn danger" data-action="del-shop" data-id="${x.id}">${icon('trash')} Remove</button><span class="spacer"></span>
+      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="save-shop" data-id="${x.id}">Save</button>
+    </div>`);
 }
 // One list, soonest use-by first, so nothing shows twice. Chips at the top narrow it to one kind.
 let fridgeCat = 'all';
 views.fridge = () => {
   const items = state.fridge || [];
   if (!items.length) {
-    return `<div class="section-title">Kitchen</div>${shoppingCard()}<div class="card fr-empty">${icon('fridge')}<p>Nothing logged yet. Add what's in the fridge, or snap a grocery receipt and the items get added for you.</p>
+    return `<div class="section-title">Inventory</div>${shoppingCard()}<div class="card fr-empty">${icon('fridge')}<p>Nothing logged yet. Add what's in the fridge, or snap a grocery receipt and the items get added for you.</p>
       <div class="fr-empty-btns"><button class="btn" data-action="add-fridge">${icon('plus')} Add an item</button><label class="btn ghost">${icon('receipt')} Scan receipt<input type="file" id="receipt-file" accept="image/*" hidden></label></div></div>`;
   }
   const cats = FRIDGE_CATS.filter((c) => items.some((it) => catOf(it.cat).id === c.id));
@@ -3528,7 +3721,7 @@ views.fridge = () => {
     .sort((a, b) => (a.use || '9').localeCompare(b.use || '9') || a.name.localeCompare(b.name));
   const soon = items.filter((it) => daysLeft(it) !== null && daysLeft(it) <= 2).length;
   const chip = (id, label, n) => `<button class="chip${fridgeCat === id ? ' on' : ''}" data-action="fridge-cat" data-v="${id}">${label}<span>${n}</span></button>`;
-  return `<div class="section-title">Kitchen<span class="spacer"></span><span class="hint">${soon ? `${soon} to use soon` : 'All fresh'}</span></div>
+  return `<div class="section-title">Inventory<span class="spacer"></span><span class="hint">${soon ? `${soon} to use soon` : 'All fresh'}</span></div>
   ${shoppingCard()}
   <div class="chips fr-chips">${chip('all', 'All', items.length)}${cats.map((c) => chip(c.id, c.label, items.filter((it) => catOf(it.cat).id === c.id).length)).join('')}</div>
   <div class="card"><div class="fr-list">${shown.map(fridgeRow).join('')}</div></div>`;
@@ -3858,7 +4051,7 @@ function adminWhyNot() {
 // What people do in the app, across every household: counts only, from the job's last report.
 const FEATURES = [['chores', 'Chores', 'checkSquare'], ['ticks', 'Chores and events done', 'check'], ['events', 'Events', 'calendar'],
   ['itinerary', 'Itinerary', 'pin'], ['expenses', 'Expenses', 'piggy'], ['boxes', 'Money boxes', 'box'], ['shopping', 'Shopping list', 'cart'],
-  ['kitchen', 'Kitchen items', 'fridge'], ['notes', 'Sticky notes', 'notes'], ['thanks', 'Thank-yous', 'heart'], ['bucket', 'Bucket list', 'sparkles'],
+  ['kitchen', 'Inventory items', 'fridge'], ['notes', 'Sticky notes', 'notes'], ['thanks', 'Thank-yous', 'heart'], ['bucket', 'Bucket list', 'sparkles'],
   ['fitbit', 'Fitbit (people)', 'activity'], ['people', 'People', 'users']];
 function adminUsage(st) {
   if (!st.usage) return '<p class="hint">Usage numbers show after the next job run.</p>';
@@ -4024,7 +4217,7 @@ views.privacy = () => {
   </ul>`)}
   ${sec('What is kept', 'lock', `<ul class="privacy-list">
     <li><b>Your sign-in.</b> Your Google account's name, email address and an account id, so you can sign in on any device. The app never sees your Google password.</li>
-    <li><b>Your household.</b> Whatever you add: events, chores and stars, the kitchen and shopping lists, expenses and receipt pictures, money boxes, the bucket list and check-in pictures, the itinerary with its places, contacts and pictures, thank-yous, notes, and each person's name, color and picture.</li>
+    <li><b>Your household.</b> Whatever you add: events, chores and stars, the inventory and shopping lists, expenses and receipt pictures, money boxes, the bucket list and check-in pictures, the itinerary with its places, contacts and pictures, thank-yous, notes, and each person's name, color and picture.</li>
     <li><b>Health, if you connect it.</b> Steps, sleep, resting heart rate and weight from Fitbit, read with your permission. You can disconnect in Settings › Connections.</li>
     <li><b>Friends, if you use it.</b> Your Friends name and code, who your friends are, your posts, comments and likes, and the groups you are in with their plans, bucket list and shared money.</li>
     <li><b>Summary email, if your household turns it on.</b> The addresses it goes to, and your household's time zone and weather place.</li>
@@ -4116,6 +4309,8 @@ function renderView(anim) {
   view.innerHTML = members().length || r === 'admin' || r === 'privacy' ? views[r]() : views.setup();
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
+  const hm = $('#hm-scroll');
+  if (hm) hm.scrollLeft = hm.scrollWidth; // newest weeks in view
   window.scrollTo(0, y);
   if (swipeNav) {
     // Arrived by swipe: the page already slid in, so just swap it in place.
@@ -4556,6 +4751,19 @@ const actions = {
     if (isNewNote(n)) n.seen = { ...n.seen, [me()]: Date.now() };
     openNoteSheet(n);
   },
+  'react-open': (el) => { reactFor = reactFor === el.dataset.id ? '' : el.dataset.id; reactWho = ''; },
+  'react-who': (el) => { reactWho = el.dataset.who; },
+  'react-note': (el) => {
+    const n = state.notes.find((x) => x.id === el.dataset.id);
+    reactFor = '';
+    if (!n) return;
+    const who = reactorFor(n); const e = el.dataset.v;
+    // Tapping your own icon again takes it back; another icon replaces it.
+    if (n.reacts?.[who] === e) { const { [who]: _, ...rest } = n.reacts; n.reacts = rest; }
+    else { n.reacts = { ...n.reacts, [who]: e }; burst(`.sticky[data-id="${n.id}"] .nr-chip[data-v="${e}"]`); }
+    if (!Object.keys(n.reacts).length) delete n.reacts;
+    if (isNewNote(n)) n.seen = { ...n.seen, [me()]: Date.now() };
+  },
   'pick-color': (el) => {
     el.parentElement.querySelectorAll('.swatch').forEach((b) => b.classList.toggle('on', b === el));
     $('#note-paper').className = `note-edit p-${el.dataset.v}`;
@@ -4599,6 +4807,7 @@ const actions = {
   'collage-share': () => collage?.data && shareCollage(),
   'collage-post': () => collage?.data && postCollage(),
   'add-bucket': () => openBucketSheet(null),
+  'bk-heat-day': (el) => pickHeatDay(el.dataset.day),
   'edit-bucket': (el) => { const b = state.bucket.find((x) => x.id === el.dataset.id); if (b) openBucketSheet(b); },
   'save-bucket': (el) => {
     const text = $('#bk-text').value.trim().replace(/\s+/g, ' ').slice(0, BUCKET_MAX);
@@ -4607,11 +4816,15 @@ const actions = {
     const b = state.bucket.find((x) => x.id === el.dataset.id);
     if (b) Object.assign(b, { text, kind });
     else {
+      const done = doneNow();
+      if (done && !bucketPics.length) { toast('Add a picture to check in'); return; }
       const by = me() || pickedWho() || members()[0].id;
       const id = `b${Date.now()}`;
-      (state.bucket ||= []).push({ id, text, kind, by, at: Date.now() });
+      const item = { id, text, kind, by, at: Date.now() };
+      (state.bucket ||= []).push(item);
       state.settings.lastWriter = by;
-      burst(`.task.bk:has([data-id="${id}"]) .bk-emoji`);
+      if (done) checkInBucket(item);
+      else burst(`.task.bk:has([data-id="${id}"]) .bk-emoji`);
     }
     closeSheet();
   },
@@ -4641,20 +4854,13 @@ const actions = {
     const b = state.bucket.find((x) => x.id === el.dataset.id);
     if (!b) return;
     if (!bucketPics.length) { toast('Add a picture to check in'); return; }
-    const doneBy = pickedWho() || 'both';
-    // Whoever ticked it off: this phone's owner, or on the fridge the one person who went.
-    const from = me() || (userOf(doneBy) ? doneBy : '');
-    const share = $('#bk-share')?.getAttribute('aria-checked') === 'true';
-    const ids = bucketPics.map((p) => p.id);
-    Object.assign(b, { doneAt: Date.now(), doneBy, photo: ids[0], ...(ids.length > 1 && { photos: ids }), ...(from && { from }) });
-    bucketPics.forEach((p) => photos.add(p.id, p.data));
-    if (share) shareBucket(b, bucketPics.map((p) => p.data));
-    bucketPics = [];
-    burst(`[data-action="tick-bucket"][data-id="${b.id}"]`);
+    checkInBucket(b);
     closeSheet();
-    toast(`Ticked off ${b.text} · +${loveOf(b)} love points ❤️`);
-    // Same people as the Home notice: everyone but the one who ticked it off.
-    if (from) phoneAlert(alertRecipients(members(), from), bucketAlert(userOf(from).name, loveOf(b)));
+  },
+  'bk-done-now': (el) => {
+    el.setAttribute('aria-checked', String(!doneNow()));
+    $('#bk-done-box').hidden = !doneNow();
+    redrawBucketPics();
   },
   'set-me': (el) => { state.settings.me = el.dataset.v; },
   'alerts-on': () => { const m = state.members.find((x) => x.id === me()); if (m) m.alerts = newAlertTopic(); },
@@ -5000,6 +5206,22 @@ const actions = {
     const [x] = state.shopping.splice(at, 1);
     toast(`Got ${x.name}`, ['Undo', () => { state.shopping.splice(at, 0, x); save(); renderView(); }]);
   },
+  'edit-shop': (el) => { const x = (state.shopping || []).find((it) => it.id === el.dataset.id); if (x) openShopSheet(x); },
+  'save-shop': (el) => {
+    const x = (state.shopping || []).find((it) => it.id === el.dataset.id);
+    const name = cleanName($('#shop-name').value).slice(0, SHOP_MAX);
+    if (!name) { toast('Add what to buy'); return; }
+    if (state.shopping.some((it) => it !== x && shopKey(it.name) === shopKey(name))) { toast("It's already on the list"); return; }
+    if (x) x.name = name;
+    closeSheet();
+  },
+  'del-shop': (el) => {
+    const at = state.shopping.findIndex((x) => x.id === el.dataset.id);
+    if (at < 0) return;
+    const [x] = state.shopping.splice(at, 1);
+    closeSheet();
+    toast(`Took ${x.name} off the list`, ['Undo', () => { state.shopping.splice(at, 0, x); save(); renderView(); }]);
+  },
   'rc-tick': (el) => {
     el.classList.toggle('on'); el.closest('.rc-row').classList.toggle('off', !el.classList.contains('on'));
     if (el.classList.contains('on')) burstOn(el);
@@ -5094,6 +5316,8 @@ const actions = {
     piggyMonth = monthKey(new Date(y, m - 1 + Number(el.dataset.d), 1));
   },
   'piggy-today': () => { piggyMonth = monthKey(new Date()); },
+  'piggy-report': () => openMonthReport(piggyMonth),
+  'print-report': () => window.print(),
   'piggy-goto': (el) => { piggyMonth = el.dataset.m; window.scrollTo({ top: 0, behavior: 'smooth' }); },
   'toggle-split': () => { state.settings.showSplit = state.settings.showSplit === false; },
 
@@ -5107,7 +5331,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-collage', 'collage-zoom', 'collage-save', 'collage-share', 'collage-post', 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-collage', 'collage-zoom', 'collage-save', 'collage-share', 'collage-post', 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'bk-done-now', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'bk-heat-day', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'piggy-report', 'print-report', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'edit-shop', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -5115,12 +5339,15 @@ document.addEventListener('click', (e) => {
   const peeked = $('#note-peek')?.dataset.for;
   closePeek();
   if (el?.dataset.action === 'peek-note' && peeked === `${el.dataset.kind}:${el.dataset.id}`) return;
-  if (!el) return;
-  const name = el.dataset.action;
+  // Any tap outside an open reaction picker closes it.
+  const closeReact = reactFor && !el?.dataset.action?.startsWith('react-');
+  if (closeReact) reactFor = '';
+  const name = el?.dataset.action;
   const fn = actions[name];
-  if (!fn) return;
+  if (!fn) { if (closeReact) renderView(); return; }
   fn(el, e);
   save();
+  if (closeReact && NO_RERENDER.has(name)) renderView();
   if (!NO_RERENDER.has(name)) renderView(['cal-move', 'cal-today', 'cal-view', 'cal-chores', 'cal-who'].includes(name) ? 'cal' : undefined);
 });
 
@@ -5175,6 +5402,21 @@ document.addEventListener('change', async (e) => {
     try { bucketPics.push({ id: `ph${Date.now()}${Math.random().toString(36).slice(2, 6)}`, data: await shrink(f) }); } catch (err) { toast(err.message || "Couldn't read that picture"); }
   }
   redrawBucketPics();
+});
+document.addEventListener('change', async (e) => {
+  const path = e.target.dataset?.postPics;
+  if (!path || !e.target.files[0]) return;
+  const files = [...e.target.files]; e.target.value = '';
+  const pics = social.pics[path] || (social.pics[path] = []);
+  for (const f of files) {
+    if (pics.length >= BUCKET_PICS_MAX) break;
+    try {
+      const small = await shrink(f, 640);
+      if (pics.join('').length + small.length > POST_PICS_CHARS) { toast('That is as many pictures as fit in one post'); break; }
+      pics.push(small);
+    } catch (err) { toast(err.message || "Couldn't read that picture"); }
+  }
+  renderView();
 });
 document.addEventListener('change', async (e) => {
   if (e.target.id !== 'energy-file') return;
