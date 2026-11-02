@@ -141,7 +141,7 @@ function applyTheme() {
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   if (season) document.documentElement.dataset.season = season;
   else delete document.documentElement.dataset.season;
-  const bars = { christmas: ['#1A0D10', '#F8EEDC'], autumn: ['#1C1412', '#F3E8D2'] }[season] || ['#14162E', '#F7E7CB'];
+  const bars = { christmas: ['#3A1C22', '#F8EEDC'], autumn: ['#3A2A24', '#F3E8D2'] }[season] || ['#262A52', '#F7E7CB'];
   $('meta[name="theme-color"]').content = bars[dark ? 0 : 1];
 }
 
@@ -2162,12 +2162,16 @@ views.bucket = () => {
 // A done item opens on its check-in picture; changing it is folded away under Edit. The kind
 // grid is folded too once an item exists, showing just the kind it has.
 function openBucketSheet(b) {
+  bucketPics = [];
   const kind = b?.kind || 'trip';
   const [ke, kl, kn] = BUCKET_KINDS[kind] || BUCKET_KINDS.do;
   const fields = `<div class="field"><label for="bk-text">What</label><input class="input" id="bk-text" maxlength="${BUCKET_MAX}" value="${esc(b?.text || '')}" placeholder="e.g. Cherry blossoms in Kyoto"${b ? ' data-nofocus' : ''}></div>
     <details class="field bk-kind-fold"${b ? '' : ' open'}><summary><label>Kind</label><span id="bk-kind-now">${ke} ${kl} · ❤️ ${kn}</span><span class="bk-change">Change</span></summary>
       <div class="seg bk-kind" id="bk-kind">${Object.entries(BUCKET_KINDS).map(([k, [e, l, n]]) => `<button class="${k === kind ? 'on' : ''}" data-action="pick-seg" data-v="${k}">${e} ${l}<small>❤️ ${n}</small></button>`).join('')}</div></details>
     ${!b && !me() ? `<div class="field"><label>From</label>${whoPicker(state.settings.lastWriter || members()[0].id, false)}</div>` : ''}
+    ${b ? '' : `<div class="setting-row imp-row"><div><b>Done it already</b><div class="hint">Tick it off now with a picture from the day.</div></div>
+      <button class="switch" id="bk-done-now" role="switch" aria-checked="false" data-action="bk-done-now"></button></div>
+      <div id="bk-done-box" hidden>${checkInFields()}</div>`}
     ${b ? `<p class="hint">Added by ${esc(userOf(b.by)?.name || 'someone')} ${ago(b.at)}${b.doneAt ? ` · done ${dayLabel(isoDay(new Date(b.doneAt)))}, ${wentLine(b).toLowerCase()}` : ''}</p>` : ''}
     <div class="sheet-actions">
       ${b ? `<button class="btn danger" data-action="del-bucket" data-id="${b.id}">${icon('trash')} Remove</button><span class="spacer"></span>` : ''}
@@ -2201,16 +2205,42 @@ function redrawBucketPics() {
   if (box) box.innerHTML = bkPicHtml();
   const go = $('#sheet [data-action="done-bucket"]');
   if (go) go.disabled = !bucketPics.length;
+  // The add sheet with "Done it already" on adds and ticks off in one go, so it needs a picture too.
+  const add = $('#sheet [data-action="save-bucket"]');
+  if (add && !add.dataset.id) {
+    add.disabled = doneNow() && !bucketPics.length;
+    add.innerHTML = doneNow() ? `${icon('check')} Add and tick off` : 'Add';
+  }
 }
+// Ticks off b with the pictures in the open sheet: who went, the notice, the phone alert, Friends.
+function checkInBucket(b) {
+  const doneBy = $('#bk-went .who-opt.on')?.dataset.who || 'both';
+  // Whoever ticked it off: this phone's owner, or on the fridge the one person who went.
+  const from = me() || (userOf(doneBy) ? doneBy : '');
+  const share = $('#bk-share')?.getAttribute('aria-checked') === 'true';
+  const ids = bucketPics.map((p) => p.id);
+  Object.assign(b, { doneAt: Date.now(), doneBy, photo: ids[0], ...(ids.length > 1 && { photos: ids }), ...(from && { from }) });
+  bucketPics.forEach((p) => photos.add(p.id, p.data));
+  if (share) shareBucket(b, bucketPics.map((p) => p.data));
+  bucketPics = [];
+  burst(`[data-action="tick-bucket"][data-id="${b.id}"]`);
+  toast(`Ticked off ${b.text} · +${loveOf(b)} love points ❤️`);
+  // Same people as the Home notice: everyone but the one who ticked it off.
+  if (from) phoneAlert(alertRecipients(members(), from), bucketAlert(userOf(from).name, loveOf(b)));
+}
+// The check-in part (pictures, who went, share), shared by the tick sheet and the add sheet's
+// "Done it already". Who went has its own picker id so it doesn't clash with the add sheet's From.
+const checkInFields = () => `<div class="field"><label>Pictures</label><div id="bk-shot">${bkPicHtml()}</div></div>
+    <div class="field"><label>Who went</label>${whoPicker('both', 'both', 'bk-went')}</div>
+    ${members().length > 1 ? `<p class="hint">${me() && otherOf(me()) ? `${esc(userOf(otherOf(me())).name)} gets a note on their screen` : members().length === 2 ? 'The other person gets a note on their screen' : 'Everyone else gets a note on their screen'} unless you went together.</p>` : ''}
+    ${account.user ? `<div class="setting-row imp-row"><div><b>Share on Friends</b><div class="hint">Posts the pictures to your Friends feed${social.me?.name ? ` as ${esc(social.me.name)}` : ''}.</div></div>
+      <button class="switch" id="bk-share" role="switch" aria-checked="true" data-action="toggle-important"></button></div>` : ''}`;
+const doneNow = () => $('#bk-done-now')?.getAttribute('aria-checked') === 'true';
 function openBucketTick(b) {
   bucketPics = [];
   openSheet(`${sheetHead('Check in', 'sparkles')}
     <p class="thx-for"><span class="bk-emoji">${kindOf(b)[0]}</span><span><b>${esc(b.text)}</b> · +${loveOf(b)} love points</span></p>
-    <div class="field"><label>Pictures</label><div id="bk-shot">${bkPicHtml()}</div></div>
-    <div class="field"><label>Who went</label>${whoPicker('both', 'both')}</div>
-    ${members().length > 1 ? `<p class="hint">${me() && otherOf(me()) ? `${esc(userOf(otherOf(me())).name)} gets a note on their screen` : members().length === 2 ? 'The other person gets a note on their screen' : 'Everyone else gets a note on their screen'} unless you went together.</p>` : ''}
-    ${account.user ? `<div class="setting-row imp-row"><div><b>Share on Friends</b><div class="hint">Posts the pictures to your Friends feed${social.me?.name ? ` as ${esc(social.me.name)}` : ''}.</div></div>
-      <button class="switch" id="bk-share" role="switch" aria-checked="true" data-action="toggle-important"></button></div>` : ''}
+    ${checkInFields()}
     <div class="sheet-actions">
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
       <button class="btn" data-action="done-bucket" data-id="${b.id}" disabled>${icon('check')} Tick it off</button>
@@ -2246,7 +2276,7 @@ async function shareBucket(b, pics) {
 // Everything here lives in its own place in the database (social.js), never in the household's
 // synced data, and needs someone signed in. On a shared screen it posts as whoever signed in.
 const freshSocial = () => ({ uid: '', state: 'off', note: '', me: null, friends: [], incoming: [], outgoing: [], posts: null, groups: [], friendsIn: false,
-  gid: '', group: undefined, items: [], tab: 'feed', open: new Set(), comments: {}, drafts: {}, busy: '', offs: [], groupOff: null, commentOffs: {}, dirty: false });
+  gid: '', group: undefined, items: [], tab: 'feed', open: new Set(), comments: {}, drafts: {}, pics: {}, busy: '', offs: [], groupOff: null, commentOffs: {}, dirty: false });
 let social = freshSocial();
 const GROUP_TABS = { feed: 'Feed', plans: 'Plans', bucket: 'Bucket list', money: 'Money' };
 const FRIENDS_PATH = 'posts';
@@ -2322,7 +2352,7 @@ function postCard(p, path) {
   return `<div class="post" data-key="${esc(key)}">
     <div class="post-head">${personAv(p.by, p.name)}<span class="post-who"><b>${esc(p.name || 'Someone')}</b><small>${ago(p.at)}</small></span>
       ${p.by === social.uid ? `<button class="btn-round" data-action="soc-del-post" data-path="${path}" data-id="${p.id}" aria-label="Delete post">${icon('trash')}</button>` : ''}</div>
-    <p class="post-text">${textHtml(p.text)}</p>
+    ${p.text ? `<p class="post-text">${textHtml(p.text)}</p>` : ''}
     ${postPhotos(p).length ? slides(postPhotos(p).map((src, i) => `<button class="post-photo" data-action="soc-view-photo" data-path="${path}" data-id="${p.id}" data-i="${i}" aria-label="See the picture"><img alt="" src="${esc(src)}"></button>`)) : ''}
     ${typeof p.went === 'string' && p.went ? `<p class="post-went">With ${esc(p.went.slice(0, 120))}</p>` : ''}
     <div class="post-acts">
@@ -2336,10 +2366,16 @@ function postCard(p, path) {
   </div>`;
 }
 
+// Pictures go inside the post itself, made small, the same way a bucket list check-in shares them.
+const POST_PICS_CHARS = 800000;
 function composer(path, placeholder) {
+  const pics = social.pics[path] || [];
   return `<div class="composer">
     <textarea class="input" rows="2" maxlength="${POST_MAX}" data-draft="p:${path}" placeholder="${placeholder}" aria-label="New post">${esc(social.drafts[`p:${path}`] || '')}</textarea>
+    ${pics.length < BUCKET_PICS_MAX ? `<label class="btn-round composer-pic" aria-label="Add pictures">${icon('camera')}<input type="file" accept="image/*" multiple hidden data-post-pics="${path}"></label>` : ''}
     <button class="btn" data-action="soc-post" data-path="${path}" ${social.busy ? 'disabled' : ''}>${social.busy === 'post' ? 'Posting…' : 'Post'}</button>
+    ${pics.length ? `<div class="pl-photos edit composer-pics">${pics.map((src, i) => `<div class="pl-thumb"><img class="pl-photo" src="${src}" alt="">
+      <button class="pl-x" data-action="soc-del-pic" data-path="${path}" data-i="${i}" aria-label="Remove picture">${icon('x')}</button></div>`).join('')}</div>` : ''}
   </div>`;
 }
 
@@ -2529,11 +2565,13 @@ const socialActions = {
   'soc-copy': (el) => { navigator.clipboard?.writeText(el.dataset.v).then(() => toast('Copied'), () => toast(showCode(el.dataset.v))); },
   'soc-post': (el) => {
     const path = el.dataset.path; const key = `p:${path}`;
-    const text = social.drafts[key] || '';
-    if (!text.trim()) { toast('Write something first'); return; }
+    const text = social.drafts[key] || ''; const pics = social.pics[path] || [];
+    if (!text.trim() && !pics.length) { toast('Write something or add a picture first'); return; }
     const seen = path === FRIENDS_PATH ? social.friends.map((f) => f.uid) : null;
-    socialDo('post', () => addPost(path, socialMe(), text, seen), () => { social.drafts[key] = ''; });
+    socialDo('post', () => addPost(path, socialMe(), text, seen, pics.length ? { photo: pics[0], photos: pics } : {}),
+      () => { social.drafts[key] = ''; delete social.pics[path]; });
   },
+  'soc-del-pic': (el) => { social.pics[el.dataset.path]?.splice(+el.dataset.i, 1); renderView(); },
   'soc-view-photo': (el) => {
     const { path, id } = el.dataset;
     const p = (path === FRIENDS_PATH ? social.posts : social.items).find((x) => x.id === id);
@@ -4574,11 +4612,15 @@ const actions = {
     const b = state.bucket.find((x) => x.id === el.dataset.id);
     if (b) Object.assign(b, { text, kind });
     else {
+      const done = doneNow();
+      if (done && !bucketPics.length) { toast('Add a picture to check in'); return; }
       const by = me() || pickedWho() || members()[0].id;
       const id = `b${Date.now()}`;
-      (state.bucket ||= []).push({ id, text, kind, by, at: Date.now() });
+      const item = { id, text, kind, by, at: Date.now() };
+      (state.bucket ||= []).push(item);
       state.settings.lastWriter = by;
-      burst(`.task.bk:has([data-id="${id}"]) .bk-emoji`);
+      if (done) checkInBucket(item);
+      else burst(`.task.bk:has([data-id="${id}"]) .bk-emoji`);
     }
     closeSheet();
   },
@@ -4608,20 +4650,13 @@ const actions = {
     const b = state.bucket.find((x) => x.id === el.dataset.id);
     if (!b) return;
     if (!bucketPics.length) { toast('Add a picture to check in'); return; }
-    const doneBy = pickedWho() || 'both';
-    // Whoever ticked it off: this phone's owner, or on the fridge the one person who went.
-    const from = me() || (userOf(doneBy) ? doneBy : '');
-    const share = $('#bk-share')?.getAttribute('aria-checked') === 'true';
-    const ids = bucketPics.map((p) => p.id);
-    Object.assign(b, { doneAt: Date.now(), doneBy, photo: ids[0], ...(ids.length > 1 && { photos: ids }), ...(from && { from }) });
-    bucketPics.forEach((p) => photos.add(p.id, p.data));
-    if (share) shareBucket(b, bucketPics.map((p) => p.data));
-    bucketPics = [];
-    burst(`[data-action="tick-bucket"][data-id="${b.id}"]`);
+    checkInBucket(b);
     closeSheet();
-    toast(`Ticked off ${b.text} · +${loveOf(b)} love points ❤️`);
-    // Same people as the Home notice: everyone but the one who ticked it off.
-    if (from) phoneAlert(alertRecipients(members(), from), bucketAlert(userOf(from).name, loveOf(b)));
+  },
+  'bk-done-now': (el) => {
+    el.setAttribute('aria-checked', String(!doneNow()));
+    $('#bk-done-box').hidden = !doneNow();
+    redrawBucketPics();
   },
   'set-me': (el) => { state.settings.me = el.dataset.v; },
   'alerts-on': () => { const m = state.members.find((x) => x.id === me()); if (m) m.alerts = newAlertTopic(); },
@@ -5076,7 +5111,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'piggy-report', 'print-report', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'bk-done-now', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'piggy-report', 'print-report', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -5144,6 +5179,21 @@ document.addEventListener('change', async (e) => {
     try { bucketPics.push({ id: `ph${Date.now()}${Math.random().toString(36).slice(2, 6)}`, data: await shrink(f) }); } catch (err) { toast(err.message || "Couldn't read that picture"); }
   }
   redrawBucketPics();
+});
+document.addEventListener('change', async (e) => {
+  const path = e.target.dataset?.postPics;
+  if (!path || !e.target.files[0]) return;
+  const files = [...e.target.files]; e.target.value = '';
+  const pics = social.pics[path] || (social.pics[path] = []);
+  for (const f of files) {
+    if (pics.length >= BUCKET_PICS_MAX) break;
+    try {
+      const small = await shrink(f, 640);
+      if (pics.join('').length + small.length > POST_PICS_CHARS) { toast('That is as many pictures as fit in one post'); break; }
+      pics.push(small);
+    } catch (err) { toast(err.message || "Couldn't read that picture"); }
+  }
+  renderView();
 });
 document.addEventListener('change', async (e) => {
   if (e.target.id !== 'energy-file') return;
