@@ -9,44 +9,43 @@
 @font-face { font-family: 'Poppins'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/poppins-latin-ext-700.woff2') format('woff2'); unicode-range: U+0100-02AF,U+0304,U+0308,U+0329,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
 
 :root {
-  /* The Hometide brand, all year: Sea Teal is the brand, for buttons, anything done and the selected
-     tab; soft cream (P 17-1 C) is the page by day; burgundy (P 50-16 C) is the morning greeting and
-     marks what needs attention. Ink is a deep sea green-black (kept under the old --navy name so
-     every rule that used it follows), and honey gold stays for stars and love points.
+  /* The Hometide brand, all year: rust red (Pantone 2350 U) is the brand, for buttons, anything done
+     and the selected tab; pale cream (P 24-9 U) is the page by day; mustard (P 14-8 U) for stars and
+     love points; burnt orange marks what needs attention; burgundy is the morning greeting. Ink is
+     espresso (kept under the old --navy name so every rule that used it follows). Night is warm cocoa.
      Earlier palettes: Hearth navy #1F2A44, cream #FBF6EC, teal #2A9D8F, coral #E76F51, honey #E9C46A;
-     Autumn rust #A8483D, cream #F3E8D2, mustard #EFA43A, ink #3A2420;
-     Periwinkle #3B429A with indigo ink #1F2352 and an indigo night #262A52. */
-  --sea: #1F6F78; --wine: #7D1F27;
-  --navy: #13363A; --cream: #F7E7CB; --teal: var(--sea); --coral: var(--wine); --honey: #E9B44C;
-  --brand: var(--sea);
+     Periwinkle #3B429A with indigo ink #1F2352 and an indigo night #262A52; Sea Teal #1F6F78. */
+  --rust: #A8483D; --wine: #7D1F27;
+  --navy: #3A2420; --cream: #F3E8D2; --teal: var(--rust); --coral: #C2651A; --honey: #EFA43A;
+  --brand: var(--rust);
   --bg: var(--cream);
-  --card: #FFFBF3;
-  --card-border: #E9D8BB;
-  --muted-surface: #F3E6CF;
+  --card: #FFFAF1;
+  --card-border: #E6D6BA;
+  --muted-surface: #F0E4CE;
   --text: var(--navy);
-  --text-2: #4E6466;
-  --text-3: #7E8E8F;
+  --text-2: #6E5A50;
+  --text-3: #93806F;
   --accent: var(--teal);
   --on-accent: #fff; /* text and ticks on a filled accent button */
-  --accent-soft: #DCEDEE;
+  --accent-soft: #F6E2DB;
   --ok: var(--teal);
   --warn: #C98A1E;
   --danger: var(--coral);
-  --imp: var(--coral); --imp-bg: #F7E0E0; --imp-on: #fff;
+  --imp: var(--coral); --imp-bg: #FBE7D3; --imp-on: #fff;
   --glass: rgba(255, 255, 255, .62);
   --glass-border: rgba(255, 255, 255, .85);
   --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .9);
-  --blob-1: rgba(125, 31, 39, .1); --blob-2: rgba(31, 111, 120, .12); --blob-3: rgba(233, 180, 76, .18);
+  --blob-1: rgba(168, 72, 61, .13); --blob-2: rgba(239, 164, 58, .16); --blob-3: rgba(239, 164, 58, .2);
   --shadow: 0 1px 2px rgba(30, 30, 40, .04), 0 6px 20px rgba(30, 30, 40, .05);
   /* The floating tab bar and the More half circle: mostly see-through, blurred behind. */
-  --float: rgba(255, 255, 255, .38); --float-strong: rgba(255, 255, 255, .5); --float-edge: rgba(19, 54, 58, .08);
-  --float-shadow: 0 12px 32px rgba(14, 38, 41, .14), 0 2px 6px rgba(14, 38, 41, .05);
-  --lens-fill: rgba(31, 111, 120, .12); --lens-edge: rgba(31, 111, 120, .26);
+  --float: rgba(255, 255, 255, .38); --float-strong: rgba(255, 255, 255, .5); --float-edge: rgba(58, 36, 32, .08);
+  --float-shadow: 0 12px 32px rgba(42, 23, 18, .14), 0 2px 6px rgba(42, 23, 18, .05);
+  --lens-fill: rgba(168, 72, 61, .12); --lens-edge: rgba(168, 72, 61, .26);
   /* The selected tab sits on a solid brand pill. */
   --tab-ink: var(--brand); --tab-ink-edge: transparent; --tab-on: var(--cream);
 
   /* Color families (people, cards, charts), tinted to the palette. */
-  --amber-bg: #fdf6e4; --amber-icon: #f7e7bb; --amber-fg: #C9922A;
+  --amber-bg: #FCF0DC; --amber-icon: #F8DDB0; --amber-fg: #C98A1E;
   --blue-bg: #eef1f7;  --blue-icon: #dae0ee;  --blue-fg: #34477a;
   --green-bg: #eaf6f4; --green-icon: #cdebe6; --green-fg: #2A9D8F;
   --purple-bg: #f5f0ff; --purple-icon: #e6dcff; --purple-fg: #7b56d8;
@@ -59,48 +58,48 @@
 }
 
 :root[data-theme="dark"] {
-  /* At night the whole app sits on a deep sea teal: dark enough to be calm on the fridge at night,
+  /* At night the whole app sits on warm cocoa rather than near black: calm on the fridge at night,
      light enough that cards, borders, muted text and the little dots all still read. */
-  --bg: #1E3A3E;
-  --card: #28494E;
-  --card-border: #4E767B;
-  --muted-surface: #31555A;
-  --text: #FBEFD9;
-  --text-2: #DDE9E8;
-  --text-3: #B5CACA;
-  --accent: #6CC6CC;
-  --on-accent: #0E2629;
-  --accent-soft: #2F5B60;
-  --ok: #6CC6CC;
-  --danger: #F5A3AA;
+  --bg: #3A2A24;
+  --card: #4A362F;
+  --card-border: #7A5D52;
+  --muted-surface: #57413A;
+  --text: #FBF2E2;
+  --text-2: #EDDDC8;
+  --text-3: #D2BDA8;
+  --accent: #E07B64;
+  --on-accent: #2A1712;
+  --accent-soft: #6A3F34;
+  --ok: #E07B64;
+  --danger: #FFBE78;
   --shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 6px 20px rgba(0, 0, 0, .2);
-  --float: rgba(40, 73, 78, .5); --float-strong: rgba(40, 73, 78, .66); --float-edge: rgba(0, 0, 0, .25);
+  --float: rgba(74, 54, 47, .5); --float-strong: rgba(74, 54, 47, .66); --float-edge: rgba(0, 0, 0, .25);
   --float-shadow: 0 12px 32px rgba(0, 0, 0, .35), 0 2px 6px rgba(0, 0, 0, .2);
-  --lens-fill: rgba(108, 198, 204, .24); --lens-edge: rgba(108, 198, 204, .45);
+  --lens-fill: rgba(224, 123, 100, .24); --lens-edge: rgba(224, 123, 100, .45);
   --tab-ink: var(--lens-fill); --tab-ink-edge: var(--lens-edge); --tab-on: var(--accent);
 
-  --amber-bg: #4A4430; --amber-icon: #615632; --amber-fg: var(--honey);
-  --blue-bg: #34406A;  --blue-icon: #45548A;  --blue-fg: #BCCBF2;
-  --green-bg: #284A4A; --green-icon: #2F625C; --green-fg: #6FD6C6;
-  --purple-bg: #3E3766; --purple-icon: #524887; --purple-fg: #C7B2FF;
-  --rose-bg: #4C3048; --rose-icon: #66405E; --rose-fg: #F5A3AA;
-  --imp: #F5A3AA; --imp-bg: #5A3550; --imp-on: #1a0d0d;
-  --glass: rgba(40, 73, 78, .62);
+  --amber-bg: #574429; --amber-icon: #705430; --amber-fg: var(--honey);
+  --blue-bg: #3E4058; --blue-icon: #50547A; --blue-fg: #BCCBF2;
+  --green-bg: #34483C; --green-icon: #415E4C; --green-fg: #8FD3B0;
+  --purple-bg: #4D3A4E; --purple-icon: #634A66; --purple-fg: #D9B8F0;
+  --rose-bg: #5A3634; --rose-icon: #744644; --rose-fg: #F7A79C;
+  --imp: #FFBE78; --imp-bg: #5E4228; --imp-on: #2A1712;
+  --glass: rgba(74, 54, 47, .62);
   --glass-border: rgba(255, 255, 255, .1);
   --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .08);
-  --blob-1: rgba(125, 31, 39, .14); --blob-2: rgba(108, 198, 204, .12); --blob-3: rgba(125, 31, 39, .08);
+  --blob-1: rgba(224, 123, 100, .12); --blob-2: rgba(239, 164, 58, .08); --blob-3: rgba(224, 123, 100, .08);
   color-scheme: dark;
 }
 
-/* Seasons are accents, not a new brand. Sea Teal stays on every button, tick and the selected tab
+/* Seasons are accents, not a new brand. Rust stays on every button, tick and the selected tab
    all year; a season only tints the greeting panel and the soft glow behind the page.
    Autumn, September 1 to November 30: rust greeting, mustard at night, a cocoa night sky.
    (The full Autumn palette was rust #A8483D, cream #F3E8D2, mustard #EFA43A, espresso ink #3A2420.) */
 :root[data-season="autumn"] {
-  --blob-1: rgba(168, 72, 61, .12); --blob-2: rgba(31, 111, 120, .1); --blob-3: rgba(239, 164, 58, .2);
+  --blob-1: rgba(168, 72, 61, .12); --blob-2: rgba(239, 164, 58, .16); --blob-3: rgba(239, 164, 58, .2);
 }
 :root[data-season="autumn"][data-theme="dark"] {
-  --blob-1: rgba(224, 123, 100, .1); --blob-2: rgba(108, 198, 204, .1); --blob-3: rgba(239, 164, 58, .06);
+  --blob-1: rgba(224, 123, 100, .1); --blob-2: rgba(239, 164, 58, .08); --blob-3: rgba(239, 164, 58, .06);
 }
 :root[data-season="autumn"] .hero { --greet: #A8483D; --hill-1: rgba(58, 36, 32, .06); --hill-2: rgba(58, 36, 32, .1); --palm: rgba(58, 36, 32, .22); }
 :root[data-season="autumn"] .hero.night {
@@ -170,7 +169,7 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
   border-radius: 24px; padding: 26px 30px; min-height: 136px;
   display: flex; align-items: center; gap: 22px;
   /* The panel uses the app's own surfaces: a card-toned base with a soft wash of sky. */
-  --hill-1: rgba(19, 54, 58, .06); --hill-2: rgba(19, 54, 58, .1); --palm: rgba(19, 54, 58, .22);
+  --hill-1: rgba(58, 36, 32, .06); --hill-2: rgba(58, 36, 32, .1); --palm: rgba(58, 36, 32, .22);
   --greet: var(--wine); --cloud: #ffffff; --cloud-a: .85; --drop: rgba(62, 98, 170, .42); --flake: #b4c3de;
   background: linear-gradient(115deg, #fdfaf3 0%, #f6efe2 60%, #efe6d4 100%);
   border: 1px solid var(--card-border);
@@ -181,10 +180,10 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
 .hero.day     { background: linear-gradient(115deg, #fdfaf3 0%, #f3efe4 55%, #e3ece6 100%); }
 .hero.evening { background: linear-gradient(115deg, #fcf7f2 0%, #f7e8df 55%, #ecdfe8 100%); --hill-1: rgba(150, 92, 120, .07); --hill-2: rgba(150, 92, 120, .11); --palm: rgba(70, 44, 60, .22); }
 .hero.night   {
-  background: linear-gradient(115deg, #17302F 0%, #1F4448 55%, #2E5F66 100%); color: var(--cream);
-  border-color: #4E767B;
+  background: linear-gradient(115deg, #3A2619 0%, #4E312A 55%, #74392F 100%); color: var(--cream);
+  border-color: #7A5D52;
   --hill-1: rgba(251, 246, 236, .05); --hill-2: rgba(251, 246, 236, .08); --palm: rgba(8, 12, 22, .6);
-  --greet: var(--honey); --cloud: #3E5E62; --cloud-a: .5; --drop: rgba(170, 195, 255, .38); --flake: #e8eeff;
+  --greet: var(--honey); --cloud: #5c4840; --cloud-a: .5; --drop: rgba(170, 195, 255, .38); --flake: #e8eeff;
 }
 /* Gray days dim the sky a touch and soften the sun or moon. */
 .hero.wx-cloud .wx-fx::before, .hero.wx-rain .wx-fx::before, .hero.wx-storm .wx-fx::before, .hero.wx-fog .wx-fx::before, .hero.wx-snow .wx-fx::before {
@@ -1665,7 +1664,7 @@ button.hm-cell { cursor: pointer; }
 }
 
 /* ---------- The Hometide wordmark ---------- */
-/* "home" in ink, "tide" in Sea Teal, beside the roofline-and-wave mark. */
+/* "home" in ink, "tide" in rust, beside the roofline-and-wave mark. */
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand-icon { width: 48px; height: 48px; border-radius: 22%; flex: none; }
 .wordmark { font-size: 30px; font-weight: 700; letter-spacing: -.03em; line-height: 1; color: var(--navy); }

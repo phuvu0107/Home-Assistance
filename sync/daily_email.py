@@ -443,7 +443,7 @@ def page(slot, now, hello, sign, sky, sections):
             f'<table role="presentation" align="center" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:18px">'
             f'<tr>{header}</tr>{cards}'
             f'<tr><td style="padding:22px 20px 26px;text-align:center;color:#6b7280;font-size:14px">{esc(sign)}'
-            f'<div style="margin-top:12px;font-size:18px;font-weight:700;letter-spacing:-.4px;color:#13363A">home<span style="color:#1F6F78">tide</span></div>'
+            f'<div style="margin-top:12px;font-size:18px;font-weight:700;letter-spacing:-.4px;color:#3A2420">home<span style="color:#A8483D">tide</span></div>'
             f'<div style="font-size:12px;color:#9ca3af;margin-top:14px">{esc(STOP)}</div></td></tr>'
             f'</table></div>')
 

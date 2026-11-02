@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Hometide: a cream roofline with a honey wave under it, on Sea Teal. -->
-  <rect width="512" height="512" rx="112" fill="#1F6F78"/>
+  <!-- Hometide: a cream roofline with a honey wave under it, on rust. -->
+  <rect width="512" height="512" rx="112" fill="#A8483D"/>
   <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M118 250 256 134l138 116" stroke="#F7E7CB" stroke-width="34"/>
-    <path d="M150 238v118h212V238" stroke="#F7E7CB" stroke-width="34"/>
-    <path d="M116 412c30-26 60-26 90 0s60 26 90 0 60-26 100 0" stroke="#E9B44C" stroke-width="30"/>
+    <path d="M118 250 256 134l138 116" stroke="#F3E8D2" stroke-width="34"/>
+    <path d="M150 238v118h212V238" stroke="#F3E8D2" stroke-width="34"/>
+    <path d="M116 412c30-26 60-26 90 0s60 26 90 0 60-26 100 0" stroke="#EFA43A" stroke-width="30"/>
   </g>
 </svg>
