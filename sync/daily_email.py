@@ -392,7 +392,7 @@ def build(state, now, energy, sky, slot="morning"):
     hello = f"{greet}, {', '.join(names[:-1]) + ' and ' + names[-1] if len(names) > 1 else names[0]}!"
     if sky:
         sections.insert(0, (f"Weather {sky['when'].lower()}", weather_lines(sky)))
-    text = hello + "\n\n" + "\n\n".join(t + "\n" + "\n".join(f"- {l}" for l in lines) for t, lines in sections) + f"\n\n{sign}\n— Your fridge\n\n{STOP}\n"
+    text = hello + "\n\n" + "\n\n".join(t + "\n" + "\n".join(f"- {l}" for l in lines) for t, lines in sections) + f"\n\n{sign}\n— Hometide\n\n{STOP}\n"
     return subject, text, page(slot, now, hello, sign, sky, sections[1:] if sky else sections)
 
 
@@ -442,7 +442,8 @@ def page(slot, now, hello, sign, sky, sections):
     return (f'<div style="background:#f3f4f6;padding:20px 8px;font-family:{FONT};line-height:1.45">'
             f'<table role="presentation" align="center" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:18px">'
             f'<tr>{header}</tr>{cards}'
-            f'<tr><td style="padding:22px 20px 26px;text-align:center;color:#6b7280;font-size:14px">{esc(sign)}<br>— Your fridge 🧊'
+            f'<tr><td style="padding:22px 20px 26px;text-align:center;color:#6b7280;font-size:14px">{esc(sign)}'
+            f'<div style="margin-top:12px;font-size:18px;font-weight:700;letter-spacing:-.4px;color:#1F2352">home<span style="color:#3B429A">tide</span></div>'
             f'<div style="font-size:12px;color:#9ca3af;margin-top:14px">{esc(STOP)}</div></td></tr>'
             f'</table></div>')
 

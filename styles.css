@@ -1643,3 +1643,18 @@ button.hm-cell { cursor: pointer; }
   .sheet[data-kind="report"] .close, .sheet[data-kind="report"] .rp-print { display: none; }
   .sheet[data-kind="report"] * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* ---------- The Hometide wordmark ---------- */
+/* "home" in ink, "tide" in Tide Indigo, beside the roofline-and-wave mark. */
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-icon { width: 48px; height: 48px; border-radius: 22%; flex: none; }
+.wordmark { font-size: 30px; font-weight: 700; letter-spacing: -.03em; line-height: 1; color: var(--navy); }
+.wordmark b { font-weight: 700; color: var(--brand); }
+:root[data-theme="dark"] .wordmark { color: var(--text); }
+:root[data-theme="dark"] .wordmark b { color: var(--accent); }
+.brand-sm .brand-icon { width: 32px; height: 32px; }
+.brand-sm .wordmark { font-size: 20px; }
+.brand-lg .brand-icon { width: 64px; height: 64px; }
+.brand-lg .wordmark { font-size: 44px; }
+.about { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 0 8px; text-align: center; }
+.about .hint { margin: 0; }

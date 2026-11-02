@@ -3277,6 +3277,10 @@ async function followMove() {
   refreshHouse();
 }
 
+/* ---------- The Hometide mark and wordmark ---------- */
+const BRAND_PROMISE = 'The shared screen that keeps a home in rhythm.';
+const brandMark = (size = 'md') => `<div class="brand brand-${size}"><img class="brand-icon" src="icons/icon.svg" alt="" width="48" height="48"><span class="wordmark" aria-label="Hometide">home<b>tide</b></span></div>`;
+
 /* ---------- Who lives here: first run and Settings ---------- */
 // A new household names its people before anything else, since chores, stars and money all
 // belong to someone. A screen joining an existing household gets them from there instead.
@@ -4198,6 +4202,7 @@ views.settings = () => {
         ${account.user ? `<button class="btn danger" data-action="acct-delete">${icon('trash')} Delete my account</button>` : ''}
       </div>
     </div>
+    <div class="about">${brandMark('sm')}<p class="hint">${BRAND_PROMISE}</p></div>
   </div>`;
 };
 
