@@ -141,8 +141,8 @@ function applyTheme() {
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   if (season) document.documentElement.dataset.season = season;
   else delete document.documentElement.dataset.season;
-  // The brand stays Tide Indigo all year; a season only tints the greeting panel, so the bars don't change.
-  $('meta[name="theme-color"]').content = dark ? '#262A52' : '#F7E7CB';
+  // The brand stays Sea Teal all year; a season only tints the greeting panel, so the bars don't change.
+  $('meta[name="theme-color"]').content = dark ? '#1E3A3E' : '#F7E7CB';
 }
 
 // A new greeting each day, the same on every screen.
@@ -2299,7 +2299,7 @@ async function openCollage(key) {
   const love = m.items.reduce((n, b) => n + loveOf(b), 0);
   const data = await drawCollage(tiles, {
     head: `Our ${monthName(key)}`, love,
-    colors: { bg: v('--cream') || '#F7E7CB', ink: v('--navy') || '#1F2352', sub: v('--brand') || '#3B429A', on: '#fff', soft: 'rgba(0, 0, 0, .06)' },
+    colors: { bg: v('--cream') || '#F7E7CB', ink: v('--navy') || '#13363A', sub: v('--brand') || '#1F6F78', on: '#fff', soft: 'rgba(0, 0, 0, .06)' },
   });
   if (collage?.key !== key || $('#sheet').dataset.kind !== 'collage') return; // closed meanwhile
   collage.data = data;
