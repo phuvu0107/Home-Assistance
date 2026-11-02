@@ -369,9 +369,13 @@ def build(state, now, energy, sky, slot="morning"):
     shopping = [g.get("name", "") for g in state.get("shopping", [])]
     if shopping and slot in ("midday", "evening"):  # on the way home
         sections.append(("Shopping list", shopping[:20] + ([f"and {len(shopping) - 20} more"] if len(shopping) > 20 else [])))
+    # Icons people reacted with, shown after the note: "Phu: Dinner at 7 ❤️😂".
+    def note_reacts(n):
+        r = n.get("reacts")
+        return " " + "".join(e for e in r.values() if isinstance(e, str)) if isinstance(r, dict) and r else ""
     notes = sorted((n for n in state.get("notes", []) if not n.get("until") or n["until"] >= iso), key=lambda n: -n.get("at", 0))
     if notes and slot in ("morning", "night"):
-        sections.append(("Notes on the fridge", [f"{USERS.get(n.get('by'), '')}: {' '.join(n.get('text', '').split())}" for n in notes[:8]]))
+        sections.append(("Notes on the fridge", [f"{USERS.get(n.get('by'), '')}: {' '.join(n.get('text', '').split())}{note_reacts(n)}" for n in notes[:8]]))
 
     plural = lambda n, w: f"{n} {w}{'s' if n != 1 else ''}"
     subject = {

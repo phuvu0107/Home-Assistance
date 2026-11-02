@@ -1207,7 +1207,31 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 /* The bottom corner curls up a little. */
 .sticky::after { content: ''; position: absolute; right: 0; bottom: 0; width: 22px; height: 22px; border-radius: 0 0 3px 0;
   background: linear-gradient(135deg, transparent 50%, color-mix(in srgb, var(--paper) 78%, #000) 50%); opacity: .5; }
-.sticky:active { transform: rotate(0deg) scale(.98); }
+.sticky:has(.sticky-open:active) { transform: rotate(0deg) scale(.98); }
+.sticky-open { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 0; border: 0; background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+/* Icon reactions along the bottom of a note. */
+.note-reacts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 30px; margin-right: 14px; position: relative; z-index: 1; }
+.nr-chip, .nr-add { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px 0 6px; border-radius: 15px; border: 1px solid transparent;
+  background: color-mix(in srgb, var(--paper-ink) 8%, transparent); color: var(--paper-ink); font: inherit; }
+.nr-chip.mine { border-color: color-mix(in srgb, var(--accent) 70%, transparent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.nr-emoji { font-size: 17px; line-height: 1; }
+.nr-chip .av-xs { width: 20px; height: 20px; border-color: var(--paper); }
+.nr-chip .av-pair .av-xs + .av-xs { margin-left: -7px; }
+.nr-add { padding: 0 7px; background: none; opacity: .55; }
+.nr-add .ico { font-size: 18px; }
+.nr-add:hover, .nr-add:focus-visible { opacity: .9; }
+.nr-chip.burst { --burst-c: var(--accent); --r: 30px; }
+.note-reacts.open { flex-direction: column; align-items: stretch; gap: 6px; padding: 4px; margin: 0 -8px -6px; border-radius: 16px;
+  background: var(--card); box-shadow: 0 6px 18px -6px rgba(0, 0, 0, .3); animation: nr-pop .18s ease-out; }
+@keyframes nr-pop { from { opacity: 0; transform: translateY(4px) scale(.96); } }
+.nr-pick { display: flex; justify-content: space-between; }
+.nr-pick button { width: 30px; height: 34px; padding: 0; border: 0; border-radius: 10px; background: none; font-size: 21px; line-height: 1; transition: transform .12s; }
+.nr-pick button:active { transform: scale(1.3); }
+.nr-pick button.on { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.nr-who { display: flex; gap: 6px; padding: 2px 2px 0; }
+.nr-who button { padding: 2px; border: 2px solid transparent; border-radius: 50%; background: none; }
+.nr-who button.on { border-color: var(--accent); }
+.nr-who .av-xs { width: 26px; height: 26px; }
 .sticky > .av { position: absolute; top: -12px; left: -10px; width: 38px; height: 38px; border-width: 3px; border-color: var(--bg); box-shadow: 0 3px 8px rgba(0, 0, 0, .14); }
 .sticky-text { flex: 1; font-size: 16px; line-height: 1.38; font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1219,7 +1243,7 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-weight: 500; font-size: 13px; }
 .note-add .ico { font-size: 22px; }
 .note-add.solo { width: 100%; min-height: 0; flex-direction: row; padding: 14px; margin-bottom: 16px; border-radius: var(--radius-sm); }
-@media (min-width: 900px) { .sticky { width: 230px; min-height: 170px; } .sticky-text { font-size: 17px; } .note-add { min-height: 170px; } }
+@media (min-width: 900px) { .sticky { width: 230px; min-height: 170px; } .sticky-text { font-size: 17px; } .note-add { min-height: 170px; } .nr-pick button { width: 34px; height: 38px; font-size: 23px; } .nr-chip, .nr-add { height: 34px; } .nr-add .ico { font-size: 20px; } }
 
 /* Writing a note: the text box is the note itself, in the color picked. */
 .note-edit { position: relative; margin: 6px 0 18px 8px; padding: 30px 16px 12px; border-radius: 3px; background: var(--paper); color: var(--paper-ink); box-shadow: var(--paper-shadow); transform: rotate(-.6deg); transition: background-color .2s; }
@@ -1268,7 +1292,7 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .jar-nav .btn-round:disabled { opacity: .35; }
 .tab-badge { position: absolute; top: 4px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--rose-fg); color: #fff;
   font-size: 11px; font-weight: 700; font-style: normal; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--card); }
-@media (prefers-reduced-motion: reduce) { .inbox-face i, .inbox-strip, .sticky.new { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .inbox-face i, .inbox-strip, .sticky.new, .note-reacts.open { animation: none; } }
 
 /* Bucket list */
 .bk-emoji { width: 40px; flex: none; text-align: center; font-size: 22px; line-height: 1; }
