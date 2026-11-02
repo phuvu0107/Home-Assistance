@@ -141,8 +141,8 @@ function applyTheme() {
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   if (season) document.documentElement.dataset.season = season;
   else delete document.documentElement.dataset.season;
-  const bars = { christmas: ['#3A1C22', '#F8EEDC'], autumn: ['#3A2A24', '#F3E8D2'] }[season] || ['#262A52', '#F7E7CB'];
-  $('meta[name="theme-color"]').content = bars[dark ? 0 : 1];
+  // The brand stays Tide Indigo all year; a season only tints the greeting panel, so the bars don't change.
+  $('meta[name="theme-color"]').content = dark ? '#262A52' : '#F7E7CB';
 }
 
 // A new greeting each day, the same on every screen.

@@ -1,5 +1,5 @@
 :root {
-  /* The Periwinkle palette: periwinkle blue (Pantone P 102-8 C) is the brand, for buttons, anything
+  /* The Hometide brand, all year: Tide Indigo (periwinkle blue, Pantone P 102-8 C) is the brand, for buttons, anything
      done and the selected tab; soft cream (P 17-1 C) is the page by day; burgundy (P 50-16 C) is the
      morning greeting and marks what needs attention. Ink is a deep indigo (kept under the old --navy
      name so every rule that used it follows), and honey gold stays for stars and love points.
@@ -81,77 +81,35 @@
   color-scheme: dark;
 }
 
-/* The Autumn palette, on by itself from September 1 to November 30: rust red (Pantone 2350 U) for
-   buttons, done ticks, the selected tab and the morning greeting; pale cream (P 24-9 U) for the page;
-   mustard (P 14-8 U) for stars and the night greeting; espresso ink; burnt orange for attention. */
+/* Seasons are accents, not a new brand. Tide Indigo stays on every button, tick and the selected tab
+   all year; a season only tints the greeting panel and the soft glow behind the page.
+   Autumn, September 1 to November 30: rust greeting, mustard at night, a cocoa night sky.
+   (The full Autumn palette was rust #A8483D, cream #F3E8D2, mustard #EFA43A, espresso ink #3A2420.) */
 :root[data-season="autumn"] {
-  --rust: #A8483D; --mustard: #EFA43A;
-  --navy: #3A2420; --cream: #F3E8D2; --teal: var(--rust); --coral: #C2651A; --honey: var(--mustard);
-  --brand: var(--rust); --wine: var(--rust);
-  --card: #FFFAF1; --card-border: #E6D6BA; --muted-surface: #F0E4CE;
-  --text-2: #6E5A50; --text-3: #93806F;
-  --accent-soft: #F6E2DB; --imp-bg: #FBE7D3; --warn: #C98A1E;
-  --blob-1: rgba(168, 72, 61, .13); --blob-2: rgba(239, 164, 58, .16); --blob-3: rgba(239, 164, 58, .2);
-  --float-edge: rgba(58, 36, 32, .08);
-  --lens-fill: rgba(168, 72, 61, .12); --lens-edge: rgba(168, 72, 61, .26);
-  --amber-bg: #FCF0DC; --amber-icon: #F8DDB0; --amber-fg: #C98A1E;
+  --blob-1: rgba(168, 72, 61, .12); --blob-2: rgba(59, 66, 154, .1); --blob-3: rgba(239, 164, 58, .2);
 }
 :root[data-season="autumn"][data-theme="dark"] {
-  /* Warm cocoa rather than near black, so everything on it stays easy to read. */
-  --bg: #3A2A24; --card: #4A362F; --card-border: #7A5D52; --muted-surface: #57413A;
-  --text: #FBF2E2; --text-2: #EDDDC8; --text-3: #D2BDA8;
-  --accent: #E07B64; --on-accent: #2A1712; --accent-soft: #6A3F34; --ok: #E07B64; --danger: #FFBE78;
-  --imp: #FFBE78; --imp-bg: #5E4228;
-  --float: rgba(74, 54, 47, .5); --float-strong: rgba(74, 54, 47, .66); --float-edge: rgba(0, 0, 0, .25);
-  --glass: rgba(74, 54, 47, .62);
-  --lens-fill: rgba(224, 123, 100, .24); --lens-edge: rgba(224, 123, 100, .45);
-  --amber-bg: #574429; --amber-icon: #705430; --amber-fg: var(--honey);
-  --blue-bg: #3E4058; --blue-icon: #50547A; --blue-fg: #BCCBF2;
-  --green-bg: #34483C; --green-icon: #415E4C; --green-fg: #8FD3B0;
-  --purple-bg: #4D3A4E; --purple-icon: #634A66; --purple-fg: #D9B8F0;
-  --rose-bg: #5A3634; --rose-icon: #744644; --rose-fg: #F7A79C;
-  --blob-1: rgba(224, 123, 100, .12); --blob-2: rgba(239, 164, 58, .08); --blob-3: rgba(224, 123, 100, .08);
+  --blob-1: rgba(224, 123, 100, .1); --blob-2: rgba(120, 130, 230, .12); --blob-3: rgba(239, 164, 58, .06);
 }
-:root[data-season="autumn"] .hero { --hill-1: rgba(58, 36, 32, .06); --hill-2: rgba(58, 36, 32, .1); --palm: rgba(58, 36, 32, .22); }
+:root[data-season="autumn"] .hero { --greet: #A8483D; --hill-1: rgba(58, 36, 32, .06); --hill-2: rgba(58, 36, 32, .1); --palm: rgba(58, 36, 32, .22); }
 :root[data-season="autumn"] .hero.night {
+  --greet: #EFA43A;
   background: linear-gradient(115deg, #3A2619 0%, #4E312A 55%, #74392F 100%); border-color: #7A5D52;
   --cloud: #5c4840; --hill-1: rgba(251, 246, 236, .05); --hill-2: rgba(251, 246, 236, .08); --palm: rgba(8, 12, 22, .6);
 }
 
-/* The Christmas palette, on by itself from December 1 to January 6 (applyTheme sets data-season).
-   About 60/40 burgundy and pine: burgundy for the greeting, the + button, buttons and what needs
-   attention (and the night page); pine for the ink, the selected tab pill, done ticks and the night
-   greeting card; gold for stars. Cream stays the day page. */
+/* Christmas, December 1 to January 6: burgundy greeting with pine hills by day, a pine night sky
+   with a gold greeting, and a burgundy and pine glow. (The full palette was wine #8E1B2E, pine
+   #1E5A3E, gold #D4A93F, cream #F8EEDC.) */
 :root[data-season="christmas"] {
-  --pine: #1E5A3E; --wine: #8E1B2E;
-  --navy: #163828; --cream: #F8EEDC; --teal: var(--wine); --coral: #C8102E; --honey: #D4A93F;
-  --brand: var(--wine); --ok: var(--pine);
-  --card: #FFFAF2; --card-border: #EBD9C2; --muted-surface: #F3E6D2;
-  --text-2: #4E5A50; --text-3: #85897C;
-  --accent-soft: #F5DFE1; --imp-bg: #FBE0E3; --warn: #B8902F;
   --blob-1: rgba(142, 27, 46, .14); --blob-2: rgba(30, 90, 62, .12); --blob-3: rgba(212, 169, 63, .18);
-  --float-edge: rgba(22, 56, 40, .08);
-  --lens-fill: rgba(30, 90, 62, .12); --lens-edge: rgba(30, 90, 62, .26);
-  --tab-ink: var(--pine); --tab-on: var(--cream);
 }
 :root[data-season="christmas"][data-theme="dark"] {
-  --bg: #3A1C22; --card: #4A262D; --card-border: #7A4A54; --muted-surface: #57303A;
-  --text: #FBF2E4; --text-2: #EED7D4; --text-3: #D0B3B0;
-  --accent: #E8788A; --on-accent: #2A0E14; --accent-soft: #6A2E3A; --ok: #6DB58D; --danger: #FF9AA5;
-  --imp: #FF9AA5; --imp-bg: #6A2E3A;
-  --float: rgba(74, 38, 45, .5); --float-strong: rgba(74, 38, 45, .66); --float-edge: rgba(0, 0, 0, .25);
-  --glass: rgba(74, 38, 45, .62);
-  --lens-fill: rgba(109, 181, 141, .24); --lens-edge: rgba(109, 181, 141, .45);
-  --tab-ink: var(--lens-fill); --tab-on: #8FD3AC;
-  --amber-bg: #574229; --amber-icon: #705430; --amber-fg: var(--honey);
-  --blue-bg: #403A58; --blue-icon: #524C7A; --blue-fg: #BCCBF2;
-  --green-bg: #2E4A3C; --green-icon: #3A604C; --green-fg: #8FD3AC;
-  --purple-bg: #4D3450; --purple-icon: #634466; --purple-fg: #D9B8F0;
-  --rose-bg: #5E2E38; --rose-icon: #7A3E4A; --rose-fg: #FF9AA5;
-  --blob-1: rgba(142, 27, 46, .18); --blob-2: rgba(30, 90, 62, .14); --blob-3: rgba(212, 169, 63, .06);
+  --blob-1: rgba(232, 120, 138, .12); --blob-2: rgba(109, 181, 141, .1); --blob-3: rgba(212, 169, 63, .06);
 }
-:root[data-season="christmas"] .hero { --hill-1: rgba(30, 90, 62, .1); --hill-2: rgba(30, 90, 62, .16); --palm: rgba(30, 90, 62, .4); }
+:root[data-season="christmas"] .hero { --greet: #8E1B2E; --hill-1: rgba(30, 90, 62, .1); --hill-2: rgba(30, 90, 62, .16); --palm: rgba(30, 90, 62, .4); }
 :root[data-season="christmas"] .hero.night {
+  --greet: #D4A93F;
   background: linear-gradient(115deg, #17382A 0%, #1F4A36 55%, #2E6248 100%); border-color: #3E6A52;
   --cloud: #3e5a4b; --hill-1: rgba(142, 27, 46, .25); --hill-2: rgba(142, 27, 46, .4); --palm: rgba(10, 22, 16, .75);
 }
