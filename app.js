@@ -1348,13 +1348,15 @@ function personHead(u, size = 'lg') {
 
 /* ---------- Home ---------- */
 // Today's calendar events, shown above each person's tasks on Home. Events that have ended fade back.
-function todayEvent(e) {
+function todayEvent(e, i, all) {
   const now = new Date();
+  const open = (x) => !eventDone(x) && !(x.time && new Date(`${x.date}T${x.end || x.time}`) < now);
+  const next = open(e) && all.findIndex(open) === i;
   const endAt = e.time ? new Date(`${e.date}T${e.end || e.time}`) : null;
   const past = endAt && endAt < now;
   const done = eventDone(e);
-  return `<div class="today-ev${e.important ? ' imp' : ''}${past && !done ? ' past' : ''}${done ? ' done' : ''}">
-    <button class="tev-main" data-action="edit-event" data-id="${e.id}">${icon('calendar')}<b>${e.time ? fmtTime(new Date(`${e.date}T${e.time}`)) : 'All day'}</b><span>${esc(e.title)}</span>${impTag(e)}${noteTag(e, 'event')}</button>
+  return `<div class="today-ev${e.important ? ' imp' : ''}${past && !done ? ' past' : ''}${done ? ' done' : ''}${next ? ' next' : ''}">
+    <button class="tev-main" data-action="edit-event" data-id="${e.id}">${next ? '<em class="next-tag">Next</em>' : icon('calendar')}<b>${e.time ? fmtTime(new Date(`${e.date}T${e.time}`)) : 'All day'}</b><span>${esc(e.title)}</span>${impTag(e)}${noteTag(e, 'event')}</button>
     ${done ? eventThankBtn(e) : ''}
     <button class="tev-check" data-action="toggle-event" data-id="${e.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(e.title)}" aria-pressed="${done}">${icon('check')}</button></div>`;
 }
@@ -1362,15 +1364,16 @@ function todayEvent(e) {
 // Home answers "what needs us today?" at a glance: how many chores each person has left,
 // what to use up in the kitchen, then today's list and what's coming.
 function glanceRow() {
-  const people = members().map((u) => {
-    const left = tasksFor(u.id).filter(isOwed).length;
-    return `<a class="glance" href="#/tasks">${avatar(u.id, 'sm')}<span><b>${left || icon('check')}</b><small>${u.name} · ${left ? `${left === 1 ? 'chore' : 'chores'} left` : 'all done'}</small></span></a>`;
-  });
+  // One slim pill per person who still has chores; once everyone is done they fold into one quiet pill.
+  const left = members().map((u) => [u, tasksFor(u.id).filter(isOwed).length]);
+  const people = left.some(([, n]) => n)
+    ? left.filter(([, n]) => n).map(([u, n]) => `<a class="glance due" href="#/tasks" aria-label="${esc(u.name)}: ${n} ${n === 1 ? 'chore' : 'chores'} left">${avatar(u.id, 'sm')}<span><b>${n}</b><small>${n === 1 ? 'chore' : 'chores'} left</small></span></a>`)
+    : members().length ? [`<a class="glance clear" href="#/tasks">${avatar('both', 'xs')}<span><b>${icon('check')}</b><small>Chores all done</small></span></a>`] : [];
   const soon = (state.fridge || []).filter((it) => daysLeft(it) !== null && daysLeft(it) <= 2).length;
   const kitchen = (state.fridge || []).length
-    ? `<a class="glance" href="#/fridge"><span class="ibox c-amber-ico">${icon('fridge')}</span><span><b>${soon || icon('check')}</b><small>${soon ? 'to use soon' : 'inventory all fresh'}</small></span></a>` : '';
+    ? `<a class="glance ${soon ? 'due soon' : 'clear'}" href="#/fridge"><span class="ibox c-amber-ico">${icon('fridge')}</span><span><b>${soon || icon('check')}</b><small>${soon ? 'to use soon' : 'all fresh'}</small></span></a>` : '';
   const buy = (state.shopping || []).length;
-  const shop = buy ? `<a class="glance" href="#/fridge"><span class="ibox c-green-ico">${icon('cart')}</span><span><b>${buy}</b><small>to buy</small></span></a>` : '';
+  const shop = buy ? `<a class="glance due" href="#/fridge"><span class="ibox c-green-ico">${icon('cart')}</span><span><b>${buy}</b><small>to buy</small></span></a>` : '';
   // Someone in more than one household sees which one this is; tapping it goes to switching.
   const where = houseHomes.length > 1 && houseHome
     ? `<a class="glance" href="#/settings"><span class="ibox c-purple-ico">${icon('home')}</span><span><b>${esc(homeName(houseHome))}</b><small>household · switch</small></span></a>` : '';
@@ -1500,7 +1503,7 @@ function weekView() {
     const timed = laneLayout(calEventsOn(iso).filter((e) => e.time));
     const nowLine = iso === todayIso && nowMin >= DAY_START * 60 && nowMin < DAY_END * 60
       ? `<div class="now-line" style="top:${((nowMin - DAY_START * 60) / 60) * HOUR_PX}px"></div>` : '';
-    return `<div class="wk-col" data-action="add-event-at" data-d="${iso}">
+    return `<div class="wk-col${iso === todayIso ? ' today' : ''}" data-action="add-event-at" data-d="${iso}">
       ${timed.map(({ e, start, end, lane, lanes }) => {
         const top = ((start - DAY_START * 60) / 60) * HOUR_PX;
         const height = Math.max(26, ((end - start) / 60) * HOUR_PX - 3);
@@ -3675,7 +3678,7 @@ function useLabel(it) {
 }
 function fridgeRow(it) {
   const d = daysLeft(it);
-  return `<div class="fr-row">
+  return `<div class="fr-row${d === null ? '' : d <= 0 ? ' late' : d <= 2 ? ' soon' : ''}">
     <span class="fr-ico">${icon(catOf(it.cat).icon)}</span>
     <button class="fr-main" data-action="edit-fridge" data-id="${it.id}">
       <b>${esc(it.name)}</b><small>${it.use ? useLabel(it) : `Added ${fmtShort(it.added)}`}</small></button>
