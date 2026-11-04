@@ -1741,3 +1741,63 @@ button.hm-cell { cursor: pointer; }
   .hero.slim:has(.hero-me:not([hidden])) .hero-text { padding-right: 0; }
   .hero.slim:has(.hero-me:not([hidden])) .hero-wx { margin-right: 36px; }
 }
+
+/* Focus: on every page what still needs someone stands out and the rest steps back.
+   Open things are solid with a tappable ring; done things go flat and quiet; the one thing
+   coming up next, and food to use up, get the brand or amber edge. No new motion. */
+.card .task.done, .sheet .task.done { background: transparent; border-color: var(--card-border); }
+.task.done .task-body b, .task.done .task-body small, .task.done .stars { color: var(--text-3); }
+.task:not(.done) .check:not(.on) { border-color: color-mix(in srgb, var(--accent) 45%, var(--card-border)); }
+.task:not(.done) .task-body b { font-weight: 600; }
+
+/* Home status: one slim row of pills instead of big tiles. A pill with something to do shows its
+   number in colour; one that's all done shrinks to a quiet outline. */
+.glances { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.glances .glance { flex: 0 1 auto; gap: 8px; padding: 5px 14px 5px 5px; border-radius: 999px; min-height: 44px; }
+.glances .glance > span:last-child { flex-direction: row; align-items: baseline; gap: 6px; }
+.glances .glance b { font-size: 18px; line-height: 1; }
+.glances .glance b .ico { font-size: 17px; }
+.glances .glance small { font-size: 14px; white-space: nowrap; line-height: 1.2; }
+.glances .glance .ibox { width: 32px; height: 32px; font-size: 16px; }
+.glances .glance .av { width: 32px; height: 32px; }
+.glance.due b { color: var(--accent-ink); }
+.glance.due.soon b { color: var(--amber-ink); }
+.glance.due small { color: var(--text); font-weight: 500; }
+.glance.due { border-color: color-mix(in srgb, var(--accent) 22%, var(--glass-border)); }
+.glance.clear { background: transparent; box-shadow: none; border-color: var(--card-border); }
+.glance.clear small { color: var(--text-3); }
+
+.today-ev.next { background: var(--accent-soft); box-shadow: inset 4px 0 0 var(--accent); padding-top: 8px; padding-bottom: 8px; font-size: 15px; }
+.today-ev.next b { color: var(--accent-ink); font-size: 16px; }
+.today-ev.next .tev-main span:not(.imp-tag) { color: var(--text); font-weight: 600; }
+.today-ev.next .tev-check { width: 34px; height: 34px; border-color: var(--accent); }
+.next-tag { flex: none; font-style: normal; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--on-accent); background: var(--accent); border-radius: 999px; padding: 2px 8px; }
+
+.card .fr-row.soon { background: var(--amber-bg); box-shadow: inset 4px 0 0 var(--amber-fg); }
+.card .fr-row.late { background: var(--imp-bg); box-shadow: inset 4px 0 0 var(--imp); }
+.fr-row.soon .fr-main b, .fr-row.late .fr-main b { font-weight: 600; }
+
+.card.balance:not(.even) { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 30%, var(--card-border)); }
+.card.balance:not(.even) small { color: var(--text); font-weight: 500; }
+.balance .bal-amt { color: var(--accent-ink); }
+@media (min-width: 900px) { .balance .bal-amt { font-size: 40px; } }
+
+.wk-col.today { background-color: color-mix(in srgb, var(--accent-soft) 35%, transparent); }
+.cal .day.today { background: color-mix(in srgb, var(--accent-soft) 60%, var(--card)); }
+/* Home: Today is the card to act on, so it carries a brand edge; Coming up reads as a quiet list. */
+.card.a-today { border-color: color-mix(in srgb, var(--accent) 28%, var(--card-border)); }
+.a-agenda .list { gap: 0; }
+.card.a-agenda .row { background: transparent; border-radius: 0; border: 0; border-bottom: 1px solid var(--card-border); padding-left: 4px; }
+.card.a-agenda .row:last-child { border-bottom: 0; }
+.glances .glance .av-pair .av { width: 26px; height: 26px; }
+.glances .glance.clear { padding-left: 10px; }
+@media (max-width: 600px) {
+  .glances { gap: 6px; }
+  .glances .glance { min-height: 40px; padding: 4px 12px 4px 4px; gap: 6px; }
+  .glances .glance .ibox, .glances .glance .av-sm { width: 30px; height: 30px; }
+  .glances .glance small { font-size: 13px; }
+}
+/* Calendar: events sit on the grid as solid little cards so they read before the lines do. */
+.wk-ev:not(.done) { box-shadow: 0 1px 3px rgba(42, 23, 18, .14); }
+.wk-ev:not(.done) .wk-ev-title { font-weight: 600; }
+.shop-row .check:not(.on) { border-color: color-mix(in srgb, var(--accent) 45%, var(--card-border)); }
