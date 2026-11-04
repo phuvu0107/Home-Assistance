@@ -3386,10 +3386,11 @@ views.piggy = () => {
   // Boxes for this month go near the top; with none, a short hint sits at the bottom instead.
   const boxes = boxesForMonth(state.boxes, state.expenses, key, isoDay(new Date())).length ? boxesCard(key) : '';
   return `<div class="section-title">Money</div>
+  <div class="piggy">
   <div class="month-nav">
-    <button class="btn-round" data-action="piggy-move" data-d="-1" aria-label="Previous month">${icon('chevronLeft')}</button>
+    <button class="month-step" data-action="piggy-move" data-d="-1" aria-label="Previous month">${icon('chevronLeft')}</button>
     <div class="piggy-month"><h2>${monthName(key)}</h2><span>${monthRange(key)}</span></div>
-    <button class="btn-round" data-action="piggy-move" data-d="1" aria-label="Next month">${icon('chevron')}</button>
+    <button class="month-step" data-action="piggy-move" data-d="1" aria-label="Next month">${icon('chevron')}</button>
     ${isNow ? '' : '<button class="btn ghost sm" data-action="piggy-today">This month</button>'}
     ${list.length ? `<button class="btn ghost sm piggy-report-btn" data-action="piggy-report">${icon('chart')} Month report</button>` : ''}
   </div>
@@ -3401,14 +3402,15 @@ views.piggy = () => {
     <div class="spend-key">${members().map((u) => `<span>${avatarImg(u, 'xs')}${u.name} paid <b>${fmtCash(st.paid[u.id])}</b> · ${Math.round(share(u))}%</span>`).join('')}</div>` : ''}
   </div>
   <div class="card">
-    <div class="card-head">${icon('calendar')}<h2>Log</h2></div>
+    <div class="card-head">${icon('calendar')}<h2>Transactions</h2></div>
     ${all.length ? Object.entries(byDay).map(([d, xs]) => `<div class="ex-day"><div class="ex-day-head"><span>${dayLabel(d)}</span><span>${fmtCash(spending(xs).reduce((a, x) => a + x.amount, 0))}</span></div>
       <div class="list">${xs.map((x) => expenseRow(x, showSplit)).join('')}</div></div>`).join('')
     : `<div class="piggy-empty">${icon('piggy')}<p>Nothing logged for ${monthName(key)} yet.</p><div class="fr-empty-btns"><button class="btn" data-action="add-expense">${icon('plus')} Add an expense</button><label class="btn ghost">${icon('receipt')} Scan receipt<input type="file" id="receipt-money" accept="image/*" hidden></label></div></div>`}
   </div>
   ${list.length ? categoryCard(list) : ''}
   ${months.length ? trendCard(key, months) : ''}
-  ${boxes ? '' : boxesCard(key)}`;
+  ${boxes ? '' : boxesCard(key)}
+  </div>`;
 };
 
 // Boxes: a pot for a trip or a day out, like "Japan Box". The card lists the boxes for the month
@@ -5365,6 +5367,29 @@ document.addEventListener('click', (e) => {
   save();
   if (closeReact && NO_RERENDER.has(name)) renderView();
   if (!NO_RERENDER.has(name)) renderView(['cal-move', 'cal-today', 'cal-view', 'cal-chores', 'cal-who'].includes(name) ? 'cal' : undefined);
+});
+
+// Money categories open and close smoothly: the rows below slide instead of jumping.
+document.addEventListener('click', (e) => {
+  const sum = e.target.closest('.cat-group > summary');
+  if (!sum || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const det = sum.parentElement;
+  const body = det.querySelector('.cat-items');
+  if (!body || !body.animate) return;
+  e.preventDefault();
+  body.getAnimations().forEach((a) => a.cancel());
+  const opening = !det.open || det.classList.contains('closing');
+  det.classList.toggle('closing', !opening);
+  det.open = true;
+  const h = body.scrollHeight;
+  const cs = getComputedStyle(body);
+  const frames = [{ height: '0px', opacity: 0, marginTop: '0px', marginBottom: '0px' }, { height: `${h}px`, opacity: 1, marginTop: cs.marginTop, marginBottom: cs.marginBottom }];
+  const anim = body.animate(opening ? frames : frames.reverse(), { duration: opening ? 280 : 220, easing: 'cubic-bezier(.2, .8, .3, 1)' });
+  body.style.overflow = 'hidden';
+  anim.onfinish = () => {
+    body.style.overflow = '';
+    if (!opening) { det.open = false; det.classList.remove('closing'); }
+  };
 });
 
 $('#sheet-backdrop').addEventListener('click', closeSheet);
