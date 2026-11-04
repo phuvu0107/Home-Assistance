@@ -1,6 +1,7 @@
 // Line icons (24x24, stroke based). Each value is the inner SVG markup.
 // Hometide's own touch: the main icons carry a solid "spot" (class s), drawn first so the line sits on top,
 // like the tide inside the app icon. CSS gives it honey in the tab bar, menu and card heads and a soft tint elsewhere.
+// Lines are drawn sharp: square ends and pointed corners at 2.1, so they stay crisp on the fridge screen.
 const P = {
   home: '<path class="s" d="M5.5 15.6c2.2-1.7 4.3-1.7 6.5 0s4.3 1.7 6.5 0V19a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19z"/><path d="M3.5 11 12 3.8l8.5 7.2"/><path d="M5.5 9.4V19A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V9.4"/><path d="M15.8 6.2V3.8h2.4v4.4"/>',
   fridge: '<path class="s" d="M5 10h14v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><rect x="5" y="2" width="14" height="20" rx="2.5"/><path d="M5 10h14M9 5v2M9 13v3"/>',
@@ -80,7 +81,7 @@ const P = {
 
 export function icon(name, cls = '') {
   const inner = P[name] || P.home;
-  return `<span class="ico ${cls}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${inner}</svg></span>`;
+  return `<span class="ico ${cls}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="4">${inner}</svg></span>`;
 }
 
 export function hydrateIcons(root = document) {
