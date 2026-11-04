@@ -999,7 +999,7 @@ const FAB = {
 function setFab(r) {
   const fab = $('#fab'); const f = r === 'calendar' && calView() === 'trip' ? { action: 'add-plan', label: 'Add activity' } : FAB[r];
   // Nothing to add to until the first-run screen has named who lives here.
-  fab.hidden = !f || !members().length;
+  fab.hidden = !f || !members().length || !!gateStep();
   if (fab.hidden) return;
   fab.dataset.action = f.action;
   fab.dataset.d = isoDay(new Date());
@@ -1048,7 +1048,7 @@ function swipeNeighbor(dir) {
 }
 const view = $('#view');
 view.addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'mouse' || swipe.id !== null || swipe.busy || !$('#sheet').hidden) return;
+  if (e.pointerType === 'mouse' || swipe.id !== null || swipe.busy || !$('#sheet').hidden || document.body.classList.contains('gated')) return;
   if (e.target.closest('input, textarea, select, .switch') || scrollsSideways(e.target)) return;
   Object.assign(swipe, { id: e.pointerId, x: e.clientX, y: e.clientY, dx: 0, on: false, done: false, samples: [[e.timeStamp, e.clientX]] });
 });
@@ -2982,6 +2982,7 @@ function removedFromHome(home) {
   houseInvite = null; writeLocal(HOUSE_INVITE_KEY, '');
   setHomes(houseHomes.filter((h) => h.id !== home));
   watchHouseRec(); refreshHomes();
+  gateMode = '';
   houseNote = `You're no longer in ${name}. Ask someone in it for a new invite code to come back, or start a household of your own.`;
   if (!houseSheetOpen()) openHouseSheet(); else refreshHouse();
 }
@@ -3033,7 +3034,8 @@ const house = createSync({
     // otherwise just keep a copy here.
     if (ensureMembers() | repairLog() | passTurns()) save();
     else try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
-    if (calmToRender()) renderView(); // an open sheet re-renders the page when it closes
+    if (document.body.classList.contains('gated') && !houseSheetOpen() && !document.activeElement?.matches('input')) render(); // the household's people just arrived
+    else if (calmToRender()) renderView(); // an open sheet re-renders the page when it closes
   },
   onStatus: (st) => {
     const wasFull = houseFullBanner();
@@ -3044,7 +3046,8 @@ const house = createSync({
     if (st.state === 'badpass' && housePass && !houseSheetOpen()) openHouseSheet();
     // Another screen moved this household to sign-in: follow it there.
     if (st.state === 'moved') { houseMoved = { home: st.home, invite: st.invite }; houseUsePass = false; followMove(); }
-    if ((currentRoute() === 'settings' || currentRoute() === 'home' && houseFullBanner() !== wasFull) && calmToRender()) renderView();
+    if (document.body.classList.contains('gated')) { if (!houseSheetOpen() && !document.activeElement?.matches('input')) render(); }
+    else if ((currentRoute() === 'settings' || currentRoute() === 'home' && houseFullBanner() !== wasFull) && calmToRender()) renderView();
   },
   onBase: (b) => { try { b ? localStorage.setItem(HOUSE_BASE_KEY, JSON.stringify(b)) : localStorage.removeItem(HOUSE_BASE_KEY); } catch { /* ignore */ } },
 });
@@ -3163,12 +3166,13 @@ function homesBox() {
     <div style="margin:0 0 16px"><button class="btn ghost" data-action="house-add">${icon('plus')} Join or start another household</button></div>`;
 }
 
-// Sign-in panel: pops up when this device isn't in a household yet, or its sign-in or passphrase
-// needs doing again. "Not now" keeps the device on its own until the app is opened again.
-// (Not while it plays its closing animation: redrawing it then would open it again.)
+// Panel for joining or starting another household from Settings, and for an old passphrase
+// screen whose passphrase needs typing again. (Not while it plays its closing animation: redrawing it then would open it again.)
 const houseSheetOpen = () => !$('#sheet').hidden && !$('#sheet').classList.contains('closing') && $('#sheet').dataset.kind === 'house';
 function openHouseSheet() {
   if (!accountAvailable() || houseUsePass || (housePass && !houseMoved)) { openPassSheet(); return; }
+  // Only joining or starting another household is a panel; getting into the first one is a page.
+  if (!houseAdding) { if (houseSheetOpen()) closeSheet(); render(); return; }
   const u = account.user;
   const note = houseNote ? `<div class="sync-banner">${icon('users')}<span>${esc(houseNote)}</span></div>` : '';
   let body;
@@ -3198,7 +3202,7 @@ function openHouseSheet() {
         <button class="btn ghost" data-action="acct-start" ${houseBusy ? 'disabled' : ''}>${busyLabel('start', 'Start a household', 'Starting…')}</button></div>`}
       <div class="sheet-actions">
         ${houseAdding ? '' : '<button class="btn ghost" data-action="acct-signout">Use a different account</button>'}
-        <button class="btn ghost" data-action="close-sheet">${houseAdding ? 'Cancel' : 'Not now'}</button>
+        <button class="btn ghost" data-action="close-sheet">Cancel</button>
       </div>`;
   }
   openSheet(`${sheetHead(houseMoved ? 'Your household moved' : houseAdding ? 'Another household' : 'Join your household', 'users')}${body}`);
@@ -3231,6 +3235,7 @@ const houseInput = (el) => (el?.closest('.sheet, .card') || document).querySelec
 // Redraws whatever shows the household's state: the open panel, or Settings.
 function refreshHouse() {
   if (houseSheetOpen()) openHouseSheet();
+  else if (document.body.classList.contains('gated') || gateStep()) render();
   else if (currentRoute() === 'settings' && calmToRender()) renderView();
 }
 function useHome(home) {
@@ -3285,7 +3290,9 @@ async function onAccount(u) {
     else if (!houseHome && house.mode !== 'pass') {
       // Signed in on a new device, or again after signing out: find the household.
       let home = null;
+      houseLooking = true; refreshHouse();
       try { home = await myHome(u.uid); } catch { home = null; }
+      houseLooking = false;
       if (home) {
         useHome(home);
         if (houseSheetOpen()) { houseSync = { state: 'connecting' }; openHouseSheet(); }
@@ -3294,6 +3301,7 @@ async function onAccount(u) {
       } else if (first && !houseSheetOpen()) openHouseSheet(); // signed in, no household yet
     }
   } else {
+    gateMode = '';
     if (house.mode === 'home') house.disconnect(); // signed out on this device
     // Not signed in when the app opens: ask, unless an old passphrase household is syncing.
     if (first && !housePass && !houseSheetOpen()) openHouseSheet();
@@ -3324,23 +3332,115 @@ async function followMove() {
 const BRAND_PROMISE = 'The shared screen that keeps a home in rhythm.';
 const brandMark = (size = 'md') => `<div class="brand brand-${size}"><img class="brand-icon" src="icons/icon.svg" alt="" width="48" height="48"><span class="wordmark" aria-label="Hometide">home<b>tide</b></span></div>`;
 
-/* ---------- Who lives here: first run and Settings ---------- */
-// A new household names its people before anything else, since chores, stars and money all
-// belong to someone. A screen joining an existing household gets them from there instead.
-views.setup = () => `<div class="welcome">${brandMark('lg')}<p class="welcome-promise">${BRAND_PROMISE}</p>
-    <p class="welcome-sub">Chores, plans and money, seen by everyone at home, with every bit of help noticed.</p></div>
-  <div class="card setup">
-    <div class="card-head">${icon('users')}<h2>Who shares this home?</h2></div>
-    <p class="hint">Add everyone who splits the chores, the bills and the plans. Each of you gets your own chores, stars and love points. You can change names and colors later in Settings.</p>
-    <div class="setup-names" id="setup-names">${[0, 1].map((i) => setupRow(i)).join('')}</div>
-    <div class="setup-actions">
-      <button class="btn ghost" data-action="setup-add-row">${icon('plus')} Add someone</button>
-      <button class="btn" data-action="setup-start">Start</button>
-    </div>
-    ${houseHome && houseHomes.length > 1 ? `<p class="hint setup-join">Or switch to ${houseHomes.filter((h) => h.id !== houseHome).map((h) => `<button class="link" data-action="house-switch" data-id="${esc(h.id)}">${esc(h.name)}</button>`).join(', ')}</p>`
-      : syncAvailable() ? `<p class="hint setup-join">Already using this on another screen? <button class="link" data-action="open-join">Join your household</button></p>` : ''}
-  </div>`;
-const setupRow = (i) => `<input class="input" data-setup-name maxlength="24" autocomplete="off" placeholder="${i ? 'Another name' : 'Your name'}" aria-label="Name ${i + 1}">`;
+/* ---------- Getting in: sign in, then start or join a household ---------- */
+// Until this screen is in a household it shows one page at a time, with no tabs or sky panel:
+// sign in with Google, then start a household (name it, say who lives there) or join one with an
+// invite code. Screens without Firebase set up (a copy of the app run locally) just name who lives
+// here and keep everything on the device; an old passphrase household carries on as it was.
+let gateMode = ''; // 'start' | 'join' once a choice is made on the signed-in page
+let houseLooking = false; // finding this account's household after signing in
+function gateStep() {
+  const ready = members().length > 0;
+  if (!accountAvailable() || (housePass && !houseMoved)) return ready ? null : 'people';
+  const u = account.user;
+  if (!account.ready) {
+    if ((houseHome || housePass) && ready) return null; // a screen in a household opens straight in
+    return readLocal(SIGNED_IN_KEY) || houseHome ? 'checking' : 'signin';
+  }
+  if (!u) return 'signin';
+  if (currentRoute() === 'admin') return null;
+  if (houseMoved) return houseNote ? 'join' : 'connecting';
+  if (!houseHome) return houseLooking ? 'checking' : gateMode || 'choose';
+  if (ready) return null;
+  return houseSync.state === 'ok' ? 'people' : 'connecting';
+}
+const firstName = (u) => cleanName(String(u?.name || '').split(' ')[0]);
+const gogIcon = '<svg class="g-logo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.8-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.2 1.5-5 2.3-8.2 2.3-6.2 0-11.5-4.1-13.4-9.8l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>';
+const gateNote = () => (houseNote ? `<div class="sync-banner">${icon('users')}<span>${esc(houseNote)}</span></div>` : '');
+const gateWho = (u) => `<p class="hint gate-who">Signed in as <b>${esc(u.email || u.name)}</b> · <button class="link" data-action="acct-signout">Use a different account</button></p>`;
+const gateBack = '<button class="gate-back" data-action="gate-back">' + icon('chevron') + 'Back</button>';
+const setupRow = (i, v = '') => `<input class="input" data-setup-name maxlength="24" autocomplete="off" placeholder="${i ? 'Another name' : 'Your name'}" aria-label="Name ${i + 1}" value="${esc(v)}">`;
+const namesBox = (first = '') => `<div class="setup-names" id="setup-names">${[0, 1].map((i) => setupRow(i, i ? '' : first)).join('')}</div>
+  <button class="btn ghost" data-action="setup-add-row">${icon('plus')} Add someone</button>`;
+// What is typed on the getting-in page, put back after a redraw.
+function keepTyped(root) {
+  const ids = [...root.querySelectorAll('.gate input[id]')].map((i) => [i.id, i.value]);
+  const names = [...root.querySelectorAll('.gate [data-setup-name]')].map((i) => i.value);
+  if (!ids.length && !names.length) return null;
+  return () => {
+    ids.forEach(([id, v]) => { const el = document.getElementById(id); if (el) el.value = v; });
+    const box = $('#setup-names');
+    if (!box || !names.length) return;
+    box.innerHTML = names.map((v, i) => setupRow(i, v)).join('');
+  };
+}
+function gateView(step) {
+  const u = account.user;
+  const intro = `<div class="welcome gate-brand">${brandMark('lg')}<p class="welcome-promise">${BRAND_PROMISE}</p>
+    <p class="welcome-sub">Chores, plans and money, seen by everyone at home, with every bit of help noticed.</p></div>`;
+  let card;
+  if (step === 'checking' || step === 'connecting') {
+    const text = step === 'checking' ? (houseLooking ? 'Finding your household…' : 'Checking sign-in…')
+      : houseMoved ? 'Joining your household…'
+      : ['ok', 'connecting', 'off'].includes(houseSync.state) ? `Opening ${esc(homeName(houseHome))}…` : esc(houseMessage().text);
+    card = `<div class="card gate-card gate-wait"><span class="gate-spin" aria-hidden="true"></span><p>${text}</p>
+      ${u && step === 'connecting' && !['ok', 'connecting'].includes(houseSync.state) ? gateWho(u) : ''}</div>`;
+  } else if (step === 'signin') {
+    const again = houseMoved ? 'This household moved to sign-in. Sign in with Google to keep this screen in sync. Nothing here is lost.'
+      : houseHome ? 'Sign in again to keep this screen in sync with your household.' : '';
+    card = `<div class="card gate-card">
+      <h2 class="gate-h">${again ? 'Welcome back' : 'Get started'}</h2>
+      <p class="hint">${again || 'Sign in, then start a household or join the one you were invited to. You can get back in on any device, even a new phone.'}</p>
+      ${gateNote()}
+      <button class="btn google" data-action="acct-signin" ${houseBusy ? 'disabled' : ''}>${gogIcon}${busyLabel('signin', 'Continue with Google', 'Signing in…')}</button>
+      <p class="hint gate-fine">Setting up the fridge or a shared screen? Sign in with the account of anyone in the household. <a href="#/privacy">Privacy</a></p>
+    </div>`;
+  } else if (step === 'choose') {
+    card = `<div class="card gate-card">
+      <h2 class="gate-h">${firstName(u) ? `Hi ${esc(firstName(u))}` : 'Welcome'}</h2>
+      <p class="hint">Is your household already on Hometide?</p>
+      ${gateNote()}
+      <div class="list gate-choices">
+        <button class="row" data-action="gate-mode" data-v="join"><span class="ibox c-purple-ico">${icon('users')}</span><span><b>Join a household</b><small>Type the invite code someone in it made</small></span>${icon('chevron', 'chev')}</button>
+        <button class="row" data-action="gate-mode" data-v="start"><span class="ibox c-amber-ico">${icon('plus')}</span><span><b>Start a household</b><small>Name it, add who lives there, invite them after</small></span>${icon('chevron', 'chev')}</button>
+      </div>
+      ${gateWho(u)}
+    </div>`;
+  } else if (step === 'start') {
+    const have = members().length;
+    card = `<div class="card gate-card">${gateBack}
+      <h2 class="gate-h">Start a household</h2>
+      ${gateNote()}
+      <div class="field"><label for="gate-home-name">Household name</label>
+        <input class="input" id="gate-home-name" maxlength="40" autocomplete="off" placeholder="e.g. The Vu home"></div>
+      ${have ? `<p class="hint">It starts with ${joinNames(members().map((m) => m.name))} and everything already on this screen.</p>`
+        : `<div class="field"><label>Who lives here?</label>
+        <div class="hint">Everyone who splits the chores, the bills and the plans. Each gets their own chores and stars. Kids without a phone count too.</div>
+        ${namesBox(firstName(u))}</div>`}
+      <button class="btn gate-go" data-action="acct-start" ${houseBusy ? 'disabled' : ''}>${busyLabel('start', 'Start the household', 'Starting…')}</button>
+      <p class="hint gate-fine">Next, invite the others from Settings › Household. Each person signs in with their own Google account.</p>
+    </div>`;
+  } else if (step === 'join') {
+    card = `<div class="card gate-card">${houseMoved ? '' : gateBack}
+      <h2 class="gate-h">Join a household</h2>
+      <p class="hint">Ask someone already in it to open Settings › Household › Make an invite code, then type it here. Each code works once, for a week.</p>
+      ${gateNote()}
+      <div class="field"><label for="join-code">Invite code</label>
+        <input class="input gate-code" id="join-code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD-EFGH-JK" maxlength="16"></div>
+      <button class="btn gate-go" data-action="acct-join" ${houseBusy ? 'disabled' : ''}>${busyLabel('join', 'Join', 'Joining…')}</button>
+      ${gateWho(u)}
+    </div>`;
+  } else { // 'people': a household with nobody in it yet, or a screen with no sign-in at all
+    card = `<div class="card gate-card setup">
+      <h2 class="gate-h">Who shares this home?</h2>
+      <p class="hint">Add everyone who splits the chores, the bills and the plans. Each of you gets your own chores, stars and love points. You can change names and colors later in Settings.</p>
+      ${namesBox(firstName(u))}
+      <button class="btn gate-go" data-action="setup-start">Start</button>
+      ${houseHome && houseHomes.length > 1 ? `<p class="hint setup-join">Or switch to ${houseHomes.filter((h) => h.id !== houseHome).map((h) => `<button class="link" data-action="house-switch" data-id="${esc(h.id)}">${esc(h.name)}</button>`).join(', ')}</p>` : ''}
+    </div>`;
+  }
+  return `<div class="gate gate-${step}">${intro}${card}</div>`;
+}
 
 function openMemberSheet(u) {
   const all = members();
@@ -4394,8 +4494,13 @@ function renderView(anim) {
   const y = window.scrollY;
   const prev = $('#wk-scroll');
   if (prev) wkScroll = prev.scrollTop;
-  // Privacy reads the same before anyone is set up, so its link works as the app's privacy policy.
-  view.innerHTML = members().length || r === 'admin' || r === 'privacy' ? views[r]() : views.setup();
+  // Not in a household yet: the getting-in page, with no tabs. Privacy reads the same either way,
+  // so its link works as the app's privacy policy.
+  const g = gateStep();
+  document.body.classList.toggle('gated', !!g);
+  const typed = g && keepTyped(view);
+  view.innerHTML = !g ? views[r]() : r === 'privacy' ? `<div class="gate-top"><a class="gate-back" href="#/home">${icon('chevron')}Back</a></div>${views.privacy()}` : gateView(g);
+  typed?.(); // a redraw while signing in (a busy button, an error) keeps what was typed
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
   const hm = $('#hm-scroll');
@@ -4977,6 +5082,8 @@ const actions = {
     render();
   },
   'open-join': () => { houseUsePass = false; openHouseSheet(); },
+  'gate-mode': (el) => { gateMode = el.dataset.v; houseNote = ''; },
+  'gate-back': () => { gateMode = ''; houseNote = ''; },
   'add-member': () => openMemberSheet(null),
   'edit-member': (el) => { const u = userOf(el.dataset.id); if (u) openMemberSheet(u); },
   'pick-member-color': (el) => { el.parentElement.querySelectorAll('.swatch').forEach((b) => b.classList.toggle('on', b === el)); },
@@ -5064,14 +5171,20 @@ const actions = {
     }
     houseBusy = ''; refreshHouse();
   },
+  // The household's copy on this screen goes too, so whoever signs in next can't see it or start
+  // a household of their own with it. It is all still in the household, back on signing in again.
   'acct-signout': async () => {
+    const inHome = house.mode === 'home' || (!!houseHome && house.mode !== 'pass');
+    if (house.mode === 'home' && !(await house.leave())
+      && !confirm("Some changes on this screen haven't synced yet. Sign out anyway? They'll be lost.")) return;
     if (house.mode === 'home') house.disconnect();
     houseHome = ''; writeLocal(HOUSE_HOME_KEY, '');
     houseInvite = null; writeLocal(HOUSE_INVITE_KEY, '');
     setHomes([]); houseAdding = false;
-    houseNote = '';
+    houseNote = ''; gateMode = '';
+    if (inHome) { emptyHousehold(); await photos.clearHere().catch(() => {}); }
     try { await accountSignOut(); } catch { /* signed out here anyway */ }
-    if (!houseSheetOpen()) toast('Signed out. This device keeps its copy but stops syncing.');
+    if (!houseSheetOpen()) toast('Signed out');
     refreshHouse();
   },
   'acct-delete': async () => {
@@ -5101,25 +5214,32 @@ const actions = {
       : 'Your account is deleted.');
     render();
   },
-  'acct-start': async () => {
+  'acct-start': async (el) => {
     const u = account.user;
     if (!u || houseBusy) return;
+    // From the getting-in page: the household's name and who lives there come with it.
+    const page = el.closest('.gate');
+    const name = page ? cleanName($('#gate-home-name')?.value || '').slice(0, 40) || 'Home' : 'Home';
+    const names = page && !members().length ? [...page.querySelectorAll('[data-setup-name]')].map((i) => cleanName(i.value)).filter(Boolean) : [];
+    if (page && !members().length && !names.length) { toast('Add at least one name'); return; }
     houseBusy = 'start'; houseNote = ''; openHouseSheet();
     try {
       // Already in a household: send what's left to it, then start the new one empty.
       const another = !!houseHome && house.mode === 'home';
       if (another && !(await house.leave())) throw Object.assign(new Error(), { code: 'unsynced' });
-      const home = await startHome(u);
+      const home = await startHome(u, name);
       if (another) emptyHousehold();
+      if (names.length) { state.members = names.reduce((list, n) => [...list, newMember(n, list)], []); save(); }
       useHome(home);
+      setHomes(houseHomes.map((h) => (h.id === home ? { ...h, name } : h)));
       const r = await house.connectHome(home, { fresh: another }); // a first household starts from what is on this screen
-      if (r === 'ok') { houseAdding = false; toast('Household started. Invite everyone from Settings.'); closeSheet(); } else houseNote = houseMessage().text;
+      if (r === 'ok') { houseAdding = false; gateMode = ''; toast('Household started. Invite everyone from Settings.'); closeSheet(); } else houseNote = houseMessage().text;
     } catch (e) { houseNote = e?.code === 'unsynced' ? unsyncedNote : accountError(e); }
     houseBusy = ''; refreshHouse();
   },
   'acct-join': async (el) => {
     const u = account.user;
-    const code = el.closest('.sheet')?.querySelector('#join-code')?.value || '';
+    const code = el.closest('.sheet, .gate')?.querySelector('#join-code')?.value || '';
     if (!u || houseBusy) return;
     if (!code.trim()) { toast('Type the code first'); return; }
     houseBusy = 'join'; houseNote = ''; openHouseSheet();
@@ -5141,7 +5261,7 @@ const actions = {
           houseMoved = null; forgetPass(); useHome(home);
           r = await house.connectHome(home, { fresh: !following });
         }
-        if (r === 'ok') { houseAdding = false; refreshHomes(); toast('Joined the household'); closeSheet(); } else houseNote ||= houseMessage().text;
+        if (r === 'ok') { houseAdding = false; gateMode = ''; refreshHomes(); toast('Joined the household'); closeSheet(); } else houseNote ||= houseMessage().text;
       }
     } catch (e) { houseNote = accountError(e); }
     houseBusy = ''; refreshHouse();
