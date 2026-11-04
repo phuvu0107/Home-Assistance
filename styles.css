@@ -336,6 +336,7 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
   transition: color .25s; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
 }
 .tab > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 379.98px) { .tab-tail { display: none; } }
 .tab .ico { font-size: 23px; transition: transform .28s cubic-bezier(.2, 1.4, .4, 1); }
 /* The label on the pill reads in --tab-on: the active tab, the one a slide is on, or More while it is open. */
 .tab.active, .tab.hot, body.dome-open .tab[data-page="more"] { color: var(--tab-on); }
@@ -1188,7 +1189,7 @@ a.conn { display: block; color: inherit; text-decoration: none; }
 @media (min-width: 821px) { .hero:not(.slim) .hero-wx { margin-right: 120px; } } /* clear of the palm */
 /* While the half circle is open, More is the one lit tab. */
 body.dome-open .tab.active:not([data-page="more"]) { color: var(--text-2); font-weight: 500; }
-body.dome-open .tab[data-page="more"] { color: var(--accent); }
+body.dome-open .tab[data-page="more"] { color: var(--tab-on); }
 
 /* ---------- Thank-you notes and sticky notes ---------- */
 /* Paper colors: soft and a little muted, so a few notes together still look calm. */

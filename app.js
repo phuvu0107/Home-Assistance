@@ -751,11 +751,11 @@ function weatherValid() {
 const PAGES = [
   { id: 'home', label: 'Home', icon: 'home', main: true },
   { id: 'calendar', label: 'Calendar', icon: 'calendar', main: true },
-  { id: 'tasks', label: 'Chores', icon: 'checkSquare', main: true },
-  { id: 'friends', label: 'Friends', icon: 'users', main: true },
+  { id: 'bucket', label: 'Bucket list', short: 'Bucket', icon: 'sparkles', main: true },
+  { id: 'piggy', label: 'Money', icon: 'piggy', main: true },
   { id: 'fridge', label: 'Inventory', icon: 'fridge' },
-  { id: 'piggy', label: 'Money', icon: 'piggy' },
-  { id: 'bucket', label: 'Bucket list', icon: 'sparkles' },
+  { id: 'tasks', label: 'Chores', icon: 'checkSquare' },
+  { id: 'friends', label: 'Friends', icon: 'users' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
   ...(ENERGY_ON ? [{ id: 'energy', label: 'Energy', icon: 'zap' }] : []),
   { id: 'health', label: 'Health', icon: 'heart' },
@@ -785,7 +785,9 @@ function renderNav() {
   const tabs = $('#tabs');
   if (!tabs.children.length) {
     // More sits in the middle, so sliding straight up from it lands on Settings at the top of the half circle.
-    const tab = (p) => `<a class="tab" href="#/${p.id}" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span></a>`;
+    // On narrow phones a long name drops its tail (Bucket list reads Bucket) instead of trailing off.
+    const name = (p) => p.short ? `${p.short}<span class="tab-tail">${p.label.slice(p.short.length)}</span>` : p.label;
+    const tab = (p) => `<a class="tab" href="#/${p.id}" data-page="${p.id}" aria-label="${p.label}">${icon(p.icon)}<span>${name(p)}</span></a>`;
     tabs.innerHTML = `<span class="tab-ink" aria-hidden="true"></span>${MAIN.slice(0, 2).map(tab).join('')}
       <button class="tab" data-page="more" aria-haspopup="menu" aria-expanded="false"></button>${MAIN.slice(2).map(tab).join('')}`;
   }
