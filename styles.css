@@ -1324,6 +1324,17 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .bk-memory { display: block; width: 100%; padding: 0; border: 0; border-radius: 16px; overflow: hidden; background: var(--card); cursor: zoom-in; }
 .bk-memory .pl-photo { height: auto; max-height: min(52vh, 460px); aspect-ratio: 4 / 3; }
 .bk-memory.none { display: flex; align-items: center; gap: 8px; padding: 14px; cursor: default; color: var(--text-2); }
+/* Quick check-in: the camera opens first, then this sheet with the picture big and one button */
+.sheet h3.bk-quick-head { align-items: flex-start; margin-bottom: 14px; }
+.bk-quick-head > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.bk-quick-head small { font-size: 14px; font-weight: 500; color: var(--text-2); }
+.bk-redo { margin-left: auto; align-self: center; border: 0; background: none; color: var(--accent-ink, var(--accent)); font: inherit; font-size: 15px; font-weight: 600; padding: 8px 6px; }
+.bk-quick-head .close { margin-left: 4px; }
+.bk-big { display: block; width: 100%; padding: 0; border: 0; border-radius: 18px; overflow: hidden; background: var(--card); margin-bottom: 12px; }
+.bk-big .pl-photo { width: 100%; height: auto; max-height: min(46vh, 420px); aspect-ratio: 4 / 3; object-fit: cover; }
+.sheet[data-kind="bucket-tick"] .field > label { display: none; }
+.sheet[data-kind="bucket-tick"] .pl-thumb { width: 64px; height: 64px; }
+.sheet .bk-go { flex: 1; justify-content: center; font-size: 17px; padding: 15px; }
 /* Month collages: one picture of a month's check-ins */
 .collage-list { display: flex; flex-direction: column; gap: 8px; }
 .collage-row { display: flex; align-items: center; gap: 14px; width: 100%; padding: 10px 12px 10px 10px; border: 1px solid var(--card-border); border-radius: var(--radius-sm); background: var(--muted-surface); color: var(--text); text-align: left; font: inherit; cursor: pointer; }

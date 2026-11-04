@@ -2372,9 +2372,13 @@ function bkPicHtml() {
     <button class="pl-x" data-action="bk-del-pic" data-photo-id="${p.id}" aria-label="Remove picture">${icon('x')}</button></div>`).join('')}
     ${bucketPics.length < BUCKET_PICS_MAX ? `<label class="pl-thumb pl-add">${icon('camera')}<span>Add</span>${input}</label>` : ''}</div>`;
 }
+// The tick sheet opens after the camera, so the first picture leads, big, above the smaller ones.
+const bkBigHtml = () => bucketPics.length ? `<img class="pl-photo" src="${bucketPics[0].data}" alt="">` : '';
 function redrawBucketPics() {
   const box = $('#bk-shot');
   if (box) box.innerHTML = bkPicHtml();
+  const big = $('#bk-big');
+  if (big) { big.innerHTML = bkBigHtml(); big.hidden = !bucketPics.length; }
   const go = $('#sheet [data-action="done-bucket"]');
   if (go) go.disabled = !bucketPics.length;
   // The add sheet with "Done it already" on adds and ticks off in one go, so it needs a picture too.
@@ -2408,14 +2412,37 @@ const checkInFields = () => `<div class="field"><label>Pictures</label><div id="
     ${account.user ? `<div class="setting-row imp-row"><div><b>Share on Friends</b><div class="hint">Posts the pictures to your Friends feed${social.me?.name ? ` as ${esc(social.me.name)}` : ''}.</div></div>
       <button class="switch" id="bk-share" role="switch" aria-checked="true" data-action="toggle-important"></button></div>` : ''}`;
 const doneNow = () => $('#bk-done-now')?.getAttribute('aria-checked') === 'true';
+// Tapping the tick goes straight to the camera (on phones the picker offers Take photo first). The
+// check-in sheet comes after, with the picture big, Both picked and one Tick it off button.
+// Closing the camera without a picture leaves the item as it was.
+async function addBucketFiles(files) {
+  for (const f of [...files].slice(0, BUCKET_PICS_MAX - bucketPics.length)) {
+    try { bucketPics.push({ id: `ph${Date.now()}${Math.random().toString(36).slice(2, 6)}`, data: await shrink(f) }); } catch (err) { toast(err.message || "Couldn't read that picture"); }
+  }
+}
+function pickBucketPics(done, replace = false) {
+  document.querySelectorAll('.bk-camera').forEach((x) => x.remove());
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', multiple: true, hidden: true, className: 'bk-camera' });
+  input.addEventListener('change', async () => {
+    const files = [...input.files]; input.remove();
+    if (!files.length) return;
+    if (replace) bucketPics = [];
+    await addBucketFiles(files);
+    done();
+  });
+  input.addEventListener('cancel', () => input.remove());
+  document.body.append(input);
+  input.click();
+}
 function openBucketTick(b) {
-  bucketPics = [];
-  openSheet(`${sheetHead('Check in', 'sparkles')}
-    <p class="thx-for"><span class="bk-emoji">${kindOf(b)[0]}</span><span><b>${esc(b.text)}</b> · +${loveOf(b)} love points</span></p>
+  const [e, label] = kindOf(b);
+  openSheet(`<h3 class="bk-quick-head"><span><b>${esc(b.text)}</b><small>${e} ${label} · +${loveOf(b)} love points</small></span>
+      <button class="bk-redo" data-action="bk-retake" data-id="${b.id}">Retake</button>
+      <button class="btn-round close" data-action="close-sheet" aria-label="Close">${icon('x')}</button></h3>
+    <button class="bk-big" id="bk-big" data-action="bk-retake" data-id="${b.id}" aria-label="Retake the picture"${bucketPics.length ? '' : ' hidden'}>${bkBigHtml()}</button>
     ${checkInFields()}
     <div class="sheet-actions">
-      <button class="btn ghost" data-action="close-sheet">Cancel</button>
-      <button class="btn" data-action="done-bucket" data-id="${b.id}" disabled>${icon('check')} Tick it off</button>
+      <button class="btn bk-go" data-action="done-bucket" data-id="${b.id}"${bucketPics.length ? '' : ' disabled'}>${icon('check')} Tick it off</button>
     </div>`);
   $('#sheet').dataset.kind = 'bucket-tick';
 }
@@ -4898,11 +4925,16 @@ const actions = {
     closeSheet();
     toast('Removed from the list', ['Undo', () => { state.bucket.splice(at, 0, b); pics.forEach(([id, d]) => d && photos.add(id, d)); save(); renderView(); }]);
   },
+  // Retake: throw these pictures away and go back to the camera.
+  'bk-retake': (el) => {
+    const b = state.bucket.find((x) => x.id === el.dataset.id);
+    if (b) pickBucketPics(() => openBucketTick(b), true);
+  },
   'bk-del-pic': (el) => { bucketPics = bucketPics.filter((p) => p.id !== el.dataset.photoId); redrawBucketPics(); },
   'tick-bucket': (el) => {
     const b = state.bucket.find((x) => x.id === el.dataset.id);
     if (!b) return;
-    if (!b.doneAt) { openBucketTick(b); return; }
+    if (!b.doneAt) { bucketPics = []; pickBucketPics(() => openBucketTick(b)); return; }
     const was = { ...b };
     // Putting it back on the list throws the check-in picture away; the next check-in takes a new one.
     const pics = bkPhotos(b).map((id) => [id, photos.peek(id)]);
@@ -5414,7 +5446,7 @@ const actions = {
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
 // Friends redraws itself when its data changes, so its buttons don't redraw the page here.
-const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-collage', 'collage-zoom', 'collage-save', 'collage-share', 'collage-post', 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'bk-done-now', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'bk-heat-day', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'piggy-report', 'print-report', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'edit-shop', 'rc-tick', 'alerts-copy', 'alerts-test']);
+const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-collage', 'collage-zoom', 'collage-save', 'collage-share', 'collage-post', 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'bk-retake', 'bk-done-now', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'bk-heat-day', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'piggy-report', 'print-report', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'edit-shop', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
@@ -5502,11 +5534,9 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('change', async (e) => {
   if (e.target.id !== 'bk-photo' || !e.target.files[0]) return;
-  const files = [...e.target.files].slice(0, BUCKET_PICS_MAX - bucketPics.length);
+  const files = [...e.target.files];
   e.target.value = '';
-  for (const f of files) {
-    try { bucketPics.push({ id: `ph${Date.now()}${Math.random().toString(36).slice(2, 6)}`, data: await shrink(f) }); } catch (err) { toast(err.message || "Couldn't read that picture"); }
-  }
+  await addBucketFiles(files);
   redrawBucketPics();
 });
 document.addEventListener('change', async (e) => {
