@@ -169,11 +169,11 @@ export async function drawCollage(tiles, { head, love = 0, colors, size = 1080 }
   const h = band + rows * cell + (rows - 1) * gap + pad;
   const c = Object.assign(document.createElement('canvas'), { width: size, height: h });
   const g = c.getContext('2d');
-  const font = (w, px) => `${w} ${px}px Poppins, "Segoe UI", system-ui, sans-serif`;
+  const font = (w, px) => `${w} ${px}px Archivo, "Segoe UI", system-ui, sans-serif`;
   const at = (col, row) => [pad + col * (cell + gap), band + row * (cell + gap)];
   const box = (x, y, w, hh, r = 14) => { g.beginPath(); g.roundRect ? g.roundRect(x, y, w, hh, r) : g.rect(x, y, w, hh); };
   g.fillStyle = colors.bg; g.fillRect(0, 0, size, h);
-  g.fillStyle = colors.ink; g.font = font(700, 52); g.textBaseline = 'alphabetic';
+  g.fillStyle = colors.ink; g.font = font(600, 52); g.textBaseline = 'alphabetic';
   g.fillText(head, pad + 4, 76);
 
   // The love points in the middle.
@@ -183,8 +183,8 @@ export async function drawCollage(tiles, { head, love = 0, colors, size = 1080 }
     const s = Math.min(w, hh); const cx = x + w / 2; const top = y + (hh - s) / 2;
     g.fillStyle = colors.sub; box(x, y, w, hh); g.fill();
     g.fillStyle = colors.on; g.textAlign = 'center';
-    g.font = font(700, Math.round(s / 4)); g.fillText('♥', cx, top + s * 0.44);
-    g.font = font(700, Math.round(s / 5.2)); g.fillText(String(love), cx, top + s * 0.7);
+    g.font = font(600, Math.round(s / 4)); g.fillText('♥', cx, top + s * 0.44);
+    g.font = font(600, Math.round(s / 5.2)); g.fillText(String(love), cx, top + s * 0.7);
     g.font = font(500, Math.round(s / 12)); g.fillText('love points', cx, top + s * 0.84);
     g.textAlign = 'left';
   }
@@ -201,7 +201,7 @@ export async function drawCollage(tiles, { head, love = 0, colors, size = 1080 }
     } else { // a spare square, or a picture that couldn't be read: a soft square with a faint heart
       g.fillStyle = colors.soft; g.fillRect(x, y, cell, cell);
       g.fillStyle = colors.sub; g.globalAlpha = 0.3; g.textAlign = 'center';
-      g.font = font(700, Math.round(cell / 5)); g.fillText('♥', x + cell / 2, y + cell * 0.6);
+      g.font = font(600, Math.round(cell / 5)); g.fillText('♥', x + cell / 2, y + cell * 0.6);
       g.globalAlpha = 1; g.textAlign = 'left';
     }
     if (img && t.text) { // the item's name on its first picture, on a soft shade so it reads on anything
