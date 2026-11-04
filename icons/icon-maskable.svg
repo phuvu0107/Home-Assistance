@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Full-bleed version for Android and iOS, which cut their own shape: the house sits inside the safe circle. -->
+  <rect width="512" height="512" fill="#A8483D"/>
+  <g transform="translate(256 268) scale(.8) translate(-256 -261)">
+  <rect x="330" y="128" width="40" height="80" rx="10" fill="#F3E8D2"/>
+  <clipPath id="house"><path d="M241 118a24 24 0 0 1 30 0l122 104a32 32 0 0 1 11 24v126a32 32 0 0 1-32 32H140a32 32 0 0 1-32-32V246a32 32 0 0 1 11-24z"/></clipPath>
+  <path d="M241 118a24 24 0 0 1 30 0l122 104a32 32 0 0 1 11 24v126a32 32 0 0 1-32 32H140a32 32 0 0 1-32-32V246a32 32 0 0 1 11-24z" fill="#F3E8D2"/>
+  <g clip-path="url(#house)">
+    <path d="M20 296c38-30 76-30 114 0s76 30 114 0 76-30 114 0 76 30 114 0V460H20z" fill="#F6C987"/>
+    <path d="M60 334c38-32 76-32 114 0s76 32 114 0 76-32 114 0 76 32 114 0V460H60z" fill="#EFA43A"/>
+  </g>
+  </g>
+</svg>
