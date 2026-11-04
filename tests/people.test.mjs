@@ -236,3 +236,12 @@ test('an empty month gives an empty report', async () => {
   assert.equal(r.stats.total, 0); assert.equal(r.count, 0); assert.equal(r.biggestDay, null);
   assert.deepEqual(r.top, []); assert.deepEqual(r.cats, []);
 });
+
+test('shopping items group by box, loose ones first, and an unknown box counts as loose', async () => {
+  const { shopGroups } = await import('../people.js');
+  const boxes = [{ id: 'q1', name: 'Costco' }, { id: 'q2', name: 'Japan trip' }];
+  const items = [{ id: 'g1', name: 'Milk' }, { id: 'g2', name: 'Rice', box: 'q1' }, { id: 'g3', name: 'Adapter', box: 'q2' }, { id: 'g4', name: 'Eggs', box: 'q9' }];
+  const got = shopGroups(items, boxes).map((g) => [g.box?.name || '', g.items.map((x) => x.name)]);
+  assert.deepEqual(got, [['', ['Milk', 'Eggs']], ['Costco', ['Rice']], ['Japan trip', ['Adapter']]]);
+  assert.deepEqual(shopGroups(items, []).map((g) => g.items.length), [4]);
+});

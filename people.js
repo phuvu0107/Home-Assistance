@@ -260,3 +260,13 @@ export function newJoiners(accounts, me, seen = [], now = Date.now()) {
   const mine = accounts.find((a) => a.uid === me)?.joined || 0;
   return accounts.filter((a) => a.uid !== me && a.joined > mine && now - a.joined < JOIN_NOTICE_DAYS * 864e5 && !seen.includes(a.uid));
 }
+
+// Shopping boxes: named groups on the shopping list ("Costco", "Japan trip"), synced as q: items
+// { id, name }. A shopping item goes in one by keeping its id in `box`; an item without one (or
+// whose box was deleted on another screen) is loose, as before boxes. Loose items come first,
+// then each box in the order it was made.
+export function shopGroups(items, boxes) {
+  const known = new Set((boxes || []).map((b) => b.id));
+  const loose = (items || []).filter((x) => !x.box || !known.has(x.box));
+  return [{ box: null, items: loose }, ...(boxes || []).map((box) => ({ box, items: (items || []).filter((x) => x.box === box.id) }))];
+}

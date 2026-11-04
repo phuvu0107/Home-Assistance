@@ -9,7 +9,7 @@ import { adminRulesPublished, fmtBytes, isAdmin, loadAdmin, monitors, shortId, w
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, friendsGate, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { collagePick, createPhotos, drawCollage, shrink } from './photos.js';
 import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, seasonFor, WEEKDAYS } from './schedule.js';
-import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthReport, monthTrend, newJoiners, newMember, PERSON_COLORS, sortMembers } from './people.js';
+import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, shopGroups, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthReport, monthTrend, newJoiners, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -53,6 +53,7 @@ function defaultState() {
     itinerary: [],
     shopping: [],
     boxes: [],
+    shopBoxes: [],
     health: {},
   };
 }
@@ -3685,11 +3686,13 @@ function fridgeRow(it) {
    kitchen offers to add it, and a scanned grocery receipt ticks off what it bought. */
 const SHOP_MAX = 60; // characters per item
 const shopKey = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/s\b/g, '');
-function addToShopping(name) {
+// New items go in the box the list is showing, if any. The same thing can be on the list twice
+// only in different boxes (milk at Costco and milk for the trip).
+function addToShopping(name, box = '') {
   name = cleanName(name).slice(0, SHOP_MAX);
   state.shopping ||= [];
-  if (!name || state.shopping.some((x) => shopKey(x.name) === shopKey(name))) return false;
-  state.shopping.push({ id: `g${Date.now()}`, name, by: me(), at: Date.now() });
+  if (!name || state.shopping.some((x) => (x.box || '') === box && shopKey(x.name) === shopKey(name))) return false;
+  state.shopping.push({ id: `g${Date.now()}`, name, by: me(), at: Date.now(), ...(box && { box }) });
   return true;
 }
 // Receipt lines are short and shouty ("ORG BANANAS"), so a list item counts as bought when every
@@ -3703,25 +3706,61 @@ function tickOffShopping(names) {
   state.shopping = (state.shopping || []).filter((x) => !bought.includes(x));
   return bought;
 }
+// Boxes split the list by where or what it's for ("Costco", "Japan trip"). With "All" picked the
+// list shows every box under its own heading; picking a box shows just it, and new items go in it.
+let shopBox = '';
+const shopBoxes = () => state.shopBoxes || [];
 function shoppingCard() {
   const list = state.shopping || [];
-  return `<div class="card shop-card"><div class="card-head">${icon('cart')}<h2>Shopping list</h2>${list.length ? `<span class="hint">${list.length} to buy</span>` : ''}</div>
-    <div class="shop-new"><input class="input" id="shop-new" data-draft="shop" maxlength="${SHOP_MAX}" value="${esc(social.drafts.shop || '')}" placeholder="Add something to buy" aria-label="Add something to buy" autocomplete="off">
-      <button class="btn" data-action="add-shop" aria-label="Add to the shopping list">${icon('plus')}</button></div>
-    ${list.length ? `<div class="fr-list shop-list">${list.map((x) => `<div class="fr-row shop-row">
+  const boxes = shopBoxes();
+  if (shopBox && !boxes.some((b) => b.id === shopBox)) shopBox = '';
+  const open = boxes.find((b) => b.id === shopBox);
+  const row = (x) => `<div class="fr-row shop-row">
       <button class="check" data-action="got-shop" data-id="${x.id}" aria-label="Got ${esc(x.name)}">${icon('check')}</button>
-      <button class="fr-main" data-action="edit-shop" data-id="${x.id}" aria-label="Edit ${esc(x.name)}"><b>${esc(x.name)}</b>${userOf(x.by) ? `<small>Added by ${esc(userOf(x.by).name)}</small>` : ''}</button></div>`).join('')}</div>`
-    : '<p class="muted shop-empty">Nothing to buy. Things you run out of can be added with one tap.</p>'}</div>`;
+      <button class="fr-main" data-action="edit-shop" data-id="${x.id}" aria-label="Edit ${esc(x.name)}"><b>${esc(x.name)}</b>${userOf(x.by) ? `<small>Added by ${esc(userOf(x.by).name)}</small>` : ''}</button></div>`;
+  const head = (b, n) => `<div class="shop-box-head">${icon('box')}<b>${esc(b.name)}</b><span class="hint">${n || 'Empty'}</span><span class="spacer"></span>
+      <button class="btn-round sm" data-action="edit-shop-box" data-id="${b.id}" aria-label="Edit ${esc(b.name)}">${icon('settings')}</button></div>`;
+  const groups = shopGroups(list, boxes);
+  let body;
+  if (open) {
+    const g = groups.find((x) => x.box?.id === open.id);
+    body = `${head(open, g.items.length)}${g.items.length ? `<div class="fr-list shop-list">${g.items.map(row).join('')}</div>` : `<p class="muted shop-empty">Nothing in ${esc(open.name)} yet. Add what to buy there above.</p>`}`;
+  } else if (list.length) {
+    body = groups.filter((g) => g.items.length).map((g) => `${g.box ? head(g.box, g.items.length) : ''}<div class="fr-list shop-list">${g.items.map(row).join('')}</div>`).join('');
+  } else body = '<p class="muted shop-empty">Nothing to buy. Things you run out of can be added with one tap.</p>';
+  const count = (id) => groups.find((g) => (g.box?.id || '') === id)?.items.length || 0;
+  const chip = (id, label, n) => `<button class="chip${shopBox === id ? ' on' : ''}" data-action="shop-box" data-v="${id}">${label}<span>${n}</span></button>`;
+  const chips = boxes.length ? `<div class="chips shop-chips">${chip('', 'All', list.length)}${boxes.map((b) => chip(b.id, `${icon('box')}${esc(b.name)}`, count(b.id))).join('')}</div>` : '';
+  return `<div class="card shop-card"><div class="card-head">${icon('cart')}<h2>Shopping list</h2>${list.length ? `<span class="hint">${list.length} to buy</span>` : ''}
+      <span class="spacer"></span><button class="btn ghost sm shop-add-box" data-action="add-shop-box">${icon('plus')} Box</button></div>
+    ${chips}
+    <div class="shop-new"><input class="input" id="shop-new" data-draft="shop" maxlength="${SHOP_MAX}" value="${esc(social.drafts.shop || '')}" placeholder="${open ? `Add to ${esc(open.name)}` : 'Add something to buy'}" aria-label="Add something to buy" autocomplete="off">
+      <button class="btn" data-action="add-shop" aria-label="Add to the shopping list">${icon('plus')}</button></div>
+    ${body}</div>`;
 }
-// Tapping a shopping list item opens it to fix the name or take it off the list.
+// Tapping a shopping list item opens it to fix the name, move it to another box or take it off the list.
 function openShopSheet(x) {
+  const boxes = shopBoxes();
+  const cur = boxes.some((b) => b.id === x.box) ? x.box : '';
   openSheet(`${sheetHead('Edit shopping item', 'cart')}
     <div class="field"><label for="shop-name">Item</label><input class="input" id="shop-name" maxlength="${SHOP_MAX}" value="${esc(x.name)}" placeholder="e.g. Milk"></div>
+    ${boxes.length ? `<div class="field"><label for="shop-in">Box</label><select class="input" id="shop-in"><option value="">No box</option>${boxes.map((b) => `<option value="${b.id}"${b.id === cur ? ' selected' : ''}>${esc(b.name)}</option>`).join('')}</select></div>` : ''}
     ${userOf(x.by) ? `<p class="hint">Added by ${esc(userOf(x.by).name)} ${ago(x.at)}</p>` : ''}
     <div class="sheet-actions">
       <button class="btn danger" data-action="del-shop" data-id="${x.id}">${icon('trash')} Remove</button><span class="spacer"></span>
       <button class="btn ghost" data-action="close-sheet">Cancel</button>
       <button class="btn" data-action="save-shop" data-id="${x.id}">Save</button>
+    </div>`);
+}
+function openShopBoxSheet(b) {
+  const n = b ? (state.shopping || []).filter((x) => x.box === b.id).length : 0;
+  openSheet(`${sheetHead(b ? 'Edit box' : 'New shopping box', 'box')}
+    <div class="field"><label for="shop-box-name">Name</label><input class="input" id="shop-box-name" maxlength="30" value="${esc(b?.name || '')}" placeholder="e.g. Costco, Japan trip"></div>
+    <div class="hint">${b ? (n ? `Deleting it keeps its ${n} item${n === 1 ? '' : 's'} on the list, just not in a box.` : 'Nothing in it yet.') : 'A box keeps things to buy together, for one shop or one trip.'}</div>
+    <div class="sheet-actions">
+      ${b ? `<button class="btn danger" data-action="del-shop-box" data-id="${b.id}">${icon('trash')} Delete</button><span class="spacer"></span>` : ''}
+      <button class="btn ghost" data-action="close-sheet">Cancel</button>
+      <button class="btn" data-action="save-shop-box" data-id="${b?.id || ''}">${b ? 'Save' : 'Make box'}</button>
     </div>`);
 }
 // One list, soonest use-by first, so nothing shows twice. Chips at the top narrow it to one kind.
@@ -4067,7 +4106,7 @@ function adminWhyNot() {
 
 // What people do in the app, across every household: counts only, from the job's last report.
 const FEATURES = [['chores', 'Chores', 'checkSquare'], ['ticks', 'Chores and events done', 'check'], ['events', 'Events', 'calendar'],
-  ['itinerary', 'Itinerary', 'pin'], ['expenses', 'Expenses', 'piggy'], ['boxes', 'Money boxes', 'box'], ['shopping', 'Shopping list', 'cart'],
+  ['itinerary', 'Itinerary', 'pin'], ['expenses', 'Expenses', 'piggy'], ['boxes', 'Money boxes', 'box'], ['shopping', 'Shopping list', 'cart'], ['shopboxes', 'Shopping boxes', 'box'],
   ['kitchen', 'Inventory items', 'fridge'], ['notes', 'Sticky notes', 'notes'], ['thanks', 'Thank-yous', 'heart'], ['bucket', 'Bucket list', 'sparkles'],
   ['fitbit', 'Fitbit (people)', 'activity'], ['people', 'People', 'users']];
 function adminUsage(st) {
@@ -5214,7 +5253,7 @@ const actions = {
   'add-shop': () => {
     const box = $('#shop-new');
     if (!box.value.trim()) { box.focus(); return; }
-    if (!addToShopping(box.value)) toast("It's already on the list");
+    if (!addToShopping(box.value, shopBox)) toast("It's already on the list");
     social.drafts.shop = '';
     setTimeout(() => $('#shop-new')?.focus(), 0); // keep typing the next thing
   },
@@ -5229,9 +5268,32 @@ const actions = {
     const x = (state.shopping || []).find((it) => it.id === el.dataset.id);
     const name = cleanName($('#shop-name').value).slice(0, SHOP_MAX);
     if (!name) { toast('Add what to buy'); return; }
-    if (state.shopping.some((it) => it !== x && shopKey(it.name) === shopKey(name))) { toast("It's already on the list"); return; }
-    if (x) x.name = name;
+    const box = $('#shop-in') ? $('#shop-in').value : x?.box || '';
+    if (state.shopping.some((it) => it !== x && (it.box || '') === box && shopKey(it.name) === shopKey(name))) { toast("It's already on the list"); return; }
+    if (x) { x.name = name; if (box) x.box = box; else delete x.box; }
     closeSheet();
+  },
+  'shop-box': (el) => { shopBox = el.dataset.v; },
+  'add-shop-box': () => openShopBoxSheet(null),
+  'edit-shop-box': (el) => openShopBoxSheet(shopBoxes().find((b) => b.id === el.dataset.id)),
+  'save-shop-box': (el) => {
+    const name = cleanBoxName($('#shop-box-name').value);
+    if (!name) { toast('Give the box a name'); return; }
+    state.shopBoxes ||= [];
+    const b = state.shopBoxes.find((x) => x.id === el.dataset.id);
+    if (b && b.name !== name) b.name = name;
+    if (!b) { const id = `q${Date.now()}`; state.shopBoxes.push({ id, name, by: me(), at: Date.now() }); shopBox = id; }
+    closeSheet();
+    toast(b ? 'Box saved' : `${name} is ready. Add what to buy there.`);
+  },
+  'del-shop-box': (el) => {
+    const b = shopBoxes().find((x) => x.id === el.dataset.id);
+    if (!b) return;
+    (state.shopping || []).forEach((x) => { if (x.box === b.id) delete x.box; });
+    state.shopBoxes = state.shopBoxes.filter((x) => x !== b);
+    if (shopBox === b.id) shopBox = '';
+    closeSheet();
+    toast(`Deleted ${b.name}`);
   },
   'del-shop': (el) => {
     const at = state.shopping.findIndex((x) => x.id === el.dataset.id);
@@ -5341,7 +5403,7 @@ const actions = {
 
   reset: () => {
     if (!confirm('Clear all events and chores on this device?')) return;
-    state = { ...defaultState(), settings: state.settings, members: state.members, stars: state.stars, log: state.log, expenses: state.expenses, fridge: state.fridge, health: state.health, thanks: state.thanks, notes: state.notes, bucket: state.bucket, boxes: state.boxes, events: [], tasks: [] };
+    state = { ...defaultState(), settings: state.settings, members: state.members, stars: state.stars, log: state.log, expenses: state.expenses, fridge: state.fridge, health: state.health, thanks: state.thanks, notes: state.notes, bucket: state.bucket, boxes: state.boxes, shopping: state.shopping, shopBoxes: state.shopBoxes, events: [], tasks: [] };
     save();
   },
 };
