@@ -1542,6 +1542,14 @@ body.dome-open .tab[data-page="more"] { color: var(--accent); }
 .shop-row { padding: 4px 10px 4px 6px; }
 .shop-row .check { flex: none; }
 .shop-empty { margin: 0; font-size: 14px; }
+.shop-add-box { margin-block: -6px; flex: none; }
+.shop-card .card-head h2, .shop-card .card-head .hint { white-space: nowrap; }
+.shop-chips { margin: 0 0 12px; }
+.shop-chips .chip .ico { font-size: 15px; }
+.shop-box-head { display: flex; align-items: center; gap: 8px; margin: 14px 0 6px; padding-top: 12px; border-top: 1px solid var(--card-border); color: var(--text); }
+.shop-new + .shop-box-head { margin-top: 0; padding-top: 0; border-top: 0; }
+.shop-box-head .ico { font-size: 18px; color: var(--text-2); }
+.shop-box-head b { font-weight: 600; font-size: 15px; }
 
 /* Money boxes: a pot for a trip or a day out */
 .money-boxes .card-head .btn { margin-left: auto; }
