@@ -1801,3 +1801,59 @@ button.hm-cell { cursor: pointer; }
 .wk-ev:not(.done) { box-shadow: 0 1px 3px rgba(42, 23, 18, .14); }
 .wk-ev:not(.done) .wk-ev-title { font-weight: 600; }
 .shop-row .check:not(.on) { border-color: color-mix(in srgb, var(--accent) 45%, var(--card-border)); }
+
+/* Getting in: one page at a time until this screen is in a household. No tabs, no sky panel, no
+   add button: there is nowhere to go yet. On a wide screen (the fridge) the brand sits beside the card. */
+.gated .tabs, .gated .hero, .gated .fab, .gated .dome, .gated .dome-scrim { display: none !important; }
+.gated .main { padding-bottom: calc(32px + env(safe-area-inset-bottom)) !important; }
+.gate { min-height: calc(100dvh - 64px); max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.gate .welcome { margin: 8px auto 20px; }
+.gate-card { padding: 24px; }
+.gate-card > .hint { margin: 0 0 16px; }
+.gate-h { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
+.gate-card .btn.gate-go, .gate-card .btn.google { width: 100%; justify-content: center; min-height: 52px; font-size: 16px; }
+.btn.google { background: #fff; color: #1F1F1F; border: 1px solid #DADCE0; gap: 12px; }
+.btn.google:disabled { opacity: .7; }
+.g-logo { width: 20px; height: 20px; flex: none; }
+.gate-fine { margin: 16px 0 0; font-size: 13px; }
+.gate-fine a { color: var(--accent-ink, var(--accent)); font-weight: 600; }
+.gate-who { margin: 18px 0 0; font-size: 13px; }
+.gate-who .link, .gate .setup-join .link { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--accent-ink, var(--accent)); cursor: pointer; }
+.gate-choices { margin-top: 4px; }
+.gate-choices .row { padding: 14px; cursor: pointer; }
+.gate-choices .row b { font-weight: 600; font-size: 16px; }
+.gate .setup-names { margin: 6px 0 10px; }
+.gate .field { margin-bottom: 18px; }
+.gate .field > .btn.ghost { align-self: flex-start; }
+.gate-code { font-size: 20px; letter-spacing: .12em; text-transform: uppercase; text-align: center; font-weight: 600; }
+.gate-back { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; margin: 0 0 14px; font: inherit; font-size: 14px; font-weight: 600; color: var(--text-2); cursor: pointer; text-decoration: none; }
+.gate-back .ico { transform: rotate(180deg); font-size: 14px; }
+.gate-top { max-width: 760px; margin: 8px auto 0; }
+.gate-wait { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; padding: 32px 24px; }
+.gate-wait p { margin: 0; color: var(--text-2); }
+.gate-spin { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--muted-surface); border-top-color: var(--accent); animation: gate-spin .8s linear infinite; }
+@keyframes gate-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .gate-spin { animation-duration: 2.4s; } }
+@media (min-width: 900px) and (min-aspect-ratio: 5/4) {
+  .gate { max-width: 980px; display: grid; grid-template-columns: 1fr 440px; align-items: center; align-content: center; gap: 56px; }
+  .gate .welcome { align-items: flex-start; text-align: left; margin: 0; }
+  .gate .welcome-promise { font-size: 26px; }
+  .gate .welcome-sub { font-size: 17px; }
+}
+@media (max-width: 600px) {
+  .gate { min-height: calc(100dvh - 40px); justify-content: flex-start; padding-top: 6vh; }
+  .gate .brand-lg .brand-icon { width: 52px; height: 52px; }
+  .gate .brand-lg .wordmark { font-size: 36px; }
+  .gate .welcome-promise { font-size: 18px; }
+  .gate-card { padding: 20px; }
+}
+.gate-card .sync-banner { margin: 0 0 16px; }
+.gate-card .btn + .gate-fine, .gate-card .btn + .gate-who { margin-top: 18px; }
+/* On a phone, past the first page the brand shrinks so the form fits without scrolling. */
+@media (max-width: 600px) {
+  .gate:not(.gate-signin) { padding-top: 2vh; }
+  .gate:not(.gate-signin) .welcome { margin: 0 auto 14px; }
+  .gate:not(.gate-signin) .welcome-promise, .gate:not(.gate-signin) .welcome-sub { display: none; }
+  .gate:not(.gate-signin) .brand-lg .brand-icon { width: 40px; height: 40px; }
+  .gate:not(.gate-signin) .brand-lg .wordmark { font-size: 28px; }
+}
