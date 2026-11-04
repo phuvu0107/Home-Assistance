@@ -106,7 +106,7 @@ def masked(email):
 
 # What each kind of synced item is, as in sync.js (h: is one person's Fitbit numbers).
 KINDS = {"e": "events", "t": "chores", "x": "expenses", "l": "ticks", "f": "kitchen", "k": "thanks", "n": "notes",
-         "b": "bucket", "p": "people", "i": "itinerary", "g": "shopping", "m": "boxes", "h": "fitbit"}
+         "b": "bucket", "p": "people", "i": "itinerary", "g": "shopping", "q": "shopboxes", "m": "boxes", "h": "fitbit"}
 TICK_DAYS = 14
 
 

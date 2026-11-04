@@ -170,7 +170,7 @@ def chore_owner(t, today, ids):
 
 
 def state_from(items):
-    lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge", "k": "thanks", "n": "notes", "b": "bucket", "p": "members", "g": "shopping"}
+    lists = {"e": "events", "t": "tasks", "x": "expenses", "l": "log", "f": "fridge", "k": "thanks", "n": "notes", "b": "bucket", "p": "members", "g": "shopping", "q": "shopBoxes"}
     state = {name: [v for k, v in items.items() if k.startswith(p + ":")] for p, name in lists.items()}
     state["stars"] = items.get("stars", {}).get("value", {})
     return state
@@ -366,7 +366,10 @@ def build(state, now, energy, sky, slot="morning"):
     if ticked:
         went = lambda b: "together" if b.get("doneBy") == "both" else f"by {USERS.get(b.get('doneBy'), 'someone')}"
         sections.insert(1 if unread else 0, ("Ticked off the bucket list", [f"🎉 {b.get('text', '')} ({went(b)}, +{LOVE.get(b.get('kind'), 15)} love points)" for b in ticked]))
-    shopping = [g.get("name", "") for g in state.get("shopping", [])]
+    # Items in a shopping box show which box: "Rice (Costco)". Loose ones come first, as in the app.
+    boxes = {q.get("id"): q.get("name", "") for q in state.get("shopBoxes", [])}
+    shopping = [g.get("name", "") + (f" ({boxes[g['box']]})" if boxes.get(g.get("box")) else "")
+                for g in sorted(state.get("shopping", []), key=lambda g: list(boxes).index(g["box"]) + 1 if g.get("box") in boxes else 0)]
     if shopping and slot in ("midday", "evening"):  # on the way home
         sections.append(("Shopping list", shopping[:20] + ([f"and {len(shopping) - 20} more"] if len(shopping) > 20 else [])))
     # Icons people reacted with, shown after the note: "Phu: Dinner at 7 ❤️😂".
