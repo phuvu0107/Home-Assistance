@@ -169,6 +169,8 @@ a { color: inherit; text-decoration: none; }
 .ico .s { fill: var(--ico-spot, currentColor); fill-opacity: var(--ico-spot-a, .16); stroke: none; }
 .tab .ico, .orb .ico, .card-head > .ico, .piggy-empty > .ico { --ico-spot: var(--honey); --ico-spot-a: .55; }
 .tab.active .ico, .tab.hot .ico, .orb.on .ico, .orb.hot .ico { --ico-spot-a: .9; }
+/* At night the selected pill, its label and the honey spot are all warm oranges, so the line itself goes light to stay readable. */
+:root[data-theme="dark"] :is(.tab.active, .tab.hot, .orb.on, .orb.hot) .ico { color: var(--text); }
 
 /* ---------- Layout ---------- */
 /* One column: top bar, greeting, tabs, then the page. Built for a landscape tablet. */
