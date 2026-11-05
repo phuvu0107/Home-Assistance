@@ -184,7 +184,7 @@ def people(state):
 
 def transfers(month, ids):
     """Who owes whom for a month of expenses, as in people.js: split expenses are shared evenly,
-    paid by 'both' means everyone paid an equal share, and settle-ups move money between two people."""
+    paid by 'both' means everyone paid an equal share, one paid `for` another is owed in full, and settle-ups move money between two people."""
     balance = dict.fromkeys(ids, 0.0)
     for x in month:
         if x.get("kind") == "settle":
@@ -199,6 +199,11 @@ def transfers(month, ids):
                     balance[p] += x["amount"] / len(payers)
             for p in ids:
                 balance[p] -= x["amount"] / len(ids)
+        elif x.get("for") and x.get("paidBy") not in ("both", x["for"]):
+            # Paid by one person for another: they owe the whole amount back.
+            if x["paidBy"] in balance and x["for"] in balance:
+                balance[x["paidBy"]] += x["amount"]
+                balance[x["for"]] -= x["amount"]
     rank = lambda side: sorted(([p, v] for p, v in side if v >= 0.005), key=lambda pv: (-pv[1], ids.index(pv[0])))
     owed, owes = rank(balance.items()), rank((p, -v) for p, v in balance.items())
     out, i, j = [], 0, 0

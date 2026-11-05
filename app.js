@@ -9,7 +9,7 @@ import { adminRulesPublished, fmtBytes, isAdmin, loadAdmin, monitors, shortId, w
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, friendsGate, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { collagePick, createPhotos, drawCollage, shrink } from './photos.js';
 import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, seasonFor, WEEKDAYS } from './schedule.js';
-import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, shopGroups, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthReport, monthTrend, newJoiners, newMember, PERSON_COLORS, sortMembers } from './people.js';
+import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, shopGroups, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthReport, monthTrend, newJoiners, paidForOther, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
 /* =========================================================
    State (saved in this browser's localStorage)
@@ -3483,10 +3483,12 @@ function expenseRow(x, showSplit, hideBox) {
       <span class="ex-amt">${fmtCash(x.amount)}</span></button>`;
   }
   const both = x.paidBy === 'both';
-  const note = both ? `Each paid ${members().length === 2 ? 'half' : 'a share'}` : x.split ? (showSplit ? `Split · ${fmtCash(x.amount / Math.max(1, members().length))} each` : 'Split') : `Just ${u?.name}`;
+  const forOther = paidForOther(x) && userOf(x.for);
+  const note = both ? `Each paid ${members().length === 2 ? 'half' : 'a share'}` : x.split ? (showSplit ? `Split · ${fmtCash(x.amount / Math.max(1, members().length))} each` : 'Split')
+    : forOther ? (showSplit ? `<span class="ex-owe">${esc(forOther.name)} owes ${fmtCash(x.amount)}</span>` : '') : `Just ${u?.name}`;
   return `<button class="row expense" data-action="edit-expense" data-id="${x.id}">
     ${avatar(x.paidBy, 'md')}
-    <span class="ex-main"><b><span class="ex-cat-ico" title="${EXPENSE_CATS[expenseCat(x)][1]}">${EXPENSE_CATS[expenseCat(x)][0]}</span> ${esc(x.title)}</b><small>${both ? `${everyoneLabel()} paid` : `${u?.name} paid`} · ${note}${!hideBox && boxOf(x) ? ` · ${esc(boxOf(x).name)}` : ''}</small></span>
+    <span class="ex-main"><b><span class="ex-cat-ico" title="${EXPENSE_CATS[expenseCat(x)][1]}">${EXPENSE_CATS[expenseCat(x)][0]}</span> ${esc(x.title)}</b><small>${both ? `${everyoneLabel()} paid` : forOther ? `${u?.name} paid for ${esc(forOther.name)}` : `${u?.name} paid`}${note ? ` · ${note}` : ''}${!hideBox && boxOf(x) ? ` · ${esc(boxOf(x).name)}` : ''}</small></span>
     ${x.receipt ? `<span class="ex-receipt" aria-label="Has a receipt">${icon('receipt')}</span>` : ''}
     <span class="ex-amt">${fmtCash(x.amount)}</span></button>`;
 }
@@ -3704,7 +3706,8 @@ function openMonthReport(key) {
         ${many ? `<h4>Split</h4>
         ${line('Shared', fmtCash(st.shared), `${fmtCash(st.each)} each`)}
         ${line('Personal', fmtCash(r.personal))}
-        ${st.total - st.shared - r.personal > 0.004 ? line(`${everyoneLabel()} paid`, fmtCash(st.total - st.shared - r.personal)) : ''}` : ''}
+        ${st.paidFor > 0.004 ? line('Paid for each other', fmtCash(st.paidFor)) : ''}
+        ${st.total - st.shared - st.paidFor - r.personal > 0.004 ? line(`${everyoneLabel()} paid`, fmtCash(st.total - st.shared - st.paidFor - r.personal)) : ''}` : ''}
         ${bal ? `<h4>Balance</h4>${bal}` : ''}
         ${r.settled.length ? `<p class="rp-note">Settled up this month: ${r.settled.map((x) => `${userOf(x.paidBy)?.name} paid ${userOf(x.to)?.name} ${fmtCash(x.amount)}`).join(', ')}</p>` : ''}
       </section>
@@ -3746,6 +3749,21 @@ async function attachReceipt(file) {
   } catch (e) { toast(e.message || "Couldn't read that picture"); }
 }
 
+// Who an expense is for, as the sheet's picker shows it: 'both' when split, otherwise one person.
+const expenseFor = (x) => (x.split ? 'both' : paidForOther(x) ? x.for : x.paidBy === 'both' ? 'both' : x.paidBy);
+// Says under the picker what the choice means for who owes whom.
+function expenseForHint() {
+  const hint = $('#ex-for-hint');
+  if (!hint) return;
+  const payer = pickedWho(); const forWho = $('#ex-for .who-opt.on')?.dataset.who;
+  const amount = Number($('#ex-amount')?.value) || 0;
+  const amt = amount > 0 ? ` ${fmtCash(amount)}` : '';
+  hint.textContent = payer === 'both' ? 'Each of you paid your share, so nobody owes anything on it.'
+    : forWho === 'both' ? `Split ${splitWord()}${amount > 0 ? `, ${fmtCash(amount / members().length)} each` : ''}. Counts toward what each of you owes.`
+    : forWho === payer ? `Just for ${userOf(payer)?.name}. Nobody owes anything on it.`
+    : `${userOf(payer)?.name} paid for ${userOf(forWho)?.name}, so ${userOf(forWho)?.name} owes ${userOf(payer)?.name}${amt || ' the whole amount'}.`;
+}
+
 // `scan` is what a receipt photo gave ({ store, amount, date, picture }), to check before adding.
 function openExpenseSheet(ex, scan, inBox) {
   const today = isoDay(new Date());
@@ -3765,8 +3783,7 @@ function openExpenseSheet(ex, scan, inBox) {
     </div>
     ${boxes.length ? `<div class="field"><label>Box</label><div class="seg wrap ex-box" id="ex-box">${[{ id: '', name: 'None' }, ...boxes].map((b) => `<button class="${b.id === box ? 'on' : ''}" data-action="pick-seg" data-v="${b.id}">${esc(b.name)}</button>`).join('')}</div></div>` : ''}
     <div class="field"><label>Who paid?</label>${whoPicker(x.paidBy, members().length > 1 ? 'both' : false)}${members().length > 1 ? `<div class="hint">${everyoneLabel()} means ${members().length === 2 ? 'each of you paid half' : 'everyone paid an equal share'}, so nobody owes anything on it.</div>` : ''}</div>
-    <div class="setting-row imp-row"><div><b>Split ${splitWord()}</b><div class="hint">Counts toward what each of you owes. Turn off for a personal expense.</div></div>
-      <button class="switch" id="ex-split" role="switch" aria-checked="${!!x.split}" data-action="toggle-important"></button></div>
+    ${members().length > 1 ? `<div class="field"><label>Who is it for?</label>${whoPicker(expenseFor(x), 'both', 'ex-for')}<div class="hint" id="ex-for-hint"></div></div>` : ''}
     <div class="field"><label>Receipt</label><div class="pl-photos edit" id="ex-receipt">${receiptBoxHtml()}</div>
       ${scan?.picture ? '<div class="hint">Saved with this expense so you can look at it later.</div>' : ''}</div>
     <div class="sheet-actions">
@@ -3775,6 +3792,8 @@ function openExpenseSheet(ex, scan, inBox) {
       <button class="btn" data-action="save-expense" data-id="${x.id}">${ex ? 'Save' : 'Add expense'}</button>
     </div>`);
   if (!ex && !scan) setTimeout(() => $('#ex-title')?.focus(), 50);
+  expenseForHint();
+  $('#ex-amount')?.addEventListener('input', expenseForHint);
   fillPhotos($('#sheet'));
 }
 async function scanExpense(file) {
@@ -4710,6 +4729,7 @@ const actions = {
     // The note being written shows the face of whoever it is from.
     const dir = $('#thx-dir');
     if (dir) dir.textContent = `To ${userOf(otherOf(el.dataset.who))?.name}`;
+    expenseForHint();
     // Saying thanks in a bigger household: the sender drops out of who it can be for.
     const toPick = $('#thx-to');
     if (toPick && el.closest('#who-pick')) {
@@ -5513,7 +5533,10 @@ const actions = {
     const amount = Math.round(Number($('#ex-amount').value) * 100) / 100;
     const date = $('#ex-date').value;
     if (!title || !(amount > 0) || !date) { toast('Add what it was, the amount and the day'); return; }
-    const data = { title, amount, date, paidBy: pickedWho() || members()[0].id, split: $('#ex-split').getAttribute('aria-checked') === 'true', cat: $('#ex-cat .on')?.dataset.v || 'other' };
+    const paidBy = pickedWho() || members()[0].id;
+    const forWho = members().length > 1 ? $('#ex-for .who-opt.on')?.dataset.who || 'both' : paidBy;
+    const data = { title, amount, date, paidBy, split: forWho === 'both', cat: $('#ex-cat .on')?.dataset.v || 'other' };
+    if (forWho !== 'both' && forWho !== paidBy && paidBy !== 'both') data.for = forWho;
     const existing = state.expenses.find((x) => x.id === el.dataset.id);
     const { receipt, fresh } = moneyDraft || {};
     if (receipt) data.receipt = receipt;
@@ -5522,6 +5545,7 @@ const actions = {
     if (box) data.box = box;
     if (existing) {
       if (!box) delete existing.box;
+      if (!data.for) delete existing.for;
       if (existing.receipt && existing.receipt !== receipt) photos.drop(existing.receipt);
       if (!receipt) delete existing.receipt;
       Object.assign(existing, data);
