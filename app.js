@@ -2586,14 +2586,20 @@ function postCard(p, path) {
 
 // Pictures go inside the post itself, made small, the same way a bucket list check-in shares them.
 const POST_PICS_CHARS = 800000;
-function composer(path, placeholder) {
+// `lead` sits to the left of the box (the writer's picture on the Feed); `note` sits in the bar
+// under it, next to the camera and Post buttons.
+function composer(path, placeholder, { lead = '', note = '' } = {}) {
   const pics = social.pics[path] || [];
   return `<div class="composer">
-    <textarea class="input" rows="2" maxlength="${POST_MAX}" data-draft="p:${path}" placeholder="${placeholder}" aria-label="New post">${esc(social.drafts[`p:${path}`] || '')}</textarea>
-    ${pics.length < BUCKET_PICS_MAX ? `<label class="btn-round composer-pic" aria-label="Add pictures">${icon('camera')}<input type="file" accept="image/*" multiple hidden data-post-pics="${path}"></label>` : ''}
-    <button class="btn" data-action="soc-post" data-path="${path}" ${social.busy ? 'disabled' : ''}>${social.busy === 'post' ? 'Posting…' : 'Post'}</button>
-    ${pics.length ? `<div class="pl-photos edit composer-pics">${pics.map((src, i) => `<div class="pl-thumb"><img class="pl-photo" src="${src}" alt="">
-      <button class="pl-x" data-action="soc-del-pic" data-path="${path}" data-i="${i}" aria-label="Remove picture">${icon('x')}</button></div>`).join('')}</div>` : ''}
+    ${lead ? `<div class="composer-lead">${lead}</div>` : ''}
+    <div class="composer-main">
+      <textarea class="input" rows="2" maxlength="${POST_MAX}" data-draft="p:${path}" placeholder="${placeholder}" aria-label="New post">${esc(social.drafts[`p:${path}`] || '')}</textarea>
+      ${pics.length ? `<div class="pl-photos edit composer-pics">${pics.map((src, i) => `<div class="pl-thumb"><img class="pl-photo" src="${src}" alt="">
+        <button class="pl-x" data-action="soc-del-pic" data-path="${path}" data-i="${i}" aria-label="Remove picture">${icon('x')}</button></div>`).join('')}</div>` : ''}
+      <div class="composer-bar">${note ? `<span class="composer-note">${note}</span>` : ''}<span class="spacer"></span>
+        ${pics.length < BUCKET_PICS_MAX ? `<label class="btn-round composer-pic" aria-label="Add pictures">${icon('camera')}<input type="file" accept="image/*" multiple hidden data-post-pics="${path}"></label>` : ''}
+        <button class="btn" data-action="soc-post" data-path="${path}" ${social.busy ? 'disabled' : ''}>${social.busy === 'post' ? 'Posting…' : 'Post'}</button></div>
+    </div>
   </div>`;
 }
 
@@ -2629,13 +2635,15 @@ function feedHub() {
   const people = houseAccounts();
   const posts = social.posts && houseRec ? householdFeed(social.posts, houseHome, householdIds(houseRec)) : null;
   const others = people.filter((a) => a.uid !== social.uid);
-  const with_ = others.length ? `Shared with ${esc(joinNames(others.map(accountLabel)))}` : 'Only you so far. Invite someone in Settings.';
+  const first = (n) => String(n || '').split(/\s+/)[0];
+  const seenBy = others.length ? `${icon('users')}${esc(joinNames(others.map((a) => first(accountLabel(a)))))} ${others.length === 1 ? 'sees' : 'see'} this`
+    : `${icon('users')}Only you for now`;
   return `<div class="section-title">Feed<span class="spacer"></span><span class="hint">${esc(homeName(houseHome))}</span></div>
   <div class="feed-page">
     <div class="card">
-      <div class="card-head">${personAv(social.uid, social.me.name)}<h2>${esc(social.me.name)}</h2><button class="link" data-action="soc-edit-name">Change name</button></div>
-      <p class="hint feed-with">${with_}</p>
-      ${composer(FRIENDS_PATH, 'Share something with the household')}
+      ${composer(FRIENDS_PATH, `What's new, ${esc(first(social.me.name) || 'you')}?`, {
+        lead: `<button class="composer-me" data-action="soc-edit-name" aria-label="Posting as ${esc(social.me.name)}. Change name" title="Change name">${personAv(social.uid, social.me.name, 'md')}</button>`,
+        note: seenBy })}
       <div class="feed">${posts === null ? '<p class="hint">Loading…</p>' : posts.map((p) => postCard(p, FRIENDS_PATH)).join('')
         || '<p class="empty-line">No posts yet. Say hi, or share a picture.</p>'}</div>
     </div>

@@ -1446,15 +1446,19 @@ body.dome-open .tab[data-page="more"] { color: var(--tab-on); }
 /* Posts everyone in the household sees, and groups with their own plans, list and money. */
 /* One readable column, even on the wide fridge screen. */
 .feed-page { display: grid; gap: 16px; max-width: 760px; width: 100%; }
-.feed-with { margin: -4px 0 14px; }
 .soc-side { display: grid; gap: 16px; align-content: start; }
 .soc-intro p { margin: 0 0 16px; color: var(--text-2); line-height: 1.5; }
 .card-head button.link { border: 0; background: none; padding-inline: 0; }
-.composer { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 16px; }
-.composer textarea { flex: 1 1 0; min-width: 0; resize: vertical; min-height: 52px; font: inherit; }
+/* The box to write in, with a bar under it: who sees it on the left, camera and Post on the right. */
+.composer { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 18px; }
+.composer-main { flex: 1; min-width: 0; display: grid; gap: 10px; }
+.composer textarea { width: 100%; resize: none; min-height: 56px; font: inherit; line-height: 1.4; }
+.composer-bar { display: flex; align-items: center; gap: 10px; }
+.composer-note { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-3); font-size: 13px; }
+.composer-note svg { width: 16px; height: 16px; flex: none; }
+.composer-me { border: 0; background: none; padding: 0; border-radius: 999px; cursor: pointer; }
 /* Pictures picked for the next post sit in a row under it. */
-.composer-pic { flex: none; cursor: pointer; margin-bottom: 4px; }
-.composer-pics { flex-basis: 100%; }
+.composer-pic { flex: none; cursor: pointer; }
 .feed { display: grid; gap: 12px; }
 .post { border-radius: 16px; background: var(--muted-surface); padding: 12px 14px; }
 .post-head { display: flex; align-items: center; gap: 10px; }
