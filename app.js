@@ -6,7 +6,7 @@ import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpire
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
 import FEEDBACK_EMAIL from './feedback-config.js';
 import { adminRulesPublished, fmtBytes, isAdmin, loadAdmin, monitors, shortId, worst } from './admin.js';
-import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, feedFor, friendsGate, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
+import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, friendsGate, householdFeed, householdIds, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { collagePick, createPhotos, drawCollage, shrink } from './photos.js';
 import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, seasonFor, WEEKDAYS } from './schedule.js';
 import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, shopGroups, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthReport, monthTrend, newJoiners, paidForOther, newMember, PERSON_COLORS, sortMembers } from './people.js';
@@ -755,7 +755,7 @@ const PAGES = [
   { id: 'piggy', label: 'Money', icon: 'piggy', main: true },
   { id: 'fridge', label: 'Inventory', icon: 'fridge' },
   { id: 'tasks', label: 'Chores', icon: 'checkSquare' },
-  { id: 'friends', label: 'Friends', icon: 'users' },
+  { id: 'feed', label: 'Feed', icon: 'users' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
   ...(ENERGY_ON ? [{ id: 'energy', label: 'Energy', icon: 'zap' }] : []),
   { id: 'health', label: 'Health', icon: 'heart' },
@@ -769,7 +769,7 @@ const MORE = PAGES.filter((p) => !p.main && !p.link);
 const FEEDBACK = { id: 'feedback', label: 'Feedback', icon: 'mail' };
 const ADMIN_PAGE = { id: 'admin', label: 'Admin', icon: 'shield' };
 let DOME = [...MORE, FEEDBACK];
-const ROUTE_ALIAS = { board: 'tasks' }; // the Leaderboard now lives on Chores
+const ROUTE_ALIAS = { board: 'tasks', friends: 'feed' }; // the Leaderboard now lives on Chores; Friends became Feed
 
 const currentRoute = () => {
   let r = location.hash.replace(/^#\/?/, '').split('?')[0];
@@ -2292,7 +2292,7 @@ async function openCollage(key) {
   openSheet(`${sheetHead(`${monthOnly(key)} collage`, 'camera')}
     <div class="collage-view" id="collage-view"><p class="hint">Putting ${m.pics} picture${m.pics === 1 ? '' : 's'} together…</p></div>
     <div class="sheet-actions">
-      ${account.user ? `<button class="btn ghost" data-action="collage-post" disabled>${icon('users')} Post on Friends</button>` : ''}
+      ${account.user ? `<button class="btn ghost" data-action="collage-post" disabled>${icon('users')} Post on Feed</button>` : ''}
       <span class="spacer"></span>
       <button class="btn ghost" data-action="collage-save" disabled>${icon('download')} Save</button>
       <button class="btn" data-action="collage-share" disabled>${icon('share')} Share</button>
@@ -2325,11 +2325,10 @@ async function shareCollage() {
 }
 async function postCollage() {
   if (!(await socialReady())) return;
-  if (!social.friends.length) { toast('Add a friend on the Friends tab first'); return; }
   try {
     const shot = await shrink(await (await fetch(collage.data)).blob(), 1080);
-    await addPost(FRIENDS_PATH, socialMe(), `Our bucket list in ${monthOnly(collage.key)}`, social.friends.map((f) => f.uid), { photo: shot, photos: [shot] });
-    toast('Posted on your Friends feed');
+    await addPost(FRIENDS_PATH, socialMe(), `Our bucket list in ${monthOnly(collage.key)}`, feedPeople(), { ...feedExtra(), photo: shot, photos: [shot] });
+    toast('Posted on the Feed');
   } catch (e) { toast(accountError(e)); }
 }
 
@@ -2411,7 +2410,7 @@ function checkInBucket(b) {
 const checkInFields = () => `<div class="field"><label>Pictures</label><div id="bk-shot">${bkPicHtml()}</div></div>
     <div class="field"><label>Who went</label>${whoPicker('both', 'both', 'bk-went')}</div>
     ${members().length > 1 ? `<p class="hint">${me() && otherOf(me()) ? `${esc(userOf(otherOf(me())).name)} gets a note on their screen` : members().length === 2 ? 'The other person gets a note on their screen' : 'Everyone else gets a note on their screen'} unless you went together.</p>` : ''}
-    ${account.user ? `<div class="setting-row imp-row"><div><b>Share on Friends</b><div class="hint">Posts the pictures to your Friends feed${social.me?.name ? ` as ${esc(social.me.name)}` : ''}.</div></div>
+    ${account.user ? `<div class="setting-row imp-row"><div><b>Share on Feed</b><div class="hint">Posts the pictures to your household's Feed${social.me?.name ? ` as ${esc(social.me.name)}` : ''}.</div></div>
       <button class="switch" id="bk-share" role="switch" aria-checked="true" data-action="toggle-important"></button></div>` : ''}`;
 const doneNow = () => $('#bk-done-now')?.getAttribute('aria-checked') === 'true';
 // Tapping the tick goes straight to the camera (on phones the picker offers Take photo first). The
@@ -2449,19 +2448,19 @@ function openBucketTick(b) {
   $('#sheet').dataset.kind = 'bucket-tick';
 }
 
-// A check-in can go on the Friends feed too, as whoever is signed in on this screen. Friends may
-// not have been opened yet, so this starts it and waits for the friends list first. The picture
-// travels inside the post, made smaller, since friends can't read the household's pictures.
+// A check-in can go on the Feed too, as whoever is signed in on this screen. Feed may not have
+// been opened yet, so this starts it and waits for the household's list of accounts first. The
+// picture travels inside the post, made smaller, since posts live outside the household's data.
 async function socialReady() {
-  startSocial();
-  for (let i = 0; i < 40 && !(social.state === 'ready' && social.friendsIn); i++) await new Promise((ok) => setTimeout(ok, 250));
-  if (social.state === 'ready' && social.friendsIn) return true;
-  toast("Couldn't share it on Friends this time");
+  startSocial(); watchHouseRec();
+  const ready = () => social.state === 'ready' && houseHome && houseRec;
+  for (let i = 0; i < 40 && !ready(); i++) await new Promise((ok) => setTimeout(ok, 250));
+  if (ready()) return true;
+  toast("Couldn't share it on the Feed this time");
   return false;
 }
 async function shareBucket(b, pics) {
   if (!(await socialReady())) return;
-  if (!social.friends.length) return; // nobody to show it to yet
   try {
     // Smaller copies, as many as fit well inside one post (a document tops out at 1 MiB).
     const shots = [];
@@ -2470,17 +2469,20 @@ async function shareBucket(b, pics) {
       if (shots.join('').length + small.length > 800000) break;
       shots.push(small);
     }
-    await addPost(FRIENDS_PATH, socialMe(), `Ticked off our bucket list: ${b.text}`, social.friends.map((f) => f.uid),
-      { photo: shots[0], photos: shots, went: wentLine(b), bucket: { kind: b.kind, love: loveOf(b) } });
-    toast('Shared on your Friends feed');
+    await addPost(FRIENDS_PATH, socialMe(), `Ticked off our bucket list: ${b.text}`, feedPeople(),
+      { ...feedExtra(), photo: shots[0], photos: shots, went: wentLine(b), bucket: { kind: b.kind, love: loveOf(b) } });
+    toast('Shared on the Feed');
   } catch (e) { toast(accountError(e)); }
 }
 
 /* =========================================================
-   Friends: a feed shared with friends from any household, and groups
+   Feed: posts everyone in the household sees, and groups
    ========================================================= */
 // Everything here lives in its own place in the database (social.js), never in the household's
 // synced data, and needs someone signed in. On a shared screen it posts as whoever signed in.
+// A post is seen by the accounts signed in to the household when it was posted, and carries the
+// household's id so a person in two households sees it only in the one it was made in.
+// (Friend codes from before still work underneath but are no longer shown.)
 const freshSocial = () => ({ uid: '', state: 'off', note: '', me: null, friends: [], incoming: [], outgoing: [], posts: null, groups: [], friendsIn: false,
   gid: '', group: undefined, items: [], tab: 'feed', open: new Set(), comments: {}, drafts: {}, pics: {}, busy: '', offs: [], groupOff: null, commentOffs: {}, dirty: false });
 let social = freshSocial();
@@ -2489,16 +2491,18 @@ const FRIENDS_PATH = 'posts';
 const groupPath = (id) => `groups/${id}/items`;
 const routeGroup = () => new URLSearchParams(location.hash.split('?')[1] || '').get('g') || '';
 const socialMe = () => ({ uid: social.me.uid, name: social.me.name });
+const feedPeople = () => householdIds(houseRec);
+const feedExtra = () => ({ home: houseHome });
 const stopOff = (p) => Promise.resolve(p).then((off) => off?.()).catch(() => {});
 
 function stopSocial() {
   social.offs.forEach(stopOff); stopOff(social.groupOff); Object.values(social.commentOffs).forEach(stopOff);
   social = freshSocial();
 }
-// Redraws Friends when something arrives, unless someone is typing or a sheet is open; then
+// Redraws Feed when something arrives, unless someone is typing or a sheet is open; then
 // it waits until they're done.
 function socialRedraw() {
-  if (currentRoute() !== 'friends') return;
+  if (currentRoute() !== 'feed') return;
   if (calmToRender()) { social.dirty = false; renderView(); } else social.dirty = true;
 }
 document.addEventListener('focusout', () => setTimeout(() => { if (social.dirty) socialRedraw(); }, 0));
@@ -2527,7 +2531,6 @@ function startSocial() {
   myProfile(u).then((p) => {
     if (social.uid !== u.uid) return;
     social.me = { uid: u.uid, ...p }; social.state = 'ready';
-    social.offs.push(watchFriends(u.uid, (f) => { Object.assign(social, f, { friendsIn: true }); socialRedraw(); }));
     social.offs.push(watchPosts(u.uid, (list) => { social.posts = list || []; socialRedraw(); }));
     refreshGroups();
   }).catch((e) => { social.state = 'error'; social.note = accountError(e); }).finally(socialRedraw);
@@ -2594,62 +2597,53 @@ function composer(path, placeholder) {
   </div>`;
 }
 
-views.friends = () => {
+views.feed = () => {
+  const title = '<div class="section-title">Feed</div>';
   if (!accountAvailable()) {
-    return `<div class="section-title">Friends</div><div class="card"><p class="empty-line">Friends needs household sync. Set it up in Settings › Sync across devices.</p></div>`;
+    return `${title}<div class="card"><p class="empty-line">Feed needs household sync. Set it up in Settings › Sync across devices.</p></div>`;
   }
-  startSocial();
+  startSocial(); watchHouseRec();
   // A device in a signed-in household from before this was remembered counts as signed in too.
   const gate = friendsGate(account, !!(readLocal(SIGNED_IN_KEY) || houseHome));
-  if (gate === 'checking') return `<div class="section-title">Friends</div><div class="card"><p class="empty-line">Loading…</p></div>`;
+  if (gate === 'checking') return `${title}<div class="card"><p class="empty-line">Loading…</p></div>`;
   if (gate === 'signin') {
-    return `<div class="section-title">Friends</div><div class="card soc-intro">
-      <p>Add friends from any household, share posts with them, and make groups for trips, dinners and shared costs. Nothing from your household is shared.</p>
+    return `${title}<div class="card soc-intro">
+      <p>Share posts and pictures with everyone in your household. Sign in to see the Feed.</p>
       <button class="btn" data-action="acct-signin">${busyLabel('signin', 'Sign in with Google', 'Signing in…')}</button></div>`;
   }
+  if (!houseHome) {
+    return `${title}<div class="card soc-intro"><p>The Feed is shared with everyone in your household. Start one or join with an invite code first.</p>
+      <a class="btn" href="#/settings">Open Settings</a></div>`;
+  }
   if (social.state !== 'ready') {
-    return `<div class="section-title">Friends</div><div class="card"><p class="empty-line">${social.state === 'error' ? esc(social.note) : 'Loading…'}</p>
+    return `${title}<div class="card"><p class="empty-line">${social.state === 'error' ? esc(social.note) : 'Loading…'}</p>
       ${social.state === 'error' ? '<button class="btn ghost" data-action="soc-retry">Try again</button>' : ''}</div>`;
   }
   watchRouteGroup();
-  return social.gid ? groupView() : friendsHub();
+  return social.gid ? groupView() : feedHub();
 };
 
-function friendsHub() {
-  const friendIds = social.friends.map((f) => f.uid);
-  const posts = social.posts ? feedFor(social.posts, social.uid, friendIds) : null;
-  const pending = social.outgoing.length;
-  return `<div class="section-title">Friends<span class="spacer"></span><span class="hint">${social.friends.length} friend${social.friends.length === 1 ? '' : 's'} · ${social.groups.length} group${social.groups.length === 1 ? '' : 's'}</span></div>
-  <div class="bk-page">
+// Everyone signed in to the household sees the Feed; there's nobody to add. Groups from before
+// stay reachable at the foot of the page for anyone already in one.
+function feedHub() {
+  const people = houseAccounts();
+  const posts = social.posts && houseRec ? householdFeed(social.posts, houseHome, householdIds(houseRec)) : null;
+  const others = people.filter((a) => a.uid !== social.uid);
+  const with_ = others.length ? `Shared with ${esc(joinNames(others.map(accountLabel)))}` : 'Only you so far. Invite someone in Settings.';
+  return `<div class="section-title">Feed<span class="spacer"></span><span class="hint">${esc(homeName(houseHome))}</span></div>
+  <div class="feed-page">
     <div class="card">
-      <div class="card-head">${icon('users')}<h2>Feed</h2></div>
-      ${composer(FRIENDS_PATH, social.friends.length ? 'Share something with your friends' : 'Write something (add a friend so they see it)')}
+      <div class="card-head">${personAv(social.uid, social.me.name)}<h2>${esc(social.me.name)}</h2><button class="link" data-action="soc-edit-name">Change name</button></div>
+      <p class="hint feed-with">${with_}</p>
+      ${composer(FRIENDS_PATH, 'Share something with the household')}
       <div class="feed">${posts === null ? '<p class="hint">Loading…</p>' : posts.map((p) => postCard(p, FRIENDS_PATH)).join('')
-        || '<p class="empty-line">No posts yet. Add a friend with their code, then say hi.</p>'}</div>
+        || '<p class="empty-line">No posts yet. Say hi, or share a picture.</p>'}</div>
     </div>
-    <div class="soc-side">
-      ${social.incoming.length ? `<div class="card"><div class="card-head">${icon('bell')}<h2>Friend requests</h2></div>
-        <div class="list">${social.incoming.map((r) => `<div class="row">${personAv(r.from, r.fromName)}<span><b>${esc(r.fromName || 'Someone')}</b><small>wants to be friends</small></span>
-          <span class="spacer"></span><button class="btn ghost" data-action="soc-decline" data-id="${esc(r.id)}">No</button><button class="btn" data-action="soc-accept" data-id="${esc(r.id)}">Accept</button></div>`).join('')}</div></div>` : ''}
-      <div class="card">
-        <div class="card-head">${personAv(social.uid, social.me.name)}<h2>${esc(social.me.name)}</h2><button class="link" data-action="soc-edit-name">Change name</button></div>
-        <p class="hint">Your friend code. Give it to someone so they can add you.</p>
-        <div class="soc-code"><b>${showCode(social.me.code)}</b><button class="btn ghost" data-action="soc-copy" data-v="${social.me.code}">Copy</button></div>
-        <div class="field"><label for="soc-add">Add a friend</label>
-          <div class="comment-new"><input class="input" id="soc-add" data-draft="add" value="${esc(social.drafts.add || '')}" placeholder="Their friend code" autocomplete="off" autocapitalize="characters">
-          <button class="btn" data-action="soc-add" ${social.busy ? 'disabled' : ''}>${social.busy === 'add' ? 'Adding…' : 'Add'}</button></div></div>
-        ${pending ? `<p class="hint">Waiting for ${esc(joinNames(social.outgoing.map((r) => r.toName || 'someone')))} to say yes.</p>` : ''}
-        <div class="list">${social.friends.map((f) => `<div class="row">${personAv(f.uid, f.name)}<span><b>${esc(f.name)}</b></span><span class="spacer"></span>
-          <button class="btn-round" data-action="soc-unfriend" data-id="${esc(f.uid)}" aria-label="Remove ${esc(f.name)} as a friend">${icon('x')}</button></div>`).join('')}</div>
-      </div>
-      <div class="card">
-        <div class="card-head">${icon('users')}<h2>Groups</h2></div>
-        <div class="list">${social.groups.map((g) => `<a class="row" href="#/friends?g=${g.id}"><span class="av-pair">${g.members.slice(0, 3).map((m) => personAv(m.uid, m.name)).join('')}</span>
-          <span><b>${esc(g.name)}</b><small>${g.members.length} ${g.members.length === 1 ? 'person' : 'people'}</small></span>${icon('chevron', 'chev')}</a>`).join('')
-          || '<p class="empty-line">A group shares a feed, plans, a bucket list and costs, with people from any household.</p>'}</div>
-        <div class="soc-btns"><button class="add-task" data-action="soc-new-group">${icon('plus')} New group</button><button class="add-task" data-action="soc-join-group">Join with a code</button></div>
-      </div>
-    </div>
+    ${social.groups.length ? `<div class="card">
+      <div class="card-head">${icon('users')}<h2>Groups</h2></div>
+      <div class="list">${social.groups.map((g) => `<a class="row" href="#/feed?g=${g.id}"><span class="av-pair">${g.members.slice(0, 3).map((m) => personAv(m.uid, m.name)).join('')}</span>
+        <span><b>${esc(g.name)}</b><small>${g.members.length} ${g.members.length === 1 ? 'person' : 'people'}</small></span>${icon('chevron', 'chev')}</a>`).join('')}</div>
+    </div>` : ''}
   </div>`;
 }
 
@@ -2659,11 +2653,11 @@ const groupIds = () => social.group.members.map((m) => m.uid);
 
 function groupView() {
   const g = social.group;
-  if (g === undefined) return `<div class="section-title"><a class="btn-round" href="#/friends" aria-label="Back to Friends">${icon('chevronLeft')}</a>Group</div><div class="card"><p class="hint">Loading…</p></div>`;
-  if (!g) return `<div class="section-title"><a class="btn-round" href="#/friends" aria-label="Back to Friends">${icon('chevronLeft')}</a>Group</div>
+  if (g === undefined) return `<div class="section-title"><a class="btn-round" href="#/feed" aria-label="Back to Feed">${icon('chevronLeft')}</a>Group</div><div class="card"><p class="hint">Loading…</p></div>`;
+  if (!g) return `<div class="section-title"><a class="btn-round" href="#/feed" aria-label="Back to Feed">${icon('chevronLeft')}</a>Group</div>
     <div class="card"><p class="empty-line">This group isn't available. You may have left it.</p></div>`;
   const tab = GROUP_TABS[social.tab] ? social.tab : 'feed';
-  return `<div class="section-title"><a class="btn-round" href="#/friends" aria-label="Back to Friends">${icon('chevronLeft')}</a>${esc(g.name)}<span class="spacer"></span>
+  return `<div class="section-title"><a class="btn-round" href="#/feed" aria-label="Back to Feed">${icon('chevronLeft')}</a>${esc(g.name)}<span class="spacer"></span>
     <button class="btn ghost" data-action="soc-group-invite">${icon('plus')} Invite</button><button class="btn-round" data-action="soc-group-settings" aria-label="Group settings">${icon('settings')}</button></div>
   <div class="soc-members">${g.members.map((m) => `<span class="soc-member">${personAv(m.uid, m.name)}<small>${esc(m.uid === social.uid ? 'You' : m.name)}</small></span>`).join('')}</div>
   <div class="seg soc-tabs">${Object.entries(GROUP_TABS).map(([k, l]) => `<button class="${k === tab ? 'on' : ''}" data-action="soc-tab" data-v="${k}">${l}</button>`).join('')}</div>
@@ -2782,8 +2776,10 @@ const socialActions = {
     const path = el.dataset.path; const key = `p:${path}`;
     const text = social.drafts[key] || ''; const pics = social.pics[path] || [];
     if (!text.trim() && !pics.length) { toast('Write something or add a picture first'); return; }
-    const seen = path === FRIENDS_PATH ? social.friends.map((f) => f.uid) : null;
-    socialDo('post', () => addPost(path, socialMe(), text, seen, pics.length ? { photo: pics[0], photos: pics } : {}),
+    const feed = path === FRIENDS_PATH;
+    if (feed && !houseRec) { toast('Still loading your household. Try again in a moment.'); return; }
+    const seen = feed ? feedPeople() : null;
+    socialDo('post', () => addPost(path, socialMe(), text, seen, { ...(feed ? feedExtra() : {}), ...(pics.length ? { photo: pics[0], photos: pics } : {}) }),
       () => { social.drafts[key] = ''; delete social.pics[path]; });
   },
   'soc-del-pic': (el) => { social.pics[el.dataset.path]?.splice(+el.dataset.i, 1); renderView(); },
@@ -2843,14 +2839,14 @@ const socialActions = {
   'soc-new-group': () => openAskSheet('New group', 'Name', 'soc-start-group', '', 'e.g. Family, Tahoe trip'),
   'soc-start-group': () => {
     const v = typed('gx-ask'); closeSheet();
-    socialDo('group', () => startGroup(socialMe(), v), (id) => { social.me.groups = [...(social.me.groups || []), id]; refreshGroups(); location.hash = `#/friends?g=${id}`; });
+    socialDo('group', () => startGroup(socialMe(), v), (id) => { social.me.groups = [...(social.me.groups || []), id]; refreshGroups(); location.hash = `#/feed?g=${id}`; });
   },
   'soc-join-group': () => openAskSheet('Join a group', 'Invite code', 'soc-join', '', 'ABCD-EFGH-JK'),
   'soc-join': () => {
     const v = typed('gx-ask'); closeSheet();
     socialDo('join', () => joinGroup(socialMe(), v), (r) => {
       if (r === 'nocode' || r === 'expired') { toast(r === 'expired' ? 'That invite has run out. Ask for a new one.' : "That code doesn't match a group."); return; }
-      social.me.groups = [...new Set([...(social.me.groups || []), r])]; refreshGroups(); location.hash = `#/friends?g=${r}`;
+      social.me.groups = [...new Set([...(social.me.groups || []), r])]; refreshGroups(); location.hash = `#/feed?g=${r}`;
     });
   },
   'soc-group-invite': () => socialDo('invite', () => createGroupInvite(social.gid, social.uid),
@@ -2860,7 +2856,7 @@ const socialActions = {
   'soc-leave-group': () => {
     if (!confirm(`Leave ${social.group.name}? You can come back with a new invite.`)) return;
     const id = social.gid; closeSheet();
-    socialDo('leave', () => leaveGroup(id, social.uid), () => { social.me.groups = (social.me.groups || []).filter((g) => g !== id); social.groups = social.groups.filter((g) => g.id !== id); location.hash = '#/friends'; });
+    socialDo('leave', () => leaveGroup(id, social.uid), () => { social.me.groups = (social.me.groups || []).filter((g) => g !== id); social.groups = social.groups.filter((g) => g.id !== id); location.hash = '#/feed'; });
   },
   'soc-tab': (el) => { social.tab = el.dataset.v; renderView(); },
   'soc-add-plan': () => openGroupPlanSheet(),
@@ -2913,7 +2909,7 @@ const socialActions = {
     socialDo('del', () => deleteDocAt(groupPath(social.gid), x.id), () => toast('Removed', ['Undo', () => saveItem(x)]));
   },
 };
-// What's typed on Friends survives a redraw.
+// What's typed on Feed survives a redraw.
 document.addEventListener('input', (e) => { const k = e.target.dataset?.draft; if (k) social.drafts[k] = e.target.value; });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' || !e.target.dataset?.draft || e.target.tagName === 'TEXTAREA') return;
@@ -2969,7 +2965,7 @@ function watchHouseRec() {
     houseRec = rec;
     if (!rec?.members?.[u.uid]) { removedFromHome(home); return; }
     noteAccount(home, u, rec).catch(() => {});
-    if (['home', 'settings'].includes(currentRoute()) && calmToRender()) renderView();
+    if (['home', 'settings', 'feed'].includes(currentRoute()) && calmToRender()) renderView();
   }).then((stop) => { if (houseWatch.key === key) houseWatch.stop = stop; else stop(); }, () => {});
 }
 // Someone in the household removed this account (or the household is gone): this screen stops
@@ -3280,7 +3276,7 @@ async function onAccount(u) {
   const first = !accountChecked; accountChecked = true;
   account = { ready: true, user: u };
   writeLocal(SIGNED_IN_KEY, u ? '1' : '');
-  socialRedraw(); // Friends waits for this on page load
+  socialRedraw(); // Feed waits for this on page load
   checkAdmin(u);
   watchHouseRec();
   if (u) {
@@ -4427,14 +4423,14 @@ views.privacy = () => {
     <li><b>Your sign-in.</b> Your Google account's name, email address and an account id, so you can sign in on any device. The app never sees your Google password.</li>
     <li><b>Your household.</b> Whatever you add: events, chores and stars, the inventory and shopping lists, expenses and receipt pictures, money boxes, the bucket list and check-in pictures, the itinerary with its places, contacts and pictures, thank-yous, notes, and each person's name, color and picture.</li>
     <li><b>Health, if you connect it.</b> Steps, sleep, resting heart rate and weight from Fitbit, read with your permission. You can disconnect in Settings › Connections.</li>
-    <li><b>Friends, if you use it.</b> Your Friends name and code, who your friends are, your posts, comments and likes, and the groups you are in with their plans, bucket list and shared money.</li>
+    <li><b>Feed, if you use it.</b> Your Feed name, your posts, comments and likes, any friends added before the Feed, and the groups you are in with their plans, bucket list and shared money.</li>
     <li><b>Summary email, if your household turns it on.</b> The addresses it goes to, and your household's time zone and weather place.</li>
     <li><b>On this device.</b> Display settings, a copy of your household so it works offline, and pictures you've seen.</li>
   </ul>`)}
   ${sec('Who sees it', 'users', `<ul class="privacy-list">
     <li>Everything in a household is shared with everyone in that household, on every device they sign in on. Hidden notes are hidden on screen, not from the people in the household.</li>
-    <li>A post on Friends is seen by the friends you had when you posted it. Everything in a group is seen by everyone in the group.</li>
-    <li>Friends and groups never see your household's data.</li>
+    <li>A post on the Feed is seen by the accounts signed in to your household when you posted it. Everything in a group is seen by everyone in the group.</li>
+    <li>Posts and groups are kept apart from your household's data, and groups never see it.</li>
     <li>The data is kept by Google Firebase, protected by sign-in rules that let only those people in. It is not end-to-end encrypted, so whoever runs the app could reach it to fix a problem you report.</li>
   </ul>`)}
   ${sec('Other services the app uses', 'plug', `<ul class="privacy-list">
@@ -4446,7 +4442,7 @@ views.privacy = () => {
     <li>Receipts are read on this device. The picture only leaves it if you keep it on the expense.</li>
   </ul>`)}
   ${sec('Deleting your data', 'trash', `<ul class="privacy-list">
-    <li><b>Delete my account</b> deletes your sign-in, your Friends name, code, friendships, posts and comments, and takes you out of every household and group.</li>
+    <li><b>Delete my account</b> deletes your sign-in, your Feed name, friendships, posts and comments, and takes you out of every household and group.</li>
     <li>A household or group nobody else is in is deleted with everything in it.</li>
     <li>A household or group other people still use stays for them, so their calendar and money still add up. Your summary email address is taken off it. To remove what you added there, edit or delete it before you go, or ask someone in the household.</li>
     <li>Invite codes you made stop working within a week. This device's copy is cleared; other devices keep theirs until they are cleared in Settings.</li>
@@ -4468,7 +4464,7 @@ function openDeleteSheet() {
     : `<ul class="privacy-list">${homes.map((h) => `<li><b>${esc(h.name)}</b>: ${h.gone ? "you're the only one in it, so it is deleted with everything in it."
       : `stays for the ${h.others === 1 ? 'other person' : `${h.others} others`} in it. You are taken out.`}</li>`).join('')}</ul>`;
   openSheet(`${sheetHead('Delete my account', 'trash')}
-    <p class="house-intro">This deletes your sign-in, your Friends profile, posts and comments, and takes you out of every household and group. It can't be undone.</p>
+    <p class="house-intro">This deletes your sign-in, your Feed profile, posts and comments, and takes you out of every household and group. It can't be undone.</p>
     ${list}
     ${d.note ? `<div class="sync-banner">${icon('users')}<span>${esc(d.note)}</span></div>` : ''}
     <div class="field"><label for="del-confirm">Type DELETE to confirm</label>
@@ -5591,7 +5587,7 @@ const actions = {
 
 // Actions that only open or edit a sheet don't need the page behind it re-rendered.
 Object.assign(actions, socialActions);
-// Friends redraws itself when its data changes, so its buttons don't redraw the page here.
+// Feed redraws itself when its data changes, so its buttons don't redraw the page here.
 const NO_RERENDER = new Set([...Object.keys(socialActions), 'open-collage', 'collage-zoom', 'collage-save', 'collage-share', 'collage-post', 'open-plan-day', 'add-plan', 'edit-plan', 'plan-back', 'del-photo', 'bk-del-pic', 'bk-retake', 'bk-done-now', 'view-photo', 'view-receipt', 'del-receipt', 'save-plan', 'del-plan', 'setup-add-row', 'open-join', 'acct-delete', 'acct-use-pass', 'acct-use-account', 'acct-move', 'add-member', 'edit-member', 'pick-member-color', 'open-bucket-news', 'bk-heat-day', 'add-bucket', 'edit-bucket', 'thank', 'pick-to', 'thanks-line', 'view-thanks', 'add-note', 'edit-note', 'pick-color', 'add-menu', 'pick-who', 'pick-seg', 'pick-repeat', 'pick-chore-repeat', 'pick-weekday', 'toggle-important', 'peek-note', 'reveal-note', 'open-day', 'add-event', 'add-event-at', 'edit-event', 'add-task', 'edit-task', 'place-search', 'add-expense', 'edit-expense', 'piggy-report', 'print-report', 'add-box', 'open-box', 'edit-box', 'add-box-expense', 'add-fridge', 'edit-fridge', 'edit-shop', 'rc-tick', 'alerts-copy', 'alerts-test']);
 
 document.addEventListener('click', (e) => {

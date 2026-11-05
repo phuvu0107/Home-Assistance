@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanCode, feedFor, friendsGate, groupMoney, newestFirstId, pairId, showCode } from '../social.js';
+import { cleanCode, feedFor, friendsGate, householdFeed, householdIds, groupMoney, newestFirstId, pairId, showCode } from '../social.js';
 
 test('ids sort newest first', () => {
   const ids = [1700000000000, 1800000000000, 1750000000000].map((t) => newestFirstId(t));
@@ -42,4 +42,21 @@ test('Friends waits for sign-in to restore instead of flashing the sign-in butto
   assert.equal(friendsGate(loading, false), 'signin');
   assert.equal(friendsGate({ ready: true, user: null }, true), 'signin');
   assert.equal(friendsGate({ ready: true, user: { uid: 'me' } }, true), 'in');
+});
+
+test('the household feed shows posts made in it, and older posts by the people in it', () => {
+  const posts = [
+    { by: 'nhi', at: 3, home: 'h1' },
+    { by: 'phu', at: 1 }, // from before the Feed
+    { by: 'ann', at: 4 }, // an old friend, not in the household
+    { by: 'phu', at: 5, home: 'h2' }, // another household Phu is in
+    { by: 'phu', at: 2, home: 'h1' },
+  ];
+  assert.deepEqual(householdFeed(posts, 'h1', ['phu', 'nhi']).map((p) => p.at), [3, 2, 1]);
+  assert.deepEqual(householdFeed(posts, 'h2', ['phu']).map((p) => p.at), [5, 1]);
+});
+
+test('everyone signed in to the household sees its posts', () => {
+  assert.deepEqual(householdIds({ members: { phu: true, nhi: true, old: false } }), ['phu', 'nhi']);
+  assert.deepEqual(householdIds(null), []);
 });

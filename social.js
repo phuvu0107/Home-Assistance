@@ -31,6 +31,17 @@ export function feedFor(posts, uid, friendIds) {
   return posts.filter((p) => ok.has(p.by)).sort((a, b) => (b.at || 0) - (a.at || 0));
 }
 
+// The household Feed: posts made in this household, newest first. Posts from before the Feed
+// (made on Friends, with no household on them) show when their writer is in the household now.
+// A post made in another household this person is also in stays in that household's Feed.
+export function householdFeed(posts, home, memberIds) {
+  const people = new Set(memberIds);
+  return posts.filter((p) => (p.home ? p.home === home : people.has(p.by))).sort((a, b) => (b.at || 0) - (a.at || 0));
+}
+
+// Who sees a post on the household Feed: everyone signed in to the household.
+export const householdIds = (rec) => Object.keys(rec?.members || {}).filter((u) => rec.members[u] === true);
+
 // A group's money: everyone in the group shares each expense evenly unless it says otherwise.
 export const groupMoney = (items, ids) => expenseStats(items.filter((x) => x.type === 'expense'), ids);
 
