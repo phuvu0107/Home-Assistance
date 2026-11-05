@@ -2309,19 +2309,33 @@ async function openCollage(key) {
   });
   if (collage?.key !== key || $('#sheet').dataset.kind !== 'collage') return; // closed meanwhile
   collage.data = data;
+  // Built now so Save and Share can open the share sheet straight from the tap: iPhone Safari
+  // refuses navigator.share once the tap is a moment old.
+  collage.file = new File([await (await fetch(data)).blob()], collageFile(), { type: 'image/jpeg' });
+  if (collage?.key !== key) return;
   $('#collage-view').innerHTML = `<button class="collage-img" data-action="collage-zoom" aria-label="See the collage full screen"><img alt="${esc(monthName(key))} bucket list collage" src="${data}"></button>`;
   document.querySelectorAll('#sheet [data-action^="collage-"]').forEach((b) => { b.disabled = false; });
 }
 const collageFile = () => `bucket-list-${collage.key}.jpg`;
-function saveCollage() {
+function downloadCollage() {
   const a = Object.assign(document.createElement('a'), { href: collage.data, download: collageFile() });
   document.body.append(a); a.click(); a.remove();
 }
+// Phones can't put a download in Photos, so on iPhone, iPad and Android Save opens the share sheet
+// with just the picture (no title or text, which hides "Save Image" on iPhone). The fridge's
+// Windows share sheet has no save, so everywhere else it downloads.
+const photosPhone = () => /iPhone|iPad|iPod|Android/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const canShareCollage = () => !!collage?.file && !!navigator.canShare?.({ files: [collage.file] });
+async function saveCollage() {
+  if (canShareCollage() && photosPhone()) {
+    try { await navigator.share({ files: [collage.file] }); return; } catch (e) { if (e?.name === 'AbortError') return; }
+  }
+  downloadCollage(); toast('Saved the collage to this device');
+}
 async function shareCollage() {
-  const file = new File([await (await fetch(collage.data)).blob()], collageFile(), { type: 'image/jpeg' });
-  if (navigator.canShare?.({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: `Our ${monthName(collage.key)}` }); } catch { /* closed the share sheet */ }
-  } else { saveCollage(); toast('Saved the collage to this device'); }
+  if (canShareCollage()) {
+    try { await navigator.share({ files: [collage.file], title: `Our ${monthName(collage.key)}` }); } catch { /* closed the share sheet */ }
+  } else { downloadCollage(); toast('Saved the collage to this device'); }
 }
 async function postCollage() {
   if (!(await socialReady())) return;
