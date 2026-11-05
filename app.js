@@ -5835,3 +5835,42 @@ checkVersion();
 setInterval(checkVersion, 10 * 60 * 1000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkVersion(); });
 setInterval(reloadIfReady, 30 * 1000);
+
+// iPhone bug: after the keyboard closes, iOS can leave the page's fixed layer as short as it was
+// with the keyboard up, so the tab bar floats mid-screen (seen on Settings, 2026-11-05). When no
+// text field has focus, nudge iOS to measure again, and if the layer is still short, push the
+// bottom bar, + button and background down by the missing height (--stuck).
+const IPHONE = /iPhone|iPod/.test(navigator.userAgent);
+const screenGap = {};
+const textField = (el) => el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+function unstickViewport() {
+  const root = document.documentElement;
+  if (textField(document.activeElement)) { root.style.removeProperty('--stuck'); return; }
+  const vv = window.visualViewport;
+  const seen = Math.max(vv ? vv.height + vv.offsetTop : 0, root.clientHeight);
+  let gap = Math.round(seen - innerHeight);
+  // On an iPhone Home Screen app the screen never changes size, so the smallest gap between it
+  // and the page seen so far (per orientation) is the normal one; anything well past it is stuck.
+  if (IPHONE && (navigator.standalone || matchMedia('(display-mode: standalone)').matches)) {
+    const tall = matchMedia('(orientation: portrait)').matches;
+    const full = tall ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+    const diff = full - innerHeight; const k = tall ? 'p' : 'l';
+    screenGap[k] = Math.min(screenGap[k] ?? diff, diff);
+    if (diff - screenGap[k] > 150) gap = Math.max(gap, Math.round(diff - screenGap[k]));
+  }
+  if (gap > 40) root.style.setProperty('--stuck', `${gap}px`); else root.style.removeProperty('--stuck');
+}
+function remeasureViewport() {
+  if (textField(document.activeElement)) return;
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (meta && /iP(hone|ad|od)/.test(navigator.userAgent)) {
+    const c = meta.content; meta.content = `${c}, maximum-scale=1`; requestAnimationFrame(() => { meta.content = c; });
+  }
+  setTimeout(unstickViewport, 120);
+}
+document.addEventListener('focusout', () => setTimeout(remeasureViewport, 350));
+window.visualViewport?.addEventListener('resize', () => setTimeout(unstickViewport, 60));
+addEventListener('resize', unstickViewport);
+addEventListener('orientationchange', () => setTimeout(unstickViewport, 400));
+addEventListener('pageshow', unstickViewport);
+unstickViewport();
