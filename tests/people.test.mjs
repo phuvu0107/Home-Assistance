@@ -245,3 +245,24 @@ test('shopping items group by box, loose ones first, and an unknown box counts a
   assert.deepEqual(got, [['', ['Milk', 'Eggs']], ['Costco', ['Rice']], ['Japan trip', ['Adapter']]]);
   assert.deepEqual(shopGroups(items, []).map((g) => g.items.length), [4]);
 });
+
+test('an expense paid for someone else is owed back in full', () => {
+  const two = ['phu', 'nhi'];
+  // November 2026 from Adrian's screenshot, with Da Vien paid by Nhi for Phú.
+  const nov = [
+    { amount: 25, paidBy: 'nhi', split: false, for: 'phu' },
+    { amount: 2225, paidBy: 'both', split: true },
+    { amount: 73, paidBy: 'phu', split: true },
+    { amount: 260, paidBy: 'nhi', split: true },
+    { amount: 15, paidBy: 'phu', split: true },
+    { amount: 50, paidBy: 'phu', split: true },
+  ];
+  const st = expenseStats(nov, two);
+  assert.deepEqual(st.transfers, [{ from: 'phu', to: 'nhi', amount: 86 }]);
+  assert.equal(st.paidFor, 25);
+  assert.equal(st.shared, 2225 + 73 + 260 + 15 + 50);
+  // Saved as just Nhi's own, it is $61, which is what the page showed.
+  assert.deepEqual(expenseStats([{ ...nov[0], for: undefined }, ...nov.slice(1)], two).transfers, [{ from: 'phu', to: 'nhi', amount: 61 }]);
+  // `for` the payer, or paid by both, is nobody's debt.
+  assert.deepEqual(expenseStats([{ amount: 10, paidBy: 'nhi', for: 'nhi' }, { amount: 10, paidBy: 'both', for: 'phu' }], two).transfers, []);
+});

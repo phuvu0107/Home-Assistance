@@ -68,6 +68,8 @@ export function joinNames(names) {
 // Who paid what in a list of expenses, and who owes whom for the shared ones.
 // - A split expense is shared evenly by everyone in the household.
 // - Paid by 'both' means everyone paid an equal share, so nobody owes on it.
+// - An unsplit expense with `for` set to someone else was paid for that person, who owes
+//   the whole amount back. Without `for` (or `for` the payer) it is the payer's own.
 // - A settle-up entry ({ kind: 'settle', paidBy, to, amount }) is money passed between two
 //   people, not spending.
 // With two people this gives exactly what the app always showed.
@@ -75,7 +77,7 @@ export function expenseStats(list, ids) {
   const zero = () => Object.fromEntries(ids.map((id) => [id, 0]));
   const paid = zero(); const balance = zero(); // balance > 0: the household owes this person
   const n = ids.length || 1;
-  let total = 0; let shared = 0;
+  let total = 0; let shared = 0; let paidFor = 0;
   const spread = (to, who, amount) => {
     const payers = who === 'both' ? ids : [who];
     payers.forEach((id) => { if (id in to) to[id] += amount / payers.length; });
@@ -90,10 +92,16 @@ export function expenseStats(list, ids) {
     if (x.split) {
       shared += x.amount; spread(balance, x.paidBy, x.amount);
       ids.forEach((id) => { balance[id] -= x.amount / n; });
+    } else if (paidForOther(x) && x.for in balance) {
+      paidFor += x.amount; spread(balance, x.paidBy, x.amount);
+      balance[x.for] -= x.amount;
     }
   }
-  return { total, paid, shared, each: shared / n, balance, transfers: transfersFor(balance, ids) };
+  return { total, paid, shared, each: shared / n, paidFor, balance, transfers: transfersFor(balance, ids) };
 }
+
+// One person paid the whole thing for someone else (see expenseStats).
+export const paidForOther = (x) => !x.split && !!x.for && x.paidBy !== 'both' && x.for !== x.paidBy;
 
 // The fewest payments that make everyone square: the one who owes most pays the one owed most,
 // and so on. Each payment is rounded to the cent; anything under half a cent is left alone.
@@ -148,7 +156,7 @@ export function monthReport(list, ids, key) {
   const [day, dayTotal] = [...byDay].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] || [];
   return {
     key, stats, count: spent.length, days: byDay.size,
-    personal: spent.filter((x) => !x.split && x.paidBy !== 'both').reduce((n, x) => n + x.amount, 0),
+    personal: spent.filter((x) => !x.split && x.paidBy !== 'both' && !paidForOther(x)).reduce((n, x) => n + x.amount, 0),
     prev: trend.months.at(-2), average: trend.average, months: trend.months,
     cats: categoryTotals(spent),
     top: [...spent].sort((a, b) => b.amount - a.amount || a.date.localeCompare(b.date)).slice(0, 5),

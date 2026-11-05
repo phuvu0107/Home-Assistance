@@ -899,6 +899,7 @@ body.dome-open .fab, body.fab-away .fab { opacity: 0; transform: scale(.6); poin
 .row.expense .ex-main { min-width: 0; flex: 1; }
 .row.expense .ex-main b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ex-amt { font-weight: 600; font-size: 17px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ex-owe { color: var(--accent-ink); font-weight: 600; }
 .piggy-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 24px 0 12px; color: var(--text-3); text-align: center; }
 .piggy-empty > .ico { font-size: 44px; color: var(--rose-fg); opacity: .7; }
 .energy-table tr[data-action] { cursor: pointer; }
