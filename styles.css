@@ -145,7 +145,7 @@ input, textarea { caret-color: var(--accent); }
 /* Soft colour behind everything, so the frosted cards have something to sit on.
    It is painted once and stays put, which keeps scrolling and swipes smooth. */
 body::before {
-  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  content: ""; position: fixed; inset: 0; bottom: calc(0px - var(--stuck, 0px)); z-index: -1; pointer-events: none;
   background:
     radial-gradient(40vmax 30vmax at 8% 12%, var(--blob-1), transparent 70%),
     radial-gradient(38vmax 32vmax at 92% 30%, var(--blob-2), transparent 70%),
@@ -317,7 +317,7 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
 /* ---------- Tabs ---------- */
 /* Home, Calendar, Chores and More, in a see-through capsule floating at the bottom of every screen. */
 .tabs {
-  position: fixed; z-index: 30; display: flex; gap: 2px; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom));
+  position: fixed; z-index: 30; display: flex; gap: 2px; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom) - var(--stuck, 0px));
   height: 64px; padding: 5px; border-radius: 32px; touch-action: none; user-select: none; -webkit-user-select: none;
   background: var(--float); border: 1px solid var(--glass-border);
   -webkit-backdrop-filter: blur(22px) saturate(1.8); backdrop-filter: blur(22px) saturate(1.8);
@@ -344,7 +344,7 @@ body::after { content: ""; position: fixed; top: 0; left: 0; right: 0; height: e
 body.dome-open .more-dots svg { transform: rotate(90deg); }
 .main { padding-bottom: calc(110px + env(safe-area-inset-bottom)) !important; }
 @media (min-width: 900px) {
-  .tabs { left: 50%; right: auto; width: 500px; margin-left: -250px; bottom: calc(20px + env(safe-area-inset-bottom)); height: 76px; padding: 6px; border-radius: 38px; }
+  .tabs { left: 50%; right: auto; width: 500px; margin-left: -250px; bottom: calc(20px + env(safe-area-inset-bottom) - var(--stuck, 0px)); height: 76px; padding: 6px; border-radius: 38px; }
   .tab { font-size: 13px; gap: 4px; border-radius: 32px; }
   .tab .ico { font-size: 27px; }
   .tab-ink { border-radius: 32px; }
@@ -849,7 +849,7 @@ label.btn { cursor: pointer; }
 .toast-btn { border: 0; background: none; color: var(--honey); font-weight: 600; padding: 4px 2px; }
 /* The one add button: same corner on every page that can add something. */
 .fab {
-  position: fixed; right: 28px; bottom: 28px; z-index: 25; width: 60px; height: 60px; border-radius: 50%; border: 0;
+  position: fixed; right: 28px; bottom: calc(28px - var(--stuck, 0px)); z-index: 25; width: 60px; height: 60px; border-radius: 50%; border: 0;
   background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-size: 28px;
   box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 40%, transparent), 0 2px 6px rgba(0, 0, 0, .12);
   transition: transform .15s ease, opacity .2s;
@@ -857,7 +857,7 @@ label.btn { cursor: pointer; }
 .fab:active { transform: scale(.92); }
 body.dome-open .fab, body.fab-away .fab { opacity: 0; transform: scale(.6); pointer-events: none; }
 @media (max-width: 899.98px) {
-  .fab { right: 16px; bottom: calc(88px + env(safe-area-inset-bottom)); width: 56px; height: 56px; }
+  .fab { right: 16px; bottom: calc(88px + env(safe-area-inset-bottom) - var(--stuck, 0px)); width: 56px; height: 56px; }
   .toast { bottom: calc(150px + env(safe-area-inset-bottom)); }
 }
 .demo-note { font-size: 12px; color: var(--text-3); text-align: center; margin-top: 18px; }
