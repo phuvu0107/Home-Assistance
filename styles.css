@@ -1888,3 +1888,34 @@ button.hm-cell { cursor: pointer; }
   .gate:not(.gate-signin) .brand-lg .brand-icon { width: 40px; height: 40px; }
   .gate:not(.gate-signin) .brand-lg .wordmark { font-size: 28px; }
 }
+
+/* ---------- Raised panels ----------
+   Every panel stands a few pixels off the page like a low wall: a lit top edge, a short side wall
+   that darkens smoothly as it goes down (stacked 1px steps, so no hard line), and a soft contact
+   shadow where it meets the page. Colours are the card tone darkened, so the brand palette holds. */
+:root {
+  --wall-1: #E6D3B3; --wall-2: #DECAA7; --wall-3: #D6C09C; --wall-4: #CDB591;
+  --wall-lit: rgba(255, 255, 255, .95); --wall-rim: rgba(120, 80, 50, .08);
+  --wall-drop: rgba(70, 40, 25, .14); --wall-far: rgba(70, 40, 25, .22);
+  --face: linear-gradient(180deg, rgba(255, 255, 255, .45), rgba(255, 255, 255, 0) 38%);
+}
+:root[data-theme="dark"] {
+  --wall-1: #3F2E28; --wall-2: #382822; --wall-3: #32231E; --wall-4: #2C1E19;
+  --wall-lit: rgba(255, 255, 255, .11); --wall-rim: rgba(0, 0, 0, .14);
+  --wall-drop: rgba(0, 0, 0, .28); --wall-far: rgba(0, 0, 0, .4);
+  --face: linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, 0) 38%);
+}
+:root {
+  --raised: inset 0 1px 0 var(--wall-lit), inset 0 -1px 0 var(--wall-rim),
+    0 1px 0 var(--wall-1), 0 2px 0 var(--wall-2), 0 3px 0 var(--wall-3), 0 4px 0 var(--wall-4), 0 5px 0 var(--wall-4),
+    0 7px 6px -2px var(--wall-drop), 0 18px 28px -12px var(--wall-far);
+  --raised-sm: inset 0 1px 0 var(--wall-lit),
+    0 1px 0 var(--wall-1), 0 2px 0 var(--wall-2), 0 3px 0 var(--wall-4),
+    0 5px 5px -2px var(--wall-drop), 0 10px 16px -8px var(--wall-far);
+}
+.card, .glance, .feed-page .post, .hero { box-shadow: var(--raised); }
+.card, .glance, .feed-page .post { background-image: var(--face); }
+.hour { box-shadow: var(--raised-sm); background-image: var(--face); }
+.glance.clear { box-shadow: var(--raised-sm); }
+/* The night greeting is dark even by day, so its wall is cocoa too. */
+.hero.night { --wall-1: #3A2620; --wall-2: #33211B; --wall-3: #2C1C17; --wall-4: #251713; --wall-lit: rgba(255, 255, 255, .12); }
