@@ -1888,3 +1888,43 @@ button.hm-cell { cursor: pointer; }
   .gate:not(.gate-signin) .brand-lg .brand-icon { width: 40px; height: 40px; }
   .gate:not(.gate-signin) .brand-lg .wordmark { font-size: 28px; }
 }
+
+/* ---------- Raised panels ----------
+   Every panel floats just off the page. No hard edge: the lift comes from five stacked shadows,
+   each twice as far and twice as soft as the last, so the shade fades out the way real light does.
+   Inside, a lit top rim and a soft shade along the bottom edge round the panel over like a cushion.
+   Shadows are tinted with the espresso ink (cocoa black at night), so the brand palette holds. */
+:root {
+  --lift: 58, 36, 32; /* espresso, as r, g, b */
+  --lift-a: .06;
+  --rim-lit: rgba(255, 255, 255, .95); --rim-shade: rgba(var(--lift), .06);
+  --face: linear-gradient(180deg, rgba(255, 255, 255, .5) 0%, rgba(255, 255, 255, .12) 30%, rgba(255, 255, 255, 0) 60%, rgba(var(--lift), .025) 100%);
+}
+:root[data-theme="dark"] {
+  --lift: 12, 6, 4;
+  --lift-a: .13;
+  --rim-lit: rgba(255, 255, 255, .1); --rim-shade: rgba(0, 0, 0, .16);
+  --face: linear-gradient(180deg, rgba(255, 255, 255, .06) 0%, rgba(255, 255, 255, .015) 35%, rgba(255, 255, 255, 0) 60%, rgba(0, 0, 0, .06) 100%);
+}
+:root {
+  --raised:
+    inset 0 1px 0 var(--rim-lit), inset 0 -3px 6px -2px var(--rim-shade),
+    0 1px 1px rgba(var(--lift), calc(var(--lift-a) * 1.6)),
+    0 2px 2px rgba(var(--lift), var(--lift-a)),
+    0 4px 4px rgba(var(--lift), var(--lift-a)),
+    0 8px 8px rgba(var(--lift), var(--lift-a)),
+    0 16px 16px rgba(var(--lift), var(--lift-a)),
+    0 28px 32px -8px rgba(var(--lift), var(--lift-a));
+  --raised-sm:
+    inset 0 1px 0 var(--rim-lit), inset 0 -2px 4px -2px var(--rim-shade),
+    0 1px 1px rgba(var(--lift), calc(var(--lift-a) * 1.6)),
+    0 2px 2px rgba(var(--lift), var(--lift-a)),
+    0 4px 4px rgba(var(--lift), var(--lift-a)),
+    0 8px 10px -2px rgba(var(--lift), var(--lift-a));
+}
+.card, .glance, .feed-page .post, .hero { box-shadow: var(--raised); }
+.card, .glance, .feed-page .post { background-image: var(--face); }
+.hour, .glance.clear { box-shadow: var(--raised-sm); }
+.hour { background-image: var(--face); }
+/* The night greeting is dark even by day, so its rim light is dimmer. */
+.hero.night { --rim-lit: rgba(255, 255, 255, .14); --rim-shade: rgba(0, 0, 0, .2); }
