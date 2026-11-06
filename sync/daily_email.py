@@ -17,6 +17,10 @@ ENERGY_URL); it also still gets the email at EMAIL_TO until it is turned on in t
 EMAIL_SMTP_HOST / EMAIL_SMTP_PORT (default smtp.gmail.com:465). For a run started by hand:
 HOME (one household's id) and SLOT (morning, midday, evening or night) send that email now.
 DRY_RUN=1 prints instead of sending.
+Unsubscribing: each email carries an Unsubscribe link and List-Unsubscribe header that write back to
+the sending account with the subject "Unsubscribe <household id>". Each run reads those from the
+sending account's inbox over IMAP (same app password; EMAIL_IMAP_HOST, default imap.gmail.com) and
+takes the sender's address off that household's list.
 ADMIN_EMAILS (optional): the Google accounts that can open the Admin page; each run also writes
 its stats (admin_report.py).
 """
@@ -24,6 +28,7 @@ its stats (admin_report.py).
 import base64
 import datetime as dt
 import html
+import imaplib
 import json
 import os
 import re
@@ -32,6 +37,9 @@ import sys
 import time
 import urllib.request
 from email.message import EmailMessage
+from email.parser import BytesHeaderParser
+from email.utils import parseaddr
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -113,6 +121,10 @@ class Store:
         fields = self.call(f"homes/{home}/data/main")["fields"]
         return state_from(json.loads(fields["box"]["mapValue"]["fields"]["json"]["stringValue"])["items"])
 
+    def set_email(self, home, email):
+        self.call(f"homes/{home}?updateMask.fieldPaths=email&currentDocument.exists=true",
+                  {"fields": {"email": fs_value(email)}}, "PATCH")
+
     def mark_sent(self, home, key):
         self.call(f"homes/{home}?updateMask.fieldPaths=emailSent&currentDocument.exists=true",
                   {"fields": {"emailSent": {"stringValue": key}}}, "PATCH")
@@ -130,6 +142,23 @@ def value(v):
     if "integerValue" in v:
         return int(v["integerValue"])
     return None
+
+
+def fs_value(v):
+    """A Firestore REST value from a plain Python value (the reverse of value())."""
+    if isinstance(v, bool):
+        return {"booleanValue": v}
+    if isinstance(v, int):
+        return {"integerValue": str(v)}
+    if isinstance(v, float):
+        return {"doubleValue": v}
+    if isinstance(v, str):
+        return {"stringValue": v}
+    if isinstance(v, (list, tuple)):
+        return {"arrayValue": {"values": [fs_value(x) for x in v]}}
+    if isinstance(v, dict):
+        return {"mapValue": {"fields": {k: fs_value(x) for k, x in v.items()}}}
+    return {"nullValue": None}
 
 
 # When chores come due; the same rules as schedule.js in the app.
@@ -292,7 +321,7 @@ CHECK_EVERY = 600  # look for newly turned-on households this often while waitin
 PALO_ALTO = {"tz": "America/Los_Angeles", "lat": 37.4419, "lon": -122.143, "unit": "F"}
 
 
-def build(state, now, energy, sky, slot="morning"):
+def build(state, now, energy, sky, slot="morning", unsub="#"):
     """One email. Morning is the full day ahead; midday and evening cover what's left of
     today; night recaps today's stars and looks at tomorrow."""
     USERS = people(state)
@@ -400,8 +429,8 @@ def build(state, now, energy, sky, slot="morning"):
     hello = f"{greet}, {', '.join(names[:-1]) + ' and ' + names[-1] if len(names) > 1 else names[0]}!"
     if sky:
         sections.insert(0, (f"Weather {sky['when'].lower()}", weather_lines(sky)))
-    text = hello + "\n\n" + "\n\n".join(t + "\n" + "\n".join(f"- {l}" for l in lines) for t, lines in sections) + f"\n\n{sign}\n— Hometide\n\n{STOP}\n"
-    return subject, text, page(slot, now, hello, sign, sky, sections[1:] if sky else sections)
+    text = hello + "\n\n" + "\n\n".join(t + "\n" + "\n".join(f"- {l}" for l in lines) for t, lines in sections) + f"\n\n{sign}\n— Hometide\n\n{STOP}\nUnsubscribe: {unsub}\n"
+    return subject, text, page(slot, now, hello, sign, sky, sections[1:] if sky else sections, unsub)
 
 
 # Email clients ignore stylesheets and most layout CSS, so everything is inline and laid out with tables.
@@ -413,11 +442,20 @@ THEMES = {  # soft background tint, accent, small label above the greeting
 }
 ICONS = {"Today": "📅", "Still to come today": "⏳", "Tomorrow": "📅", "Tasks": "✅", "Tasks still open": "✅", "Stars": "⭐",
          "Today's stars": "⭐", "Use soon from the fridge": "🥬", "Money": "🐷", "Energy": "⚡", "Coming up this week": "🗓️", "Shopping list": "🛒"}
-STOP = "To stop these emails, turn them off in the app: Settings › Connections › Summary email."
+STOP = "Don't want these? Unsubscribe, or a household member can turn them off in Settings › Connections › Summary email."
+
+
+def sender():
+    return os.environ.get("EMAIL_SMTP_USER", "dry-run")
+
+
+def unsubscribe_link(home):
+    """A mailto that asks for this household's email to stop. Read back by unsubscribe_requests()."""
+    return f"mailto:{sender()}?subject={quote(f'Unsubscribe {home}')}&body={quote('Please stop sending me these emails.')}"
 FONT = "-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif"
 
 
-def page(slot, now, hello, sign, sky, sections):
+def page(slot, now, hello, sign, sky, sections, unsub="#"):
     tint, accent, kicker = THEMES[slot]
     esc = html.escape
     header = (f'<td style="background:{tint};padding:30px 28px 26px;border-radius:18px 18px 0 0;border-bottom:3px solid {accent}">'
@@ -452,7 +490,9 @@ def page(slot, now, hello, sign, sky, sections):
             f'<tr>{header}</tr>{cards}'
             f'<tr><td style="padding:22px 20px 26px;text-align:center;color:#6b7280;font-size:14px">{esc(sign)}'
             f'<div style="margin-top:12px;font-size:18px;font-weight:700;letter-spacing:-.4px;color:#3A2420">home<span style="color:#A8483D">tide</span></div>'
-            f'<div style="font-size:12px;color:#9ca3af;margin-top:14px">{esc(STOP)}</div></td></tr>'
+            f'<div style="font-size:12px;color:#9ca3af;margin-top:14px">Don\'t want these? '
+            f'<a href="{esc(unsub)}" style="color:#6b7280;text-decoration:underline">Unsubscribe</a>, or a household member can turn them off '
+            f'in Settings › Connections › Summary email.</div></td></tr>'
             f'</table></div>')
 
 
@@ -505,12 +545,14 @@ def send(store, home, where, slot):
     state = store.state(home)
     mine = home == os.environ.get("HOME_ID", "").strip()  # the PG&E account belongs to one household
     energy = energy_yesterday((now.date() - dt.timedelta(days=1)).isoformat()) if slot == "morning" and mine else None
-    subject, text, page = build(state, now, energy, weather(where, 1 if slot == "night" else 0), slot)
+    unsub = unsubscribe_link(home)
+    subject, text, page = build(state, now, energy, weather(where, 1 if slot == "night" else 0), slot, unsub)
 
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = f"Hometide <{os.environ.get('EMAIL_SMTP_USER', 'dry-run')}>"
+    msg["From"] = f"Hometide <{sender()}>"
     msg["To"] = ", ".join(where["to"])
+    msg["List-Unsubscribe"] = f"<{unsub}>"  # the Unsubscribe button Gmail, Apple Mail and Outlook show by the sender
     msg["Importance"], msg["X-Priority"], msg["X-MSMail-Priority"] = "High", "1", "High"  # the red "!" in Outlook and Apple Mail
     msg.set_content(text)
     msg.add_alternative(page, subtype="html")
@@ -524,10 +566,73 @@ def send(store, home, where, slot):
     print(f"Sent to {home}: {subject}")
 
 
+UNSUB_SUBJECT = re.compile(r"^\s*(?:re:\s*)?unsubscribe(?:\s+([A-Za-z0-9_-]+))?\s*$", re.I)
+
+
+def genuine(addr, auth):
+    """Whether the receiving server (Gmail's Authentication-Results) vouches that this mail really
+    came from addr, so nobody can take someone else off a list by forging their address."""
+    domain = addr.rsplit("@", 1)[-1].lower()
+    auth = auth.lower()
+    if re.search(r"\bdmarc=pass\b", auth):
+        return True
+    for d in re.findall(r"\bdkim=pass\b[^;]*?header\.(?:i|d)=@?([^\s;]+)", auth) + re.findall(r"\bspf=pass\b[^;]*?smtp\.mailfrom=(?:[^@\s;]*@)?([^\s;]+)", auth):
+        if d.lower().lstrip("@") == domain:
+            return True
+    return False
+
+
+def unsubscribe_requests(take):
+    """Calls take(address, household id or None) for each unread "Unsubscribe" email in the sending
+    account's inbox, which the Unsubscribe link and List-Unsubscribe header send. Each is marked
+    read once taken, so one that fails is tried again on the next check."""
+    if os.environ.get("DRY_RUN"):
+        return
+    smtp = os.environ.get("EMAIL_SMTP_HOST", "smtp.gmail.com")
+    host = os.environ.get("EMAIL_IMAP_HOST") or (smtp.replace("smtp.", "imap.", 1) if smtp.startswith("smtp.") else "imap.gmail.com")
+    with imaplib.IMAP4_SSL(host, timeout=30) as box:
+        box.login(os.environ["EMAIL_SMTP_USER"], os.environ["EMAIL_SMTP_PASSWORD"])
+        box.select("INBOX")
+        _, found = box.search(None, "UNSEEN", "SUBJECT", '"unsubscribe"')
+        for i in (found[0] or b"").split():
+            _, data = box.fetch(i, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT AUTHENTICATION-RESULTS)])")
+            head = BytesHeaderParser().parsebytes(next((d[1] for d in data if isinstance(d, tuple)), b""))
+            m = UNSUB_SUBJECT.match(str(head.get("Subject") or ""))
+            if not m:
+                continue  # someone else's mail that merely mentions unsubscribing: left unread
+            addr = parseaddr(str(head.get("From") or ""))[1].strip().lower()
+            if "@" in addr and genuine(addr, " ; ".join(str(a) for a in head.get_all("Authentication-Results") or [])):
+                take(addr, m.group(1))
+            else:
+                print(f"Skipped an unsubscribe email that couldn't be checked as from {addr or 'nobody'}", file=sys.stderr)
+            box.store(i, "+FLAGS", "\\Seen")
+
+
+def unsubscribe(store, homes, addr, asked=None):
+    """Takes the address off the household it asked to leave (every household when none is named)."""
+    for home, rec in homes.items():
+        if asked and home != asked:
+            continue
+        where = settings_for(home, rec)
+        if not where or addr not in (a.lower() for a in where["to"]):
+            continue
+        e = rec.get("email") if isinstance(rec.get("email"), dict) else {  # still on the EMAIL_TO secret
+            "on": True, "tz": where["tz"], "lat": where["lat"], "lon": where["lon"], "unit": where["unit"]}
+        left = [a for a in e.get("to") or where["to"] if not (isinstance(a, str) and a.strip().lower() == addr)]
+        rec["email"] = {**e, "to": left, "on": bool(e.get("on")) and bool(left)}
+        store.set_email(home, rec["email"])
+        print(f"{home}: unsubscribed {addr}" + ("" if left else "; nobody is left, so the email is off"))
+
+
 def send_due(store, now):
     """Sends every household's email whose time has come, once. Returns when the next one is due."""
     upcoming = []
-    for home, rec in store.homes().items():
+    homes = store.homes()
+    try:
+        unsubscribe_requests(lambda addr, asked: unsubscribe(store, homes, addr, asked))
+    except Exception as e:  # the emails still go; an unread request is tried again next time
+        print(f"Couldn't check for unsubscribe requests: {e}", file=sys.stderr)
+    for home, rec in homes.items():
         where = settings_for(home, rec)
         if not where:
             continue

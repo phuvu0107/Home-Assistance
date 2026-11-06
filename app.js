@@ -4177,7 +4177,7 @@ function emailConn() {
       <div class="field"><label for="email-to">Who gets it</label>
         <div style="display:flex;gap:8px"><input class="input" id="email-to" type="text" inputmode="email" autocomplete="off" placeholder="you@example.com, them@example.com" value="${esc((e?.to || []).join(', '))}">
         <button class="btn" data-action="email-save"${!e || e.loading ? ' disabled' : ''}>Save</button></div>
-        <div class="hint">Up to 10 addresses. Times and weather follow ${esc(state.settings.place.name)} and this screen's clock (${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}); saving here updates them.</div></div>`;
+        <div class="hint">Up to 10 addresses. Times and weather follow ${esc(state.settings.place.name)} and this screen's clock (${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}); saving here updates them. Anyone who taps Unsubscribe in the email is taken off this list.</div></div>`;
   return connRow('email', 'bell', 'Summary email', status, on, body);
 }
 
@@ -4441,7 +4441,7 @@ views.privacy = () => {
   return `
   <div class="settings privacy">
   <div class="section-title">Privacy</div>
-  <p class="hint privacy-lead">This page says what the app keeps about you, who can see it, and how to delete it. Last changed October 19, 2026.</p>
+  <p class="hint privacy-lead">This page says what the app keeps about you, who can see it, and how to delete it. Last changed November 6, 2026.</p>
   ${sec('The short version', 'shieldCheck', `<ul class="privacy-list">
     <li>Your household's events, chores, money and notes are seen only by the people in your household.</li>
     <li>There are no ads, no tracking and no analytics, and nothing is sold or shared for marketing.</li>
@@ -4452,7 +4452,7 @@ views.privacy = () => {
     <li><b>Your household.</b> Whatever you add: events, chores and stars, the inventory and shopping lists, expenses and receipt pictures, money boxes, the bucket list and check-in pictures, the itinerary with its places, contacts and pictures, thank-yous, notes, and each person's name, color and picture.</li>
     <li><b>Health, if you connect it.</b> Steps, sleep, resting heart rate and weight from Fitbit, read with your permission. You can disconnect in Settings › Connections.</li>
     <li><b>Feed, if you use it.</b> Your Feed name, your posts, comments and likes, any friends added before the Feed, and the groups you are in with their plans, bucket list and shared money.</li>
-    <li><b>Summary email, if your household turns it on.</b> The addresses it goes to, and your household's time zone and weather place.</li>
+    <li><b>Summary email, if your household turns it on.</b> The addresses it goes to, and your household's time zone and weather place. Each email has an Unsubscribe link; it sends a short email back, which is read only to take that address off the list.</li>
     <li><b>On this device.</b> Display settings, a copy of your household so it works offline, and pictures you've seen.</li>
   </ul>`)}
   ${sec('Who sees it', 'users', `<ul class="privacy-list">
