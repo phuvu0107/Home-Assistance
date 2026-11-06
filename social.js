@@ -39,6 +39,26 @@ export function householdFeed(posts, home, memberIds) {
   return posts.filter((p) => (p.home ? p.home === home : people.has(p.by))).sort((a, b) => (b.at || 0) - (a.at || 0));
 }
 
+// The Feed with what this person chose not to see taken out: posts they hid, and every post
+// from someone whose posts they hid. `hidden` and `muted` are lists of post ids and account ids.
+export function visibleFeed(posts, hidden = [], muted = []) {
+  const h = new Set(hidden); const m = new Set(muted);
+  return posts.filter((p) => !h.has(p.id) && !m.has(p.by));
+}
+
+// Why someone reports a post. Reports go to the site's admins (the Admin page).
+export const REPORT_REASONS = { mean: 'Mean or hurtful', private: 'Shares something private', spam: 'Spam or a scam', other: 'Something else' };
+export const reportId = (postId, uid) => `${postId}_${uid}`;
+// What a report keeps: a copy of the post's words so admins can judge it even if it's deleted
+// later, but not its pictures (only how many there were).
+export function reportOf(post, me, reason, home) {
+  return {
+    by: me.uid, byName: cleanPersonName(me.name) || 'Someone', post: post.id, postBy: post.by, postName: cleanPersonName(post.name) || 'Someone',
+    text: cleanText(post.text, POST_MAX), pics: Array.isArray(post.photos) ? post.photos.length : post.photo ? 1 : 0,
+    reason: REPORT_REASONS[reason] ? reason : 'other', at: Date.now(), home: String(home || '').slice(0, 64),
+  };
+}
+
 // Who sees a post on the household Feed: everyone signed in to the household.
 export const householdIds = (rec) => Object.keys(rec?.members || {}).filter((u) => rec.members[u] === true);
 
@@ -63,12 +83,13 @@ export async function myProfile(user) {
   const ref = fs.doc(d, `users/${user.uid}`);
   const s = await fs.getDoc(ref);
   const social = (s.exists() && s.data().social) || {};
-  if (social.code) return { name: social.name || 'Me', code: social.code, groups: s.data().groups || [] };
+  const hides = { hiddenPosts: (s.exists() && s.data().hiddenPosts) || [], mutedPeople: (s.exists() && s.data().mutedPeople) || [] };
+  if (social.code) return { name: social.name || 'Me', code: social.code, groups: s.data().groups || [], ...hides };
   const name = cleanPersonName(user.name || user.email.split('@')[0]) || 'Me';
   const code = randomCode(8);
   await fs.setDoc(fs.doc(d, `friendCodes/${code}`), { uid: user.uid, name });
   await fs.setDoc(ref, { social: { name, code } }, { merge: true });
-  return { name, code, groups: (s.exists() && s.data().groups) || [] };
+  return { name, code, groups: (s.exists() && s.data().groups) || [], ...hides };
 }
 
 // A new name shows for friends and in this person's groups; old posts keep the name they had.
@@ -178,6 +199,39 @@ export async function addComment(path, id, me, text) {
   if (!body) return;
   const at = Date.now();
   await fs.setDoc(fs.doc(d, `${path}/${id}/comments/${at.toString(36)}${randomCode(4).toLowerCase()}`), { by: me.uid, name: me.name, text: body, at });
+}
+
+/* ---------- Hiding and reporting ---------- */
+// What someone hid is kept on their own users/{uid}, so it follows them to every device and
+// nobody else knows. `field` is 'hiddenPosts' (post ids) or 'mutedPeople' (account ids).
+export async function setHidden(uid, field, id, on) {
+  const { fs, db: d } = await db();
+  await fs.setDoc(fs.doc(d, `users/${uid}`), { [field]: on ? fs.arrayUnion(id) : fs.arrayRemove(id) }, { merge: true });
+}
+export async function showAllPosts(uid) {
+  const { fs, db: d } = await db();
+  await fs.setDoc(fs.doc(d, `users/${uid}`), { hiddenPosts: [] }, { merge: true });
+}
+
+// Reporting a post also hides it for the person who reported it. One report per person per post.
+export async function reportPost(me, post, reason, home) {
+  const { fs, db: d } = await db();
+  await fs.setDoc(fs.doc(d, `reports/${reportId(post.id, me.uid)}`), reportOf(post, me, reason, home));
+  await setHidden(me.uid, 'hiddenPosts', post.id, true);
+}
+
+// For the Admin page: every open report, newest first. null when the rules don't allow it.
+export async function loadReports() {
+  const { fs, db: d } = await db();
+  try {
+    return docsOf(await fs.getDocs(fs.collection(d, 'reports'))).sort((a, b) => b.at - a.at);
+  } catch { return null; }
+}
+// An admin is done with a report: `removePost` also deletes the post for everyone.
+export async function closeReports(reports, removePost) {
+  const { fs, db: d } = await db();
+  if (removePost && reports[0]) await fs.deleteDoc(fs.doc(d, `posts/${reports[0].post}`));
+  for (const r of reports) await fs.deleteDoc(fs.doc(d, `reports/${r.id}`));
 }
 
 /* ---------- Groups ---------- */
@@ -327,4 +381,8 @@ export async function forgetSocial(uid, groupIds = [], code = '') {
   }
   for (const f of await all(fs.query(fs.collection(d, 'friendships'), fs.where('users', 'array-contains', uid)))) await fs.deleteDoc(f.ref);
   if (code) await fs.deleteDoc(fs.doc(d, `friendCodes/${code}`)).catch(() => {}); // already gone, or someone else's
+  // Reports this person made. (Rules from before reports existed don't allow the query.)
+  try {
+    for (const r of await all(fs.query(fs.collection(d, 'reports'), fs.where('by', '==', uid)))) await fs.deleteDoc(r.ref);
+  } catch { /* nothing to remove */ }
 }

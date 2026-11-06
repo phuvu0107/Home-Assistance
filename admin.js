@@ -46,9 +46,11 @@ const agoText = (h) => (h < 1 ? `${Math.max(1, Math.round(h * 60))} min ago` : h
 
 // The checks at the top of the Admin page: [{ id, level: ok | warn | bad, title, text }].
 // `site` describes this screen: { feedback, fitbit } (whether those are set up for the site).
-export function monitors({ stats, runs = [], now = Date.now(), site = {} }) {
+// `reports` is how many Feed posts wait for an admin (null when they couldn't be read).
+export function monitors({ stats, runs = [], now = Date.now(), site = {}, reports = null }) {
   const out = [];
   const add = (id, level, title, text) => out.push({ id, level, title, text });
+  if (reports) add('reports', 'warn', 'Reported posts', `${reports} post${reports === 1 ? '' : 's'} reported on the Feed. See Reports below.`);
 
   if (!stats) {
     add('job', 'bad', 'Admin stats', 'No report yet. The Daily summary email job writes one each hour once FIREBASE_SERVICE_ACCOUNT and ADMIN_EMAILS are set.');
