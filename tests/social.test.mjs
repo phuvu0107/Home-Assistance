@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanCode, feedFor, friendsGate, householdFeed, householdIds, groupMoney, newestFirstId, pairId, showCode } from '../social.js';
+import { cleanCode, feedFor, friendsGate, householdFeed, householdIds, groupMoney, newestFirstId, pairId, reportId, reportOf, showCode, visibleFeed } from '../social.js';
 
 test('ids sort newest first', () => {
   const ids = [1700000000000, 1800000000000, 1750000000000].map((t) => newestFirstId(t));
@@ -59,4 +59,24 @@ test('the household feed shows posts made in it, and older posts by the people i
 test('everyone signed in to the household sees its posts', () => {
   assert.deepEqual(householdIds({ members: { phu: true, nhi: true, old: false } }), ['phu', 'nhi']);
   assert.deepEqual(householdIds(null), []);
+});
+
+test('hidden posts and hidden people leave the Feed only for the person who hid them', () => {
+  const posts = [{ id: 'a', by: 'ann' }, { id: 'b', by: 'bob' }, { id: 'c', by: 'bob' }, { id: 'd', by: 'cat' }];
+  assert.deepEqual(visibleFeed(posts).map((p) => p.id), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(visibleFeed(posts, ['a'], ['bob']).map((p) => p.id), ['d']);
+  assert.deepEqual(visibleFeed(posts, undefined, ['cat']).map((p) => p.id), ['a', 'b', 'c']);
+});
+
+test('a report copies the words, not the pictures, and keeps to known reasons', () => {
+  const post = { id: 'p1', by: 'bob', name: 'Bob <b>', text: '  rude words  ', photos: ['data:image/jpeg;base64,x', 'data:image/jpeg;base64,y'] };
+  const r = reportOf(post, { uid: 'ann', name: 'Ann' }, 'nonsense', 'home1');
+  assert.equal(r.text, 'rude words');
+  assert.equal(r.pics, 2);
+  assert.equal(r.reason, 'other');
+  assert.equal(r.postName, 'Bob b');
+  assert.equal(r.by, 'ann');
+  assert.ok(!('photos' in r));
+  assert.equal(reportOf({ ...post, photos: undefined, photo: 'data:x' }, { uid: 'ann', name: 'Ann' }, 'spam').pics, 1);
+  assert.equal(reportId('p1', 'ann'), 'p1_ann');
 });
