@@ -4247,7 +4247,7 @@ function emailConn() {
       <div class="field"><label for="email-to">Who gets it</label>
         <div style="display:flex;gap:8px"><input class="input" id="email-to" type="text" inputmode="email" autocomplete="off" placeholder="you@example.com, them@example.com" value="${esc((e?.to || []).join(', '))}">
         <button class="btn" data-action="email-save"${!e || e.loading ? ' disabled' : ''}>Save</button></div>
-        <div class="hint">Up to 10 addresses. Times and weather follow ${esc(state.settings.place.name)} and this screen's clock (${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}); saving here updates them.</div></div>`;
+        <div class="hint">Up to 10 addresses. Times and weather follow ${esc(state.settings.place.name)} and this screen's clock (${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}); saving here updates them. Anyone who taps Unsubscribe in the email is taken off this list.</div></div>`;
   return connRow('email', 'bell', 'Summary email', status, on, body);
 }
 
@@ -4546,7 +4546,7 @@ views.privacy = () => {
     <li><b>Health, if you connect it.</b> Steps, sleep, resting heart rate and weight from Fitbit, read with your permission. You can disconnect in Settings › Connections.</li>
     <li><b>Feed, if you use it.</b> Your Feed name, your posts, comments and likes, any friends added before the Feed, and the groups you are in with their plans, bucket list and shared money.</li>
     <li><b>Reports, if you report a post.</b> Which post, why, and your Feed name, with a copy of the post's words (not its pictures), until an admin deals with it. What you hide on the Feed is kept with your account and only you see it.</li>
-    <li><b>Summary email, if your household turns it on.</b> The addresses it goes to, and your household's time zone and weather place.</li>
+    <li><b>Summary email, if your household turns it on.</b> The addresses it goes to, and your household's time zone and weather place. Each email has an Unsubscribe link; it sends a short email back, which is read only to take that address off the list.</li>
     <li><b>On this device.</b> Display settings, a copy of your household so it works offline, and pictures you've seen.</li>
   </ul>`)}
   ${sec('Who sees it', 'users', `<ul class="privacy-list">
