@@ -689,7 +689,7 @@ label.btn { cursor: pointer; }
 .task.with-face .task-body { padding-left: 12px; }
 .list + .day-tasks { margin-top: 10px; }
 
-.wk { --gutter: 56px; }
+.wk { --gutter: 56px; --hour: 52px; }
 .wk-head, .wk-allrow, .wk-grid { display: grid; grid-template-columns: var(--gutter) repeat(7, minmax(0, 1fr)); }
 .wk-day { text-align: center; padding-bottom: 8px; }
 .wk-day small { display: block; font-size: 12px; color: var(--text-3); font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
@@ -707,7 +707,7 @@ label.btn { cursor: pointer; }
 .wk-col {
   position: relative; border-left: 1px solid var(--card-border);
   background-image: linear-gradient(var(--card-border) 1px, transparent 1px);
-  background-size: 100% 52px;
+  background-size: 100% var(--hour);
 }
 .wk-ev {
   position: absolute; border: 0; border-radius: 10px; padding: 4px 6px; text-align: left; overflow: hidden;
@@ -721,6 +721,11 @@ label.btn { cursor: pointer; }
 .wk-ev.c-green { border-left: 3px solid var(--green-fg); }
 .wk-ev.c-amber { border-left: 3px solid var(--amber-fg); }
 .wk-ev.c-purple { border-left: 3px solid var(--purple-fg); }
+/* Fridge: the whole day fits, so nothing scrolls and short events read on one line. */
+.wk.fit .wk-scroll { height: auto; min-height: 0; overflow: visible; }
+.wk-ev.one-line { flex-direction: row; align-items: center; gap: 6px; padding-top: 2px; padding-bottom: 2px; }
+.wk-ev.one-line .wk-ev-top { flex: none; }
+.wk-ev.one-line .wk-ev-title { min-width: 0; }
 .now-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--danger); z-index: 2; pointer-events: none; }
 .now-line::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); }
 

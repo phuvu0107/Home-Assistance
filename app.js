@@ -8,6 +8,7 @@ import FEEDBACK_EMAIL from './feedback-config.js';
 import { adminRulesPublished, fmtBytes, isAdmin, loadAdmin, monitors, shortId, worst } from './admin.js';
 import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, friendsGate, householdFeed, householdIds, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { collagePick, createPhotos, drawCollage, shrink } from './photos.js';
+import { archiveCutoff, mergeArchive, pickArchivable, withoutArchived } from './archive.js';
 import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, seasonFor, WEEKDAYS } from './schedule.js';
 import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, shopGroups, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthReport, monthTrend, newJoiners, paidForOther, newMember, PERSON_COLORS, sortMembers } from './people.js';
 
@@ -985,6 +986,7 @@ for (const el of [$('#tabs'), $('#dome')]) {
 $('#dome-scrim').addEventListener('pointerdown', (e) => { e.preventDefault(); closeDome(); placeLens(moreIndex()); moveInk(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && domeOpen) { closeDome(); $('#tabs [data-page="more"]').focus(); } });
 window.addEventListener('resize', () => { if (domeOpen) closeDome(); });
+window.addEventListener('resize', () => fitWeek($('#view')));
 
 // One add button, in the same corner on every page. Pages that can add more than one kind of
 // thing open a short menu.
@@ -1101,6 +1103,7 @@ function showPeek(page, dir) {
   peek.style.width = `${swipe.w}px`;
   peek.dataset.dir = dir;
   if (!peek.isConnected) view.after(peek);
+  fitWeek(peek);
 }
 function dropPeek() { peek?.remove(); swipe.peekId = null; }
 function endSwipe(e, cancelled) {
@@ -1172,7 +1175,7 @@ const whoName = (who) => (who === 'both' ? (members().length === 2 ? `${members(
 
 /* ---------- Events ---------- */
 const byStart = (a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''));
-const eventsOn = (iso) => state.events.filter((e) => e.date === iso).sort(byStart);
+const eventsOn = (iso) => withArchived(state.events, 'events', iso.slice(0, 4)).filter((e) => e.date === iso).sort(byStart);
 
 function dayLabel(iso) {
   if (iso === isoDay(new Date())) return 'Today';
@@ -1504,13 +1507,13 @@ function weekView() {
     const iso = isoDay(d);
     const timed = laneLayout(calEventsOn(iso).filter((e) => e.time));
     const nowLine = iso === todayIso && nowMin >= DAY_START * 60 && nowMin < DAY_END * 60
-      ? `<div class="now-line" style="top:${((nowMin - DAY_START * 60) / 60) * HOUR_PX}px"></div>` : '';
+      ? `<div class="now-line" style="top:calc(var(--hour) * ${(nowMin - DAY_START * 60) / 60})"></div>` : '';
     return `<div class="wk-col${iso === todayIso ? ' today' : ''}" data-action="add-event-at" data-d="${iso}">
       ${timed.map(({ e, start, end, lane, lanes }) => {
-        const top = ((start - DAY_START * 60) / 60) * HOUR_PX;
-        const height = Math.max(26, ((end - start) / 60) * HOUR_PX - 3);
+        const top = `calc(var(--hour) * ${(start - DAY_START * 60) / 60})`;
+        const height = `max(26px, calc(var(--hour) * ${(end - start) / 60} - 3px))`;
         return `<button class="wk-ev${eventDone(e) ? ' done' : ''} c-${userOf(e.who)?.color || 'purple'}${e.important ? ' imp' : ''}" data-action="edit-event" data-id="${e.id}"
-          style="top:${top}px;height:${height}px;left:calc(${(lane / lanes) * 100}% + 2px);width:calc(${100 / lanes}% - 4px)">
+          style="top:${top};height:${height};left:calc(${(lane / lanes) * 100}% + 2px);width:calc(${100 / lanes}% - 4px)">
           <span class="wk-ev-top">${eventDone(e) ? icon('check', 'ev-done') : avatar(e.who, 'xs')}<b>${timeLabel(e)}</b>${impTag(e)}</span><span class="wk-ev-title">${esc(e.title)}</span></button>`;
       }).join('')}${nowLine}</div>`;
   }).join('');
@@ -1518,13 +1521,34 @@ function weekView() {
     <div class="wk-head"><div></div>${head}</div>
     <div class="wk-allrow"><div class="wk-gutter-label">All day${calChores() && days.some((d) => isoDay(d) === todayIso) && state.tasks.length ? '<br>&amp; chores' : ''}</div>${allDay}</div>
     <div class="wk-scroll" id="wk-scroll">
-      <div class="wk-grid" style="height:${hours.length * HOUR_PX}px">
-        <div class="wk-hours">${hours.map((h) => `<span style="top:${(h - DAY_START) * HOUR_PX}px">${fmtTime(new Date(2000, 0, 1, h), false)}</span>`).join('')}</div>
+      <div class="wk-grid" style="height:calc(var(--hour) * ${hours.length})">
+        <div class="wk-hours">${hours.map((h) => `<span style="top:calc(var(--hour) * ${h - DAY_START})">${fmtTime(new Date(2000, 0, 1, h), false)}</span>`).join('')}</div>
         ${cols}
       </div>
     </div>
   </div>`;
 }
+
+// On a big screen like the fridge, the whole 7 AM to 10 PM day fits without scrolling, so the
+// morning stays in view at night. Hours shrink to fill the space down to the tab bar; when that
+// would make them too small to read (a phone, a short window), the grid keeps scrolling instead.
+const FIT_MIN_HOUR = 34;
+const FIT_MAX_HOUR = 64;
+function fitWeek(root = document) {
+  const wk = root.querySelector('.wk');
+  const box = wk?.querySelector('.wk-scroll');
+  if (!box) return;
+  wk.classList.remove('fit'); wk.style.removeProperty('--hour');
+  const tabs = $('#tabs')?.getBoundingClientRect();
+  const bottom = (tabs && tabs.height && innerWidth >= 900 ? tabs.top : innerHeight) - 16;
+  const hour = Math.floor((bottom - box.getBoundingClientRect().top - scrollY) / (DAY_END - DAY_START));
+  if (innerWidth < 900 || hour < FIT_MIN_HOUR) return;
+  wk.classList.add('fit');
+  wk.style.setProperty('--hour', `${Math.min(hour, FIT_MAX_HOUR)}px`);
+  // Short events show their time and title on one line.
+  for (const ev of wk.querySelectorAll('.wk-ev')) ev.classList.toggle('one-line', ev.offsetHeight < 42);
+}
+const hourPx = (el) => parseFloat(getComputedStyle(el).getPropertyValue('--hour')) || HOUR_PX;
 
 function monthView() {
   const y = calCursor.getFullYear();
@@ -1582,6 +1606,7 @@ function calTitle() {
 
 const CAL_VIEWS = { agenda: 'List', week: 'Week', month: 'Month', trip: 'Itinerary' };
 views.calendar = () => {
+  wantArchive(isoDay(addDays(calCursor, -42)), isoDay(addDays(calCursor, 42)));
   const v = calView();
   return `
   <div class="card cal-card">
@@ -3065,7 +3090,7 @@ const house = createSync({
     const wasFull = houseFullBanner();
     houseSync = st;
     if (st.size) houseFill = st.size / SYNC_LIMIT;
-    if (st.state === 'ok') photos.flush();
+    if (st.state === 'ok') { photos.flush(); setTimeout(runArchive, 5000); }
     // The saved passphrase stopped working: ask for it again.
     if (st.state === 'badpass' && housePass && !houseSheetOpen()) openHouseSheet();
     // Another screen moved this household to sign-in: follow it there.
@@ -3077,6 +3102,54 @@ const house = createSync({
 });
 onSaved = () => { if (house.connected) house.changed(); };
 const photos = createPhotos(house);
+
+/* ---------- Archive: expenses and events from more than a year ago (see archive.js) ----------
+   Once a day a synced screen moves them into one document per year beside the household's main
+   one, so the main one doesn't fill up. Going back to an archived month or week reads that year's
+   archive and shows it as it was; archived items can't be changed. */
+const ARCHIVE_RUN_KEY = 'home-dashboard.archive-run.v1';
+const archived = {}; // year -> { expenses, events } once read, or 'loading'
+let archiving = false;
+async function runArchive() {
+  const today = isoDay(new Date());
+  if (archiving || !house.connected || houseSync.state !== 'ok' || readLocal(ARCHIVE_RUN_KEY) === today) return;
+  const moving = pickArchivable(state, archiveCutoff(today));
+  archiving = true;
+  try {
+    const done = {};
+    for (const [year, add] of Object.entries(moving)) {
+      if (!(await house.putArchive(year, (had) => mergeArchive(had, add)))) break;
+      done[year] = add;
+      if (archived[year] && archived[year] !== 'loading') archived[year] = mergeArchive(archived[year], add);
+    }
+    if (Object.keys(done).length) {
+      Object.assign(state, withoutArchived(state, done));
+      save();
+      if (calmToRender()) renderView();
+    }
+    if (Object.keys(done).length === Object.keys(moving).length) writeLocal(ARCHIVE_RUN_KEY, today);
+  } catch { /* offline or refused: tried again on the next sync */ } finally { archiving = false; }
+}
+// Reads the archive for every year from `from` to `to` (YYYY-MM-DD) that reaches back past the cutoff.
+function wantArchive(from, to) {
+  if (!house.connected || from >= archiveCutoff(isoDay(new Date()))) return;
+  for (let y = Number(from.slice(0, 4)); y <= Number(to.slice(0, 4)); y++) {
+    if (archived[y]) continue;
+    archived[y] = 'loading';
+    house.getArchive(y)
+      .then((a) => { archived[y] = a || { expenses: [], events: [] }; if (a && calmToRender()) renderView(); })
+      .catch(() => { delete archived[y]; });
+  }
+}
+// A list with the archived items of the given years added (anything still in the list wins).
+function withArchived(list, kind, ...years) {
+  const extra = years.flatMap((y) => (archived[y] && archived[y] !== 'loading' ? archived[y][kind] || [] : []));
+  if (!extra.length) return list;
+  const have = new Set(list.map((x) => x.id));
+  return [...list, ...extra.filter((x) => !have.has(x.id))];
+}
+const allExpenses = () => withArchived(state.expenses, 'expenses', ...Object.keys(archived));
+const archivedToast = () => toast('This is from more than a year ago, so it is kept in the archive and can’t be changed');
 const FILL_WARN = 0.8;
 const fullText = 'Household data is full, so changes made here are not syncing. Delete old events, expenses or notes to make room.';
 function houseMessage() {
@@ -3487,7 +3560,7 @@ let piggyMonth = monthKey(new Date());
 const monthBounds = (key) => { const [y, m] = key.split('-').map(Number); return [new Date(y, m - 1, 1), new Date(y, m, 0)]; };
 const monthName = (key) => monthBounds(key)[0].toLocaleDateString([], { month: 'long', year: 'numeric' });
 const monthRange = (key) => monthBounds(key).map((d) => d.toLocaleDateString([], { month: 'short', day: 'numeric' })).join(' – ');
-const expensesIn = (key) => state.expenses.filter((x) => x.date.startsWith(key)).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+const expensesIn = (key) => allExpenses().filter((x) => x.date.startsWith(key)).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
 
 // Who paid what, and who owes whom for the shared (split evenly) expenses: see people.js.
 // A settle-up entry ({ kind: 'settle', paidBy, to }) is money between two people, not spending.
@@ -3519,6 +3592,7 @@ function expenseRow(x, showSplit, hideBox) {
 
 views.piggy = () => {
   const key = piggyMonth;
+  wantArchive(isoDay(new Date(monthBounds(key)[0].getFullYear(), monthBounds(key)[0].getMonth() - TREND_MONTHS + 1, 1)), `${key}-31`);
   const all = expensesIn(key);
   const list = spending(all);
   const st = expenseStats(all);
@@ -3528,7 +3602,7 @@ views.piggy = () => {
   const daysSoFar = isNow ? new Date().getDate() : last.getDate();
   const byDay = {};
   all.forEach((x) => { (byDay[x.date] ||= []).push(x); });
-  const months = [...new Set(state.expenses.map((x) => x.date.slice(0, 7)))].sort().reverse();
+  const months = [...new Set(allExpenses().map((x) => x.date.slice(0, 7)))].sort().reverse();
 
   // What people come here for first: who owes whom. Then where the month's money went.
   // A household of one has nobody to owe.
@@ -3655,7 +3729,7 @@ function categoryCard(list) {
 // Tapping a month opens it.
 const TREND_MONTHS = 6;
 function trendCard(key, months) {
-  const t = monthTrend(state.expenses, members().map((u) => u.id), key, TREND_MONTHS);
+  const t = monthTrend(allExpenses(), members().map((u) => u.id), key, TREND_MONTHS);
   const now = t.months.at(-1); const prev = t.months.at(-2);
   const short = (k) => monthBounds(k)[0].toLocaleDateString([], { month: 'short' });
   const whole = (n) => fmtCash(Math.round(n)).replace(/\.00$/, '');
@@ -3691,7 +3765,7 @@ function trendCard(key, months) {
 // print. The numbers come from monthReport() in people.js, the same sums the page shows.
 function openMonthReport(key) {
   const ids = members().map((u) => u.id);
-  const r = monthReport(state.expenses, ids, key);
+  const r = monthReport(allExpenses(), ids, key);
   const st = r.stats;
   const many = members().length > 1;
   const showSplit = state.settings.showSplit !== false;
@@ -4544,6 +4618,7 @@ function renderView(anim) {
   const typed = g && keepTyped(view);
   view.innerHTML = !g ? views[r]() : r === 'privacy' ? `<div class="gate-top"><a class="gate-back" href="#/home">${icon('chevron')}Back</a></div>${views.privacy()}` : gateView(g);
   typed?.(); // a redraw while signing in (a busy button, an error) keeps what was typed
+  fitWeek(view);
   const wk = $('#wk-scroll');
   if (wk) wk.scrollTop = wkScroll ?? Math.max(0, (new Date().getHours() - DAY_START - 1) * HOUR_PX);
   const hm = $('#hm-scroll');
@@ -4791,12 +4866,14 @@ const actions = {
   },
   'add-event-at': (el, e) => {
     const y = e.clientY - el.getBoundingClientRect().top;
-    const h = Math.min(DAY_END - 1, DAY_START + Math.floor(y / HOUR_PX));
+    const h = Math.min(DAY_END - 1, DAY_START + Math.floor(y / hourPx(el)));
     openEventSheet(null, el.dataset.d, `${String(h).padStart(2, '0')}:00`);
   },
   'edit-event': (el) => {
     const day = !$('#sheet').hidden && $('#sheet').dataset.kind === 'day' ? $('#sheet').dataset.d : '';
-    openEventSheet(state.events.find((x) => x.id === el.dataset.id));
+    const ev = state.events.find((x) => x.id === el.dataset.id);
+    if (!ev) { archivedToast(); return; }
+    openEventSheet(ev);
     if (day) $('#sheet').dataset.back = day; // from a day pop-up: Mark done and Save go back to it
   },
   'save-event': (el) => {
@@ -4828,7 +4905,7 @@ const actions = {
   },
   'toggle-event': (el) => {
     const e = state.events.find((x) => x.id === el.dataset.id);
-    if (!e) return;
+    if (!e) { archivedToast(); return; }
     if (!eventDone(e) && e.date > isoDay(new Date())) { toast("This hasn't happened yet"); return; }
     // From the event pop-up, use the people and stars picked there, so switching to Both and
     // tapping Mark done pays both instead of only whoever the event had before.
@@ -5526,7 +5603,7 @@ const actions = {
     closeSheet();
     toast(`Added ${n} item${n === 1 ? '' : 's'} to the fridge${bought.length ? ` and ticked ${bought.length} off the shopping list` : ''}`);
   },
-  'edit-expense': (el) => openExpenseSheet(state.expenses.find((x) => x.id === el.dataset.id)),
+  'edit-expense': (el) => { const x = state.expenses.find((y) => y.id === el.dataset.id); if (x) openExpenseSheet(x); else archivedToast(); },
   'add-box': () => openBoxSheet(null),
   'open-box': (el) => { const b = (state.boxes || []).find((x) => x.id === el.dataset.id); if (b) openBoxView(b); },
   'edit-box': (el) => openBoxSheet((state.boxes || []).find((x) => x.id === el.dataset.id)),

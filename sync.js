@@ -54,6 +54,13 @@ async function photoPath(path, id) {
   return passPath(await householdId(`${path}:photo:${id}`));
 }
 
+// Expenses and events older than a year, one document per year (see archive.js), named and
+// sealed the same way as the pictures.
+async function archivePath(path, year) {
+  if (!path.startsWith('households/')) return path.replace(/\/main$/, `/archive-${year}`);
+  return passPath(await householdId(`${path}:archive:${year}`));
+}
+
 /* ---------- State <-> items ---------- */
 const LISTS = { e: 'events', t: 'tasks', x: 'expenses', l: 'log', f: 'fridge', k: 'thanks', n: 'notes', b: 'bucket', p: 'members', i: 'itinerary', g: 'shopping', m: 'boxes', q: 'shopBoxes' };
 const strip = ({ u, ...rest }) => rest;
@@ -327,6 +334,26 @@ export function createSync({ getState, onRemote, onStatus, onBase = () => {} }) 
       if (!path) return;
       const be = await backend();
       await be.update(await photoPath(path, id), async () => ({ gone: true, at: Date.now() }));
+    },
+    // Adds expenses and events to a year's archive. `add(had)` gets what the archive already holds
+    // and returns the new contents. False when this device isn't syncing with a household.
+    async putArchive(year, add) {
+      if (!path) return false;
+      const be = await backend(); const how = codec;
+      await be.update(await archivePath(path, year), async (remote) => {
+        const had = remote?.box ? await how.open(remote.box) : null;
+        const box = await how.seal(add(had));
+        if (JSON.stringify(box).length > SYNC_LIMIT) throw Object.assign(new Error('Archive is full'), { full: true });
+        return { box, at: Date.now() };
+      });
+      return true;
+    },
+    // A year's archive ({ expenses, events }), or null when there is none or no household.
+    async getArchive(year) {
+      if (!path) return null;
+      const be = await backend(); const how = codec;
+      const doc = await be.read(await archivePath(path, year));
+      return doc?.box ? how.open(doc.box) : null;
     },
     disconnect() { stop(); key = null; base = null; onBase(null); status('off'); },
     changed: () => schedule(),
