@@ -1951,7 +1951,7 @@ button.hm-cell { cursor: pointer; }
    The look before Nordic (rust brand, cream page, espresso ink, cocoa night, season tints, soft glows)
    is everything above this block, untouched: delete from this comment to the end of the file to get it
    back, along with the theme colours #F3E8D2 / #3A2A24 in index.html, manifest.webmanifest and app.js.
-   It is also saved as the git tag theme-rust-2026-11. */
+   The whole app as it was then is saved on the branch theme-rust-2026-11. */
 :root[data-theme] {
   --navy: #2E3438; --cream: #F3F0EA; --teal: #3E6A5D; --coral: #B0603D; --honey: #D3A04A;
   --brand: var(--teal); --bg: var(--cream);
