@@ -6,7 +6,7 @@ import { healthAvailable, preloadGoogle, readDays, signIn, signOut, SignInExpire
 import { alertRecipients, alertTopicOf, bucketAlert, newAlertTopic, sendAlerts, testAlert, thanksAlert } from './alerts.js';
 import FEEDBACK_EMAIL from './feedback-config.js';
 import { adminRulesPublished, fmtBytes, isAdmin, loadAdmin, monitors, shortId, worst } from './admin.js';
-import { acceptFriend, addComment, addFriend, addPost, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, friendsGate, householdFeed, householdIds, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, myGroups, myProfile, POST_MAX, renameGroup, saveGroupItem, setLike, setMyName, startGroup, unfriend, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
+import { acceptFriend, addComment, addFriend, addPost, closeReports, COMMENT_MAX, createGroupInvite, deleteDocAt, dropRequest, friendsGate, householdFeed, householdIds, GROUP_NAME_MAX, groupMoney, joinGroup, leaveGroup, loadReports, myGroups, myProfile, POST_MAX, renameGroup, REPORT_REASONS, reportPost, saveGroupItem, setHidden, setLike, setMyName, showAllPosts, startGroup, unfriend, visibleFeed, watchComments, watchFriends, watchGroup, watchPosts } from './social.js';
 import { collagePick, createPhotos, drawCollage, shrink } from './photos.js';
 import { choreDone, choreDue, choreKind, choreLabel, EVENT_REPEATS as REPEATS, nextDay, passTurn, repeatDates, repeatUntil, seasonFor, WEEKDAYS } from './schedule.js';
 import { boxChoices, boxesForMonth, boxForDay, boxStats, categoryTotals, cleanBoxName, cleanName, shopGroups, EXPENSE_CATS, expenseCat, expenseStats as moneyStats, guessExpenseCat, householdAccounts, joinNames, legacyMembersFor, MAX_MEMBERS, monthReport, monthTrend, newJoiners, paidForOther, newMember, PERSON_COLORS, sortMembers } from './people.js';
@@ -2577,13 +2577,31 @@ const textHtml = (s) => esc(s).replace(/\n/g, '<br>');
 // Only a picture carried in the post itself; anything else in the field is ignored.
 const isPic = (v) => typeof v === 'string' && v.startsWith('data:image/');
 const postPhotos = (p) => (Array.isArray(p.photos) ? p.photos : [p.photo]).filter(isPic).slice(0, BUCKET_PICS_MAX);
+const mutedSet = () => new Set(social.me?.mutedPeople || []);
+const feedPost = (id) => (social.posts || []).find((x) => x.id === id);
+const shortName = (n) => String(n || '').split(/\s+/)[0] || 'them';
+// Hides or shows again a post or a person for this account, on screen right away.
+function hideFor(field, id, on, note) {
+  const list = new Set(social.me[field] || []);
+  if (on) list.add(id); else list.delete(id);
+  social.me[field] = [...list];
+  closeSheet(); renderView();
+  if (note) toast(note);
+  setHidden(social.uid, field, id, on).catch((e) => toast(accountError(e)));
+}
+// Who wrote the posts and comments someone hid, named as the household knows them.
+function mutedName(uid) {
+  const a = houseAccounts().find((x) => x.uid === uid);
+  return a ? accountLabel(a) : (social.posts || []).find((p) => p.by === uid)?.name || 'Someone';
+}
 function postCard(p, path) {
   const key = `${path}|${p.id}`;
   const likes = Object.keys(p.likes || {}).length; const liked = !!p.likes?.[social.uid];
   const open = social.open.has(key); const comments = social.comments[key];
   return `<div class="post" data-key="${esc(key)}">
     <div class="post-head">${personAv(p.by, p.name)}<span class="post-who"><b>${esc(p.name || 'Someone')}</b><small>${ago(p.at)}</small></span>
-      ${p.by === social.uid ? `<button class="btn-round" data-action="soc-del-post" data-path="${path}" data-id="${p.id}" aria-label="Delete post">${icon('trash')}</button>` : ''}</div>
+      ${p.by === social.uid ? `<button class="btn-round" data-action="soc-del-post" data-path="${path}" data-id="${p.id}" aria-label="Delete post">${icon('trash')}</button>`
+        : path === FRIENDS_PATH ? `<button class="btn-round" data-action="soc-post-menu" data-id="${p.id}" aria-label="Hide or report this post">${icon('more')}</button>` : ''}</div>
     ${p.text ? `<p class="post-text">${textHtml(p.text)}</p>` : ''}
     ${postPhotos(p).length ? slides(postPhotos(p).map((src, i) => `<button class="post-photo" data-action="soc-view-photo" data-path="${path}" data-id="${p.id}" data-i="${i}" aria-label="See the picture"><img alt="" src="${esc(src)}"></button>`)) : ''}
     ${typeof p.went === 'string' && p.went ? `<p class="post-went">With ${esc(p.went.slice(0, 120))}</p>` : ''}
@@ -2591,7 +2609,7 @@ function postCard(p, path) {
       <button class="post-act${liked ? ' on' : ''}" data-action="soc-like" data-path="${path}" data-id="${p.id}" aria-pressed="${liked}">${liked ? '❤️' : '🤍'} ${likes || ''}<span>Like</span></button>
       <button class="post-act" data-action="soc-comments" data-path="${path}" data-id="${p.id}" aria-expanded="${open}">💬 ${open && comments ? comments.length || '' : ''}<span>${open ? 'Hide comments' : 'Comments'}</span></button>
     </div>
-    ${open ? `<div class="comments">${comments ? comments.map((c) => `<div class="comment">${personAv(c.by, c.name, 'xs')}<p><b>${esc(c.name || 'Someone')}</b> ${textHtml(c.text)}<small>${ago(c.at)}</small></p>
+    ${open ? `<div class="comments">${comments ? comments.filter((c) => !mutedSet().has(c.by)).map((c) => `<div class="comment">${personAv(c.by, c.name, 'xs')}<p><b>${esc(c.name || 'Someone')}</b> ${textHtml(c.text)}<small>${ago(c.at)}</small></p>
         ${c.by === social.uid || p.by === social.uid ? `<button class="btn-round" data-action="soc-del-comment" data-path="${path}" data-id="${p.id}" data-c="${c.id}" aria-label="Delete comment">${icon('x')}</button>` : ''}</div>`).join('') : '<p class="hint">Loading…</p>'}
       <div class="comment-new"><input class="input" maxlength="${COMMENT_MAX}" data-draft="c:${esc(key)}" value="${esc(social.drafts[`c:${key}`] || '')}" placeholder="Write a comment" aria-label="Write a comment">
         <button class="btn" data-action="soc-comment" data-path="${path}" data-id="${p.id}">Send</button></div></div>` : ''}
@@ -2657,7 +2675,9 @@ views.feed = () => {
 // stay reachable at the foot of the page for anyone already in one.
 function feedHub() {
   const people = houseAccounts();
-  const posts = social.posts && houseRec ? householdFeed(social.posts, houseHome, householdIds(houseRec)) : null;
+  const all = social.posts && houseRec ? householdFeed(social.posts, houseHome, householdIds(houseRec)) : null;
+  const posts = all && visibleFeed(all, social.me.hiddenPosts, social.me.mutedPeople);
+  const hidden = all ? all.length - posts.length : 0;
   const others = people.filter((a) => a.uid !== social.uid);
   const first = (n) => String(n || '').split(/\s+/)[0];
   const seenBy = others.length ? `with ${esc(joinNames(others.map((a) => first(accountLabel(a)))))}` : 'only you for now';
@@ -2666,7 +2686,8 @@ function feedHub() {
     <div class="card feed-compose">${composer(FRIENDS_PATH, `What's new, ${esc(first(social.me.name) || 'you')}?`, { slim: true,
       lead: `<button class="composer-me" data-action="soc-edit-name" aria-label="Posting as ${esc(social.me.name)}. Change name" title="Change name">${personAv(social.uid, social.me.name)}</button>` })}</div>
     <div class="feed">${posts === null ? '<p class="hint">Loading…</p>' : posts.map((p) => postCard(p, FRIENDS_PATH)).join('')
-      || '<div class="card"><p class="empty-line">No posts yet. Say hi, or share a picture.</p></div>'}</div>
+      || `<div class="card"><p class="empty-line">${hidden ? 'Nothing new to see.' : 'No posts yet. Say hi, or share a picture.'}</p></div>`}</div>
+    ${hidden || social.me.mutedPeople?.length ? `<button class="feed-hidden" data-action="soc-hidden">${icon('shieldOff')}${hidden ? `${hidden} post${hidden === 1 ? '' : 's'} hidden` : 'Hidden people'}<span>Show</span></button>` : ''}
     ${social.groups.length ? `<div class="card">
       <div class="card-head">${icon('users')}<h2>Groups</h2></div>
       <div class="list">${social.groups.map((g) => `<a class="row" href="#/feed?g=${g.id}"><span class="av-pair">${g.members.slice(0, 3).map((m) => personAv(m.uid, m.name)).join('')}</span>
@@ -2841,6 +2862,55 @@ const socialActions = {
     socialDo('comment', () => addComment(el.dataset.path, el.dataset.id, socialMe(), social.drafts[key]), () => { social.drafts[key] = ''; });
   },
   'soc-del-comment': (el) => { deleteDocAt(`${el.dataset.path}/${el.dataset.id}/comments`, el.dataset.c).catch((e) => toast(accountError(e))); },
+  'soc-post-menu': (el) => {
+    const p = feedPost(el.dataset.id); if (!p) return;
+    const who = esc(shortName(p.name));
+    openSheet(`${sheetHead('This post', 'more')}
+      <div class="list menu-list">
+        <button class="row" data-action="soc-hide-post" data-id="${p.id}"><span class="ibox c-purple-ico">${icon('shieldOff')}</span><span class="menu-text"><b>Hide this post</b><small>Only you stop seeing it. ${who} isn't told.</small></span></button>
+        <button class="row" data-action="soc-mute" data-id="${p.id}"><span class="ibox c-amber-ico">${icon('users')}</span><span class="menu-text"><b>Hide posts from ${who}</b><small>Their posts and comments stop showing for you. You can show them again.</small></span></button>
+        <button class="row" data-action="soc-report" data-id="${p.id}"><span class="ibox c-red-ico">${icon('bell')}</span><span class="menu-text"><b>Report this post</b><small>Hides it, and sends it to the people who run Hometide to look at.</small></span></button>
+      </div>`);
+  },
+  'soc-hide-post': (el) => hideFor('hiddenPosts', el.dataset.id, true, 'Post hidden'),
+  'soc-mute': (el) => { const p = feedPost(el.dataset.id); if (p) hideFor('mutedPeople', p.by, true, `Posts from ${shortName(p.name)} hidden`); },
+  'soc-report': (el) => {
+    const p = feedPost(el.dataset.id); if (!p) return;
+    openSheet(`${sheetHead('Report this post', 'bell')}
+      <p class="hint">What's wrong with it? ${esc(shortName(p.name))} isn't told who reported it.</p>
+      <div class="chips report-reasons" role="radiogroup">${Object.entries(REPORT_REASONS).map(([k, l], i) => `<button class="chip${i ? '' : ' on'}" role="radio" aria-checked="${!i}" data-action="soc-reason" data-v="${k}">${l}</button>`).join('')}</div>
+      <div class="sheet-actions"><span class="spacer"></span><button class="btn ghost" data-action="close-sheet">Cancel</button>
+        <button class="btn danger" data-action="soc-send-report" data-id="${p.id}">Report</button></div>`);
+  },
+  'soc-reason': (el) => { el.parentElement.querySelectorAll('.chip').forEach((c) => { c.classList.toggle('on', c === el); c.setAttribute('aria-checked', c === el); }); },
+  'soc-send-report': (el) => {
+    const p = feedPost(el.dataset.id); if (!p) return;
+    const reason = $('#sheet .report-reasons .chip.on')?.dataset.v || 'other';
+    closeSheet();
+    socialDo('report', () => reportPost(socialMe(), p, reason, houseHome), () => {
+      social.me.hiddenPosts = [...new Set([...(social.me.hiddenPosts || []), p.id])];
+      toast('Thanks. The post is hidden and was sent to be looked at.');
+    });
+  },
+  'soc-hidden': () => {
+    const all = houseRec ? householdFeed(social.posts || [], houseHome, householdIds(houseRec)) : [];
+    const n = all.length - visibleFeed(all, social.me.hiddenPosts, []).length;
+    const people = social.me.mutedPeople || [];
+    openSheet(`${sheetHead('Hidden on your Feed', 'shieldOff')}
+      <p class="hint">Only you see this list. Nobody is told what you hid.</p>
+      <div class="list menu-list">
+        ${people.map((u) => `<div class="row">${personAv(u, mutedName(u))}<span class="menu-text"><b>${esc(mutedName(u))}</b><small>Posts and comments hidden</small></span>
+          <button class="btn ghost" data-action="soc-unmute" data-v="${esc(u)}">Show again</button></div>`).join('')}
+        ${n ? `<div class="row"><span class="ibox c-purple-ico">${icon('shieldOff')}</span><span class="menu-text"><b>${n} hidden post${n === 1 ? '' : 's'}</b><small>Posts you hid or reported</small></span>
+          <button class="btn ghost" data-action="soc-unhide-all">Show again</button></div>` : ''}
+        ${!people.length && !n ? '<p class="empty-line">Nothing hidden.</p>' : ''}
+      </div>`);
+  },
+  'soc-unmute': (el) => hideFor('mutedPeople', el.dataset.v, false, `Showing posts from ${shortName(mutedName(el.dataset.v))} again`),
+  'soc-unhide-all': () => {
+    social.me.hiddenPosts = []; closeSheet(); renderView(); toast('Hidden posts are showing again');
+    showAllPosts(social.uid).catch((e) => toast(accountError(e)));
+  },
   'soc-del-post': (el) => {
     if (!confirm('Delete this post?')) return;
     deleteDocAt(el.dataset.path, el.dataset.id).then(() => toast('Post deleted'), (e) => toast(accountError(e)));
@@ -4177,7 +4247,7 @@ function emailConn() {
       <div class="field"><label for="email-to">Who gets it</label>
         <div style="display:flex;gap:8px"><input class="input" id="email-to" type="text" inputmode="email" autocomplete="off" placeholder="you@example.com, them@example.com" value="${esc((e?.to || []).join(', '))}">
         <button class="btn" data-action="email-save"${!e || e.loading ? ' disabled' : ''}>Save</button></div>
-        <div class="hint">Up to 10 addresses. Times and weather follow ${esc(state.settings.place.name)} and this screen's clock (${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}); saving here updates them.</div></div>`;
+        <div class="hint">Up to 10 addresses. Times and weather follow ${esc(state.settings.place.name)} and this screen's clock (${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)}); saving here updates them. Anyone who taps Unsubscribe in the email is taken off this list.</div></div>`;
   return connRow('email', 'bell', 'Summary email', status, on, body);
 }
 
@@ -4212,13 +4282,35 @@ function checkAdminRules() {
 function recheckAdmin() {
   if (account.user && admin.uid === account.user.uid && !admin.on && Date.now() - admin.asked > 15e3) askAdmin();
 }
+function adminCloseReports(post, removePost) {
+  const rs = (admin.data?.reports || []).filter((r) => r.post === post);
+  closeReports(rs, removePost).then(() => {
+    admin.data.reports = admin.data.reports.filter((r) => r.post !== post);
+    toast(removePost ? 'Post deleted' : 'Report closed'); renderView();
+  }, (e) => toast(accountError(e)));
+}
 function loadAdminData() {
   if (!admin.on || admin.loading) return;
   admin.loading = true;
-  loadAdmin().then((d) => { admin.data = d; admin.failed = false; }, () => { admin.failed = true; })
+  loadAdmin().then(async (d) => { admin.data = { ...d, reports: await loadReports() }; admin.failed = false; }, () => { admin.failed = true; })
     .then(() => { admin.loading = false; if (['admin', 'settings'].includes(currentRoute()) && calmToRender()) renderView(); });
 }
-const adminChecks = () => monitors({ ...(admin.data || {}), site: { feedback: !!FEEDBACK_EMAIL, fitbit: healthAvailable() } });
+const adminChecks = () => monitors({ ...(admin.data || {}), reports: admin.data?.reports?.length || 0, site: { feedback: !!FEEDBACK_EMAIL, fitbit: healthAvailable() } });
+
+// Reported Feed posts, one card per post however many people reported it.
+function adminReports(list) {
+  if (list === null) return '<p class="empty-line">Couldn\'t read reports. Publish the latest <code>firestore.rules</code> in the Firebase console.</p>';
+  const byPost = {};
+  for (const r of list) (byPost[r.post] ||= []).push(r);
+  const posts = Object.values(byPost);
+  if (!posts.length) return '<p class="empty-line">No reported posts.</p>';
+  return `<div class="list">${posts.map((rs) => { const r = rs[0]; return `<div class="report">
+    <div class="post-head">${personAv(r.postBy, r.postName)}<span class="post-who"><b>${esc(r.postName || 'Someone')}</b><small>Household <code>${esc(shortId(r.home))}</code> · reported ${ago(r.at)}</small></span></div>
+    ${r.text ? `<p class="post-text">${textHtml(r.text)}</p>` : ''}${r.pics ? `<p class="hint">${r.pics} picture${r.pics === 1 ? '' : 's'} (not copied into the report)</p>` : ''}
+    <p class="report-why">${rs.map((x) => `<span class="chip">${esc(REPORT_REASONS[x.reason] || 'Something else')} · ${esc(x.byName || 'Someone')}</span>`).join('')}</p>
+    <div class="sheet-actions"><span class="spacer"></span><button class="btn ghost" data-action="admin-report-keep" data-v="${esc(r.post)}">Keep post</button>
+      <button class="btn danger" data-action="admin-report-delete" data-v="${esc(r.post)}">Delete post</button></div></div>`; }).join('')}</div>`;
+}
 const LEVEL = { ok: ['c-green-ico', 'check', 'OK'], warn: ['c-amber-ico', 'bell', 'Check'], bad: ['c-red-ico', 'x', 'Problem'] };
 
 // Settings › Admin: only the site's admins see this row.
@@ -4343,6 +4435,7 @@ views.admin = () => {
   <h3 class="set-group">Monitors</h3>
   <div class="card conns">${checks.map((m) => `<div class="conn mon mon-${m.level}" data-mon="${m.id}"><span class="conn-sum"><span class="ibox ${LEVEL[m.level][0]}" title="${LEVEL[m.level][2]}">${icon(LEVEL[m.level][1])}</span>
     <span class="conn-text"><b>${m.title}</b><small>${esc(m.text)}</small></span></span></div>`).join('')}</div>
+  <div class="card admin-reports"><div class="card-head">${icon('bell')}<h2>Reports</h2><span class="hint">Feed posts people reported</span></div>${adminReports(d.reports ?? null)}</div>
   ${st ? `<h3 class="set-group">Stats</h3>
   <div class="energy-tiles admin-tiles">
     ${tile('home', 'Households', st.households, `${(st.people || 0).toLocaleString()} people in them`)}
@@ -4441,7 +4534,7 @@ views.privacy = () => {
   return `
   <div class="settings privacy">
   <div class="section-title">Privacy</div>
-  <p class="hint privacy-lead">This page says what the app keeps about you, who can see it, and how to delete it. Last changed October 19, 2026.</p>
+  <p class="hint privacy-lead">This page says what the app keeps about you, who can see it, and how to delete it. Last changed November 6, 2026.</p>
   ${sec('The short version', 'shieldCheck', `<ul class="privacy-list">
     <li>Your household's events, chores, money and notes are seen only by the people in your household.</li>
     <li>There are no ads, no tracking and no analytics, and nothing is sold or shared for marketing.</li>
@@ -4452,13 +4545,15 @@ views.privacy = () => {
     <li><b>Your household.</b> Whatever you add: events, chores and stars, the inventory and shopping lists, expenses and receipt pictures, money boxes, the bucket list and check-in pictures, the itinerary with its places, contacts and pictures, thank-yous, notes, and each person's name, color and picture.</li>
     <li><b>Health, if you connect it.</b> Steps, sleep, resting heart rate and weight from Fitbit, read with your permission. You can disconnect in Settings › Connections.</li>
     <li><b>Feed, if you use it.</b> Your Feed name, your posts, comments and likes, any friends added before the Feed, and the groups you are in with their plans, bucket list and shared money.</li>
-    <li><b>Summary email, if your household turns it on.</b> The addresses it goes to, and your household's time zone and weather place.</li>
+    <li><b>Reports, if you report a post.</b> Which post, why, and your Feed name, with a copy of the post's words (not its pictures), until an admin deals with it. What you hide on the Feed is kept with your account and only you see it.</li>
+    <li><b>Summary email, if your household turns it on.</b> The addresses it goes to, and your household's time zone and weather place. Each email has an Unsubscribe link; it sends a short email back, which is read only to take that address off the list.</li>
     <li><b>On this device.</b> Display settings, a copy of your household so it works offline, and pictures you've seen.</li>
   </ul>`)}
   ${sec('Who sees it', 'users', `<ul class="privacy-list">
     <li>Everything in a household is shared with everyone in that household, on every device they sign in on. Hidden notes are hidden on screen, not from the people in the household.</li>
     <li>A post on the Feed is seen by the accounts signed in to your household when you posted it. Everything in a group is seen by everyone in the group.</li>
     <li>Posts and groups are kept apart from your household's data, and groups never see it.</li>
+    <li>A reported post is seen by the people who run the app, who may delete it. The writer isn't told who reported it.</li>
     <li>The data is kept by Google Firebase, protected by sign-in rules that let only those people in. It is not end-to-end encrypted, so whoever runs the app could reach it to fix a problem you report.</li>
   </ul>`)}
   ${sec('Other services the app uses', 'plug', `<ul class="privacy-list">
@@ -5339,6 +5434,8 @@ const actions = {
   'email-save': (el) => saveEmail({ to: emailList(el.closest('.field')?.querySelector('#email-to')?.value) }),
   'email-toggle': () => saveEmail({ on: !houseEmail?.on }),
   'admin-refresh': () => { loadAdminData(); renderView(); },
+  'admin-report-keep': (el) => adminCloseReports(el.dataset.v, false),
+  'admin-report-delete': (el) => { if (confirm('Delete this post for everyone?')) adminCloseReports(el.dataset.v, true); },
   'admin-copy': (el) => Promise.resolve(navigator.clipboard?.writeText(el.dataset.v)).then(() => toast(navigator.clipboard ? 'Household id copied' : el.dataset.v), () => toast(el.dataset.v)),
   'house-rename': async (el) => {
     const name = cleanName(el.closest('.field')?.querySelector('#house-name')?.value || '').slice(0, 40);

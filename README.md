@@ -176,6 +176,8 @@ Each email opens with the weather (tomorrow's for the 9 PM recap): high and low 
 
 GitHub can start scheduled runs hours late, so the workflow starts every hour and each run keeps sending emails as they come due for 5½ hours. Scheduled runs go one at a time, and the `emailSent` mark keeps each email from going out twice. An email more than an hour past its time is skipped.
 
+Every email has an **Unsubscribe** link in its footer and a `List-Unsubscribe` header, so mail apps show their own Unsubscribe button next to the sender. Both send a short email back to the sending account with the subject `Unsubscribe <household id>`. Each run reads unread emails with that subject from the sending account's inbox over IMAP, with the same app password (IMAP is on by default for Gmail; set `EMAIL_IMAP_HOST` for another provider), checks that the receiving server vouches it really came from that address, takes the address off that household's list and marks the email read. When nobody is left on the list, the household's email turns off. Other mail in the inbox is left alone.
+
 ## Deploying
 
 Every push to `main` deploys through `.github/workflows/pages.yml`, and it also runs every morning to refresh the PG&E data. One-time setup: in the repo go to **Settings > Pages** and set **Source** to **GitHub Actions**.

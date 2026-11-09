@@ -11,6 +11,7 @@ rules_version = '2';
 // friendRequests/{a_b}    a asked b to be friends
 // friendships/{a_b}       a and b are friends (a < b)
 // posts/{id}              a post on the Friends feed, readable by the people listed in `seen`
+// reports/{post_uid}      someone reported a post on the Feed; only the admins read them
 // groups/{g}              a group of friends from any household, with its own feed, plans,
 //                         bucket list and shared money (groups/{g}/items/...)
 // groupInvites/{code}     a short code that lets someone signed in join a group for 7 days
@@ -111,7 +112,8 @@ service cloud.firestore {
       allow update: if signedIn() && request.auth.uid in resource.data.seen
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes'])
         && request.resource.data.likes.diff(resource.data.likes).affectedKeys().hasOnly([request.auth.uid]);
-      allow delete: if signedIn() && resource.data.by == request.auth.uid;
+      // Its writer can delete it, and so can the admins after it was reported.
+      allow delete: if signedIn() && resource.data.by == request.auth.uid || isAdmin();
 
       match /comments/{c} {
         function canSee() { return signedIn() && request.auth.uid in get(/databases/$(db)/documents/posts/$(post)).data.seen; }
@@ -174,6 +176,22 @@ service cloud.firestore {
       allow get: if isAdmin()
         // Never written: anyone signed in can look it up, so the app can tell these rules are published.
         || doc == 'rules-check' && signedIn();
+    }
+
+    // A report on a Feed post: made by someone who can see the post, one per person per post,
+    // with a copy of the post's words for the admins. The reporter can see and take back only
+    // their own (deleting their account removes them); the admins read and close them all.
+    match /reports/{id} {
+      allow read, delete: if isAdmin() || signedIn() && resource.data.by == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.by == request.auth.uid
+        && id == request.resource.data.post + '_' + request.auth.uid
+        && request.resource.data.keys().hasOnly(['by', 'byName', 'post', 'postBy', 'postName', 'text', 'pics', 'reason', 'at', 'home'])
+        && request.resource.data.reason in ['mean', 'private', 'spam', 'other']
+        && request.resource.data.text is string && request.resource.data.text.size() <= 1000
+        && request.resource.data.byName is string && request.resource.data.byName.size() <= 40
+        && request.resource.data.postName is string && request.resource.data.postName.size() <= 40
+        && request.auth.uid in get(/databases/$(db)/documents/posts/$(request.resource.data.post)).data.seen
+        && get(/databases/$(db)/documents/posts/$(request.resource.data.post)).data.by == request.resource.data.postBy;
     }
 
     // Old passphrase households. The data inside is encrypted; anyone with the passphrase can

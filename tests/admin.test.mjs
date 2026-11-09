@@ -65,3 +65,9 @@ test('formatting', () => {
   assert.equal(fmtBytes(2 * 1048576), '2.00 MB');
   assert.equal(shortId('abcdefghij'), 'abcdef');
 });
+
+test('reported posts show as a check only when there are some', () => {
+  assert.equal(level(monitors({ stats: stats(), now: NOW, site, reports: 2 }), 'reports'), 'warn');
+  assert.equal(level(monitors({ stats: stats(), now: NOW, site, reports: 0 }), 'reports'), undefined);
+  assert.equal(level(monitors({ stats: stats(), now: NOW, site }), 'reports'), undefined);
+});

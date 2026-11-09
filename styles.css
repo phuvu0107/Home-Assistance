@@ -1929,6 +1929,19 @@ button.hm-cell { cursor: pointer; }
 /* The night greeting is dark even by day, so its rim light is dimmer. */
 .hero.night { --rim-lit: rgba(255, 255, 255, .14); --rim-shade: rgba(0, 0, 0, .2); }
 
+/* Hide and report on the Feed: the sheet's choices, the "hidden" line under the feed, and
+   reported posts on the Admin page. */
+.menu-list .row { cursor: pointer; }
+.menu-list .menu-text { flex: 1; min-width: 0; }
+.menu-list .row .btn { flex: none; }
+.report-reasons { margin: 12px 0 4px; }
+.feed-hidden { justify-self: center; display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--text-3); font-size: 14px; padding: 8px 12px; border-radius: 999px; }
+.feed-hidden span { color: var(--accent-ink); font-weight: 500; }
+.report { border-radius: 16px; background: var(--muted-surface); padding: 12px 14px; }
+.report .post-text { margin: 8px 0; }
+.report-why { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.report .sheet-actions { margin-top: 8px; }
+
 /* ---------- Nordic ----------
    Calm and airy, like a Scandinavian kitchen: linen page, white cards, pine green for buttons, ticks
    and the selected tab, charcoal ink, a muted terracotta for what needs attention, soft ochre stars.
