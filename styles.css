@@ -1933,3 +1933,81 @@ button.hm-cell { cursor: pointer; }
 .hour { background-image: var(--face); }
 /* The night greeting is dark even by day, so its rim light is dimmer. */
 .hero.night { --rim-lit: rgba(255, 255, 255, .14); --rim-shade: rgba(0, 0, 0, .2); }
+
+/* Hide and report on the Feed: the sheet's choices, the "hidden" line under the feed, and
+   reported posts on the Admin page. */
+.menu-list .row { cursor: pointer; }
+.menu-list .menu-text { flex: 1; min-width: 0; }
+.menu-list .row .btn { flex: none; }
+.report-reasons { margin: 12px 0 4px; }
+.feed-hidden { justify-self: center; display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--text-3); font-size: 14px; padding: 8px 12px; border-radius: 999px; }
+.feed-hidden span { color: var(--accent-ink); font-weight: 500; }
+.report { border-radius: 16px; background: var(--muted-surface); padding: 12px 14px; }
+.report .post-text { margin: 8px 0; }
+.report-why { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.report .sheet-actions { margin-top: 8px; }
+
+/* ---------- Nordic ----------
+   Calm and airy, like a Scandinavian kitchen: linen page, white cards, pine green for buttons, ticks
+   and the selected tab, charcoal ink, a muted terracotta for what needs attention, soft ochre stars.
+   No patterns behind the page and no glossy faces; panels keep their soft lift (#104).
+   Night is slate grey-blue, never black. Archivo stays (it covers Vietnamese), set lighter.
+   Everything for this look is in this block, after the older palette, so it wins on order.
+   The look before Nordic (rust brand, cream page, espresso ink, cocoa night, season tints, soft glows)
+   is everything above this block, untouched: delete from this comment to the end of the file to get it
+   back, along with the theme colours #F3E8D2 / #3A2A24 in index.html, manifest.webmanifest and app.js.
+   The whole app as it was then is saved on the branch theme-rust-2026-11. */
+:root[data-theme] {
+  --navy: #2E3438; --cream: #F3F0EA; --teal: #3E6A5D; --coral: #B0603D; --honey: #D3A04A;
+  --brand: var(--teal); --bg: var(--cream);
+  --card: #FFFFFF; --card-border: #E2DDD3; --muted-surface: #F1EEE8;
+  --text: var(--navy); --text-2: #535A5F; --text-3: #646B70;
+  --accent: var(--teal); --accent-ink: var(--teal); --ok: var(--teal); --on-accent: #fff;
+  --tab-ink: var(--teal); --tab-on: var(--cream);
+  --accent-soft: #DFE9E4;
+  --warn: #B9862F; --danger: var(--coral); --imp: var(--coral); --imp-bg: #F5E3D9; --imp-on: #fff;
+  --lens-fill: color-mix(in srgb, var(--accent) 12%, transparent); --lens-edge: color-mix(in srgb, var(--accent) 26%, transparent);
+  --amber-bg: #F6EEDD; --amber-icon: #EEDDB8; --amber-fg: #B9862F; --amber-ink: #7F5B17;
+  --blue-bg: #E6ECF0;  --blue-icon: #D3DEE5;  --blue-fg: #45657A;
+  --green-bg: #E5EEE9; --green-icon: #CFE0D7; --green-fg: #3E6A5D;
+  --purple-bg: #ECE8EF; --purple-icon: #DDD5E3; --purple-fg: #6A5A7C;
+  --rose-bg: #F4E6E1; --rose-icon: #EBD0C6; --rose-fg: #9B5034;
+  --lift: 40, 48, 52; /* shadows tinted charcoal */
+  --radius: 16px;
+  /* The greeting panel: soft sage by day, slate at night. */
+  --h-bg: #EEF0EC; --h-greet: var(--teal); --h-1: #DCE3DD; --h-2: #C3D0C7; --h-palm: rgba(46, 52, 56, .3);
+  --n-bg: #2C3A3E; --n-edge: #46585D; --n-ink: #EEF1F0; --n-greet: #E3C07A; --n-1: #34464A; --n-2: #24312F; --n-palm: rgba(10, 16, 18, .6);
+}
+:root[data-theme="dark"] {
+  --bg: #30373B; --card: #3A4247; --card-border: #56616A; --muted-surface: #434C52;
+  --text: #EEF1F0; --text-2: #D6DCDB; --text-3: #B9C1C1;
+  --accent: #8DC2B0; --accent-ink: #A9D6C6; --ok: #8DC2B0; --on-accent: #13241E; --badge-on: #13241E;
+  --tab-ink: var(--lens-fill); --tab-ink-edge: var(--lens-edge); --tab-on: var(--accent);
+  --lens-fill: color-mix(in srgb, var(--accent) 24%, transparent); --lens-edge: color-mix(in srgb, var(--accent) 45%, transparent);
+  --accent-soft: #3A5550;
+  --danger: #F0A27E; --imp: #F0A27E; --imp-on: #2A140A; --imp-bg: #5A4136;
+  --float: rgba(58, 66, 71, .55); --float-strong: rgba(58, 66, 71, .7);
+  --glass: rgba(58, 66, 71, .62);
+  --amber-bg: #4E4632; --amber-icon: #665B3C; --amber-fg: #E8C27A; --amber-ink: #EFCB86;
+  --blue-bg: #38485A;  --blue-icon: #485C72;  --blue-fg: #B4CCE0;
+  --green-bg: #344A43; --green-icon: #42604F; --green-fg: #9FD2BF;
+  --purple-bg: #45404F; --purple-icon: #575066; --purple-fg: #D3C3E6;
+  --rose-bg: #523C36; --rose-icon: #6A4C44; --rose-fg: #F2B39B;
+  --lift: 8, 12, 14;
+}
+body::before { background: none; }
+.card, .glance, .feed-page .post, .hour { background-image: none; }
+.card, .glance, .feed-page .post { background-color: var(--card); border-color: var(--card-border); }
+.card-head h2 { font-weight: 500; letter-spacing: -.01em; }
+.hero-greet .punch { font-weight: 500; }
+.hero-clock { font-weight: 300; letter-spacing: -.03em; }
+.glance b { font-weight: 500; }
+/* Doubled .hero so it wins over the season tints, which belonged to the old look. */
+:root[data-theme] .hero.hero { background: var(--h-bg); border-color: var(--card-border); color: var(--navy);
+  --greet: var(--h-greet); --hill-1: var(--h-1); --hill-2: var(--h-2); --palm: var(--h-palm); }
+:root[data-theme] .hero.hero.night { background: var(--n-bg); border-color: var(--n-edge); color: var(--n-ink);
+  --greet: var(--n-greet); --hill-1: var(--n-1); --hill-2: var(--n-2); --palm: var(--n-palm); --cloud: var(--n-2); }
+.hero.night .hero-people, .hero.night .hero-me { background: rgba(255, 255, 255, .14); }
+/* A plain soft-ochre sun, no glow or rays. */
+.sky-orb[data-kind="sun"] .body { background: #E8C27A; box-shadow: none; }
+.sky-orb .glow, .sky-orb .rays { display: none !important; }

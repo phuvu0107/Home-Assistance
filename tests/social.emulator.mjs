@@ -113,3 +113,36 @@ test('deleting an account: a group nobody else is in can be deleted', async () =
   await assertFails(deleteDoc(doc(db('bob'), 'groups/solo')));
   await assertSucceeds(deleteDoc(doc(db('ann'), 'groups/solo')));
 });
+
+test('reports: someone who sees a post can report it once; only admins read and close reports', async () => {
+  const boss = env.authenticatedContext('boss', { email: 'boss@example.com', email_verified: true }).firestore();
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'admin/access'), { emails: ['boss@example.com'] });
+    await setDoc(doc(ctx.firestore(), 'posts/0009rep'), { by: 'bob', name: 'Bob', seen: ['ann', 'bob'], text: 'rude', at: 1, likes: {} });
+  });
+  const report = (over = {}) => ({ by: 'ann', byName: 'Ann', post: '0009rep', postBy: 'bob', postName: 'Bob', text: 'rude', pics: 0, reason: 'mean', at: 1, home: 'h1', ...over });
+  // Not for someone who can't see the post, not as someone else, not under another id, not with extra fields.
+  await assertFails(setDoc(doc(db('cat'), 'reports/0009rep_cat'), report({ by: 'cat' })));
+  await assertFails(setDoc(doc(db('ann'), 'reports/0009rep_ann'), report({ by: 'bob' })));
+  await assertFails(setDoc(doc(db('ann'), 'reports/whatever'), report()));
+  await assertFails(setDoc(doc(db('ann'), 'reports/0009rep_ann'), report({ reason: 'bored' })));
+  await assertFails(setDoc(doc(db('ann'), 'reports/0009rep_ann'), report({ postBy: 'cat' })));
+  await assertFails(setDoc(doc(db('ann'), 'reports/0009rep_ann'), report({ photos: ['x'] })));
+  await assertSucceeds(setDoc(doc(db('ann'), 'reports/0009rep_ann'), report()));
+  // The writer can't see who reported them; the reporter sees only their own.
+  await assertFails(getDoc(doc(db('bob'), 'reports/0009rep_ann')));
+  await assertFails(getDocs(collection(db('bob'), 'reports')));
+  await assertSucceeds(getDocs(query(collection(db('ann'), 'reports'), where('by', '==', 'ann'))));
+  await assertFails(getDocs(collection(db('ann'), 'reports')));
+  await assertFails(updateDoc(doc(db('ann'), 'reports/0009rep_ann'), { reason: 'spam' }));
+  // Admins read every report, delete the post and close the report; nobody else deletes the post.
+  await assertSucceeds(getDocs(collection(boss, 'reports')));
+  await assertFails(deleteDoc(doc(db('ann'), 'posts/0009rep')));
+  await assertSucceeds(deleteDoc(doc(boss, 'posts/0009rep')));
+  await assertSucceeds(deleteDoc(doc(boss, 'reports/0009rep_ann')));
+});
+
+test('what someone hid lives on their own users doc, which nobody else can read', async () => {
+  await assertSucceeds(setDoc(doc(db('ann'), 'users/ann'), { hiddenPosts: ['p1'], mutedPeople: ['bob'] }, { merge: true }));
+  await assertFails(getDoc(doc(db('bob'), 'users/ann')));
+});
